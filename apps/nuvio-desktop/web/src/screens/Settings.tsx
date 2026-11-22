@@ -3,7 +3,10 @@
 // The original's other settings pages are listed under "Not available yet" (no controls).
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { AccountIcon, AddonsIcon, AudioIcon, HomeIcon, P2pIcon, PendingIcon, PlaybackIcon, ProfileDataIcon, SubtitlesIcon, UpdatesIcon } from "../components/NavIcons";
+import {
+  AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon,
+  PendingLine as PendingIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
+} from "../components/SidebarIcons";
 import { api, errorText } from "../api";
 import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";

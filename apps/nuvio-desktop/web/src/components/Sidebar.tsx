@@ -1,12 +1,12 @@
 // Side navigation: Início, TV, Buscar, Biblioteca; Configurações at the bottom above the profile.
-// Icons in the app icon's blue/cyan palette (`NavIcons.tsx`); the logo at the top is the app's own,
+// Line icons (`SidebarIcons.tsx`) in the app icon's palette; the logo at the top is the app's own,
 // centered on the same axis as the icons. The sync state is shown in Settings → Conta only.
 
 import type { ReactNode } from "react";
 import { t } from "../i18n";
 import type { ProfileInfo } from "../types";
 import { Avatar } from "./ProfileMenu";
-import { HomeIcon, LibraryIcon, SearchIcon, SettingsIcon, TvIcon } from "./NavIcons";
+import { HomeLine as HomeIcon, LibraryLine as LibraryIcon, SearchLine as SearchIcon, SettingsLine as SettingsIcon, TvLine as TvIcon } from "./SidebarIcons";
 
 export type Tab = "home" | "tv" | "search" | "library" | "settings";
 
