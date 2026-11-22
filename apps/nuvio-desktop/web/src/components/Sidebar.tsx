@@ -10,10 +10,10 @@ import { HomeIcon, LibraryIcon, SearchIcon, SettingsIcon, TvIcon } from "./NavIc
 export type Tab = "home" | "tv" | "search" | "library" | "settings";
 
 const ITEMS: { tab: Tab; label: string; icon: ReactNode }[] = [
-  { tab: "home", label: "Início", icon: <HomeIcon /> },
+  { tab: "home", label: "Home", icon: <HomeIcon /> },
   { tab: "tv", label: "TV", icon: <TvIcon /> },
-  { tab: "search", label: "Buscar", icon: <SearchIcon /> },
-  { tab: "library", label: "Biblioteca", icon: <LibraryIcon /> },
+  { tab: "search", label: "Search", icon: <SearchIcon /> },
+  { tab: "library", label: "Library", icon: <LibraryIcon /> },
 ];
 
 interface Props {
@@ -26,7 +26,7 @@ interface Props {
 
 export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
   return (
-    <nav className="sidebar" aria-label="Navegação principal">
+    <nav className="sidebar" aria-label="Main navigation">
       <div className="brand" title="Nuvio Astra">
         <img className="brand-logo" src="./nuvio-astra-128.png" alt="" draggable={false} />
         <span className="nav-label">Nuvio Astra</span>
@@ -54,15 +54,15 @@ export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
         aria-current={current === "settings" ? "page" : undefined}
         onClick={() => onSelect("settings")}
         data-tab="settings"
-        title="Configurações"
+        title="Settings"
       >
         <span className="nav-icon" aria-hidden>
           <SettingsIcon />
         </span>
-        <span className="nav-label">Configurações</span>
+        <span className="nav-label">Settings</span>
       </button>
       {profile && (
-        <button className="profile-chip" title={`${profile.name} · trocar de perfil`} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
+        <button className="profile-chip" title={`${profile.name} · switch profile`} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
           <span className="profile-ring"><Avatar profile={profile} /></span>
           <span className="nav-label">{profile.name}</span>
         </button>

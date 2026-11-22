@@ -178,11 +178,11 @@ macro_rules! api {
         impl Api {
             pub fn load(path: &Path) -> Result<Self, String> {
                 // SAFETY: loading the engine runs its DLL initialization, which has no preconditions.
-                let lib = unsafe { Library::new(path) }.map_err(|e| format!("não foi possível carregar o motor P2P ({}): {e}", path.display()))?;
+                let lib = unsafe { Library::new(path) }.map_err(|e| format!("could not load the P2P engine ({}): {e}", path.display()))?;
                 $(
                     // SAFETY: the symbol has this C signature in the engine's ABI (see module docs).
                     let $name = *unsafe { lib.get::<unsafe extern "C" fn($($arg),*) $(-> $ret)?>(concat!($sym, "\0").as_bytes()) }
-                        .map_err(|e| format!("motor P2P incompatível ({}): {e}", $sym))?;
+                        .map_err(|e| format!("incompatible P2P engine ({}): {e}", $sym))?;
                 )*
                 Ok(Self { _lib: lib, $($name,)* })
             }

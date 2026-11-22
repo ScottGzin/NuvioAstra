@@ -3,9 +3,9 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 
 const SOURCES = [
-  ["HLS — Apple bipbop (multi-áudio)", "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"],
-  ["MP4 — H.264 720p, áudio 5.1", "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4"],
-  ["MKV — Matroska test5 (multi-áudio, legendas)", "https://github.com/ietf-wg-cellar/matroska-test-files/raw/master/test_files/test5.mkv"],
+  ["HLS — Apple bipbop (multi-audio)", "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8"],
+  ["MP4 — H.264 720p, 5.1 audio", "https://archive.org/download/BigBuckBunny_124/Content/big_buck_bunny_720p_surround.mp4"],
+  ["MKV — Matroska test5 (multi-audio, subtitles)", "https://github.com/ietf-wg-cellar/matroska-test-files/raw/master/test_files/test5.mkv"],
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -42,7 +42,7 @@ async function play(start) {
     $("controls").hidden = false;
     syncRect();
   } catch (error) {
-    alert(`Falha ao abrir: ${error}`);
+    alert(`Failed to open: ${error}`);
   }
 }
 
@@ -70,7 +70,7 @@ function fillTracks(select, kind, selectedId) {
   if (select.dataset.key === key) return;
   select.dataset.key = key;
   select.replaceChildren();
-  const off = new Option(kind === "audio" ? "Sem áudio" : "Sem legenda", "no");
+  const off = new Option(kind === "audio" ? "No audio" : "No subtitles", "no");
   select.append(off);
   for (const t of tracks) {
     const label = [t.title, t.lang, t.codec].filter(Boolean).join(" · ") || `#${t.id}`;
@@ -88,13 +88,13 @@ listen("player-state", ({ payload }) => {
   fillTracks($("audio"), "audio", state.aid);
   fillTracks($("subs"), "sub", state.sid);
   const stats = {
-    Decodificação: state.hwdecCurrent || "software",
+    Decoding: state.hwdecCurrent || "software",
     Codec: state.videoCodec || "—",
-    Resolução: state.width ? `${state.width}×${state.height}` : "—",
+    Resolution: state.width ? `${state.width}×${state.height}` : "—",
     FPS: state.fps ? state.fps.toFixed(2) : "—",
-    "Quadros perdidos": `${state.droppedFrames} / ${state.decoderDroppedFrames}`,
+    "Dropped frames": `${state.droppedFrames} / ${state.decoderDroppedFrames}`,
     Cache: `${state.cacheSeconds.toFixed(1)} s`,
-    Estado: state.error ? `erro: ${state.error}` : state.buffering ? "carregando" : state.ended ? "fim" : state.paused ? "pausado" : "reproduzindo",
+    State: state.error ? `error: ${state.error}` : state.buffering ? "loading" : state.ended ? "ended" : state.paused ? "paused" : "playing",
   };
   $("stats").replaceChildren(...Object.entries(stats).flatMap(([k, v]) => {
     const dt = document.createElement("dt"); dt.textContent = k;
@@ -161,7 +161,7 @@ $("addonForm").onsubmit = async (event) => {
   const id = $("addonId").value.trim();
   if (!id) return;
   const box = $("addonStreams");
-  box.textContent = "Buscando…";
+  box.textContent = "Searching…";
   try {
     const groups = await invoke("streams_search", { contentType: $("addonType").value, id, profile: null });
     box.replaceChildren();
@@ -171,16 +171,16 @@ $("addonForm").onsubmit = async (event) => {
       box.append(title);
       for (const stream of group.streams) {
         const b = document.createElement("button");
-        const headers = stream.headerNames.length ? ` · cabeçalhos: ${stream.headerNames.join(", ")}` : "";
+        const headers = stream.headerNames.length ? ` · headers: ${stream.headerNames.join(", ")}` : "";
         b.textContent = `${stream.name || "Stream"} — ${stream.description || ""} [${stream.kind}]${headers}`;
         b.disabled = stream.kind !== "direct";
         b.onclick = () => play(() => invoke("stream_play", { key: stream.key, startSeconds: null }));
         box.append(b);
       }
     }
-    if (!groups.length) box.textContent = "Nenhum addon fornece streams para este título.";
+    if (!groups.length) box.textContent = "No addon provides streams for this title.";
   } catch (error) {
-    box.textContent = `Falha: ${error}`;
+    box.textContent = `Failed: ${error}`;
   }
 };
 

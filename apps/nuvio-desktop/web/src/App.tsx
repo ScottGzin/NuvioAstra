@@ -80,7 +80,7 @@ export function App() {
         if (player.session) await player.close();
         setProfiles(await api.profileSwitch(index));
       } catch (e) {
-        setOpenError(`Não foi possível trocar de perfil: ${errorText(e)}`);
+        setOpenError(`Could not switch profile: ${errorText(e)}`);
       } finally {
         setSwitching(null);
       }
@@ -103,7 +103,7 @@ export function App() {
   const open = useCallback((item: MetaPreview) => {
     const ref = metaRef(item);
     if (typeof ref === "string") {
-      setOpenError(`Não foi possível abrir “${item.name}”: ${ref}.`);
+      setOpenError(`Could not open “${item.name}”: ${ref}.`);
       return;
     }
     setOpenError(null);
@@ -147,14 +147,14 @@ export function App() {
         )}
         {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
         {switching !== null && (
-          <div className="switching" role="status" data-testid="profile-switching">Trocando para {switching || "outro perfil"}…</div>
+          <div className="switching" role="status" data-testid="profile-switching">Switching to {switching || "another profile"}…</div>
         )}
         <main className="content">
           <UpdateBanner automatic={appMode === "app"} />
-          {bootError && <div className="banner error">Não foi possível ler os dados do Nuvio Astra: {bootError}</div>}
+          {bootError && <div className="banner error">Could not read the Nuvio Astra data: {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
           {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{boot.addonsFailed} de {boot.addonsEnabled} addon(s) não responderam; os demais estão disponíveis.</div>
+            <div className="banner">{boot.addonsFailed} of {boot.addonsEnabled} addon(s) did not respond; the rest are available.</div>
           )}
           <div className="screen" hidden={details !== null || tab !== "home"}><Home key={dataKey} onOpen={open} onResume={resume} /></div>
           {tab === "search" && <div className="screen" hidden={details !== null}><Search key={dataKey} onOpen={open} /></div>}

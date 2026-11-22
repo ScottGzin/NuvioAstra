@@ -37,7 +37,7 @@ export function AddonPicker({ options, selected, onChange }: Props) {
   const all = names.length > 0 && checked.length === names.length;
   const none = checked.length === 0;
 
-  const label = all ? "Todos os addons" : none ? "Nenhum addon" : checked.length === 1 ? checked[0] : `${checked.length} addons`;
+  const label = all ? "All addons" : none ? "No addon" : checked.length === 1 ? checked[0] : `${checked.length} addons`;
 
   const toggleAll = () => onChange(all ? [] : null);
   const toggle = (name: string) => {
@@ -62,11 +62,11 @@ export function AddonPicker({ options, selected, onChange }: Props) {
       </button>
       {open && (
         <div className="addon-picker-menu" role="listbox" aria-multiselectable="true">
-          <div className="addon-picker-title">Addons de canais</div>
+          <div className="addon-picker-title">Channel addons</div>
           <label className={`addon-picker-option ${all ? "on" : ""}`}>
             <input type="checkbox" checked={all} onChange={toggleAll} />
             <span className="addon-check" aria-hidden />
-            <span className="addon-picker-name">Todos</span>
+            <span className="addon-picker-name">All</span>
             <span className="count">{options.reduce((n, [, c]) => n + c, 0)}</span>
           </label>
           {options.map(([name, count]) => {

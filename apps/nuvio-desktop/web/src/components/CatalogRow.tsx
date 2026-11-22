@@ -64,15 +64,15 @@ export function CatalogRow({ row, onOpen, onLoaded }: Props) {
         <span className="spacer" />
         {items && (
           <>
-            <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-            <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+            <button className="icon-btn" aria-label="Previous" onClick={() => scrollBy(-1)}>‹</button>
+            <button className="icon-btn" aria-label="Next" onClick={() => scrollBy(1)}>›</button>
           </>
         )}
       </header>
       {error ? (
         <div className="row-error">
-          Não foi possível carregar este catálogo ({error}).{" "}
-          <button className="link" onClick={() => { setError(null); }}>Tentar novamente</button>
+          Could not load this catalog ({error}).{" "}
+          <button className="link" onClick={() => { setError(null); }}>Try again</button>
         </div>
       ) : (
         <div className="row-track" ref={track} onScroll={onScroll}>

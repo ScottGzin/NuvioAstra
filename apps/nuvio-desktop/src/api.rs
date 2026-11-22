@@ -208,7 +208,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
         .find(|p| p.index == loaded.profile)
         .unwrap_or(addons::ProfileInfo {
             index: loaded.profile,
-            name: format!("Perfil {}", loaded.profile),
+            name: format!("Profile {}", loaded.profile),
             avatar_id: None,
             avatar_color_hex: nuvio_store::profiles::PROFILE_COLORS[0].into(),
             uses_primary_addons: false,

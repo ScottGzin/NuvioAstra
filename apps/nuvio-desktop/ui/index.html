@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,42 +9,42 @@
 <body>
   <aside id="side">
     <h1>Nuvio NextGen</h1>
-    <p class="muted">Teste do player embutido (libmpv + WebView2)</p>
+    <p class="muted">Embedded player test (libmpv + WebView2)</p>
     <div id="sources"></div>
     <form id="custom">
-      <input id="customUrl" type="url" placeholder="URL de stream (HLS, MP4, MKV…)" />
-      <button type="submit">Abrir</button>
+      <input id="customUrl" type="url" placeholder="Stream URL (HLS, MP4, MKV…)" />
+      <button type="submit">Open</button>
     </form>
-    <h2>Streams de addons</h2>
+    <h2>Addon streams</h2>
     <form id="addonForm">
-      <select id="addonType" aria-label="Tipo"><option value="tv">tv</option><option value="movie">movie</option><option value="series">series</option></select>
-      <input id="addonId" placeholder="ID do título (ex.: tt0111161)" />
-      <button type="submit">Buscar</button>
+      <select id="addonType" aria-label="Type"><option value="tv">tv</option><option value="movie">movie</option><option value="series">series</option></select>
+      <input id="addonId" placeholder="Title ID (e.g. tt0111161)" />
+      <button type="submit">Search</button>
     </form>
     <div id="addonStreams" class="muted"></div>
     <dl id="stats"></dl>
   </aside>
 
   <!-- Transparent hole: mpv's window below shows through here. -->
-  <section id="video" aria-label="Vídeo">
-    <div id="placeholder">Escolha uma mídia para reproduzir</div>
+  <section id="video" aria-label="Video">
+    <div id="placeholder">Choose media to play</div>
     <div id="badge" hidden></div>
     <div id="controls" hidden>
-      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Posição" />
+      <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Position" />
       <div class="row">
-        <button id="play" aria-label="Reproduzir/pausar">⏯</button>
+        <button id="play" aria-label="Play/pause">⏯</button>
         <span id="time">0:00 / 0:00</span>
         <span class="spacer"></span>
         <label>🔊 <input id="volume" type="range" min="0" max="200" value="100" aria-label="Volume" /></label>
-        <select id="audio" aria-label="Faixa de áudio"></select>
-        <select id="subs" aria-label="Legenda"></select>
-        <select id="speed" aria-label="Velocidade"><option>0.25</option><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option><option>4</option></select>
-        <select id="mode" aria-label="Modo de imagem"><option value="fit">Fit</option><option value="fill">Fill</option><option value="zoom">Zoom</option><option value="stretch">Stretch</option></select>
-        <button id="subDelayMinus" title="Legenda −250 ms">L−</button><button id="subDelayPlus" title="Legenda +250 ms">L+</button>
-        <button id="audioDelayMinus" title="Áudio −25 ms">A−</button><button id="audioDelayPlus" title="Áudio +25 ms">A+</button>
+        <select id="audio" aria-label="Audio track"></select>
+        <select id="subs" aria-label="Subtitle"></select>
+        <select id="speed" aria-label="Speed"><option>0.25</option><option>0.5</option><option>0.75</option><option selected>1</option><option>1.25</option><option>1.5</option><option>2</option><option>4</option></select>
+        <select id="mode" aria-label="Resize mode"><option value="fit">Fit</option><option value="fill">Fill</option><option value="zoom">Zoom</option><option value="stretch">Stretch</option></select>
+        <button id="subDelayMinus" title="Subtitle −250 ms">S−</button><button id="subDelayPlus" title="Subtitle +250 ms">S+</button>
+        <button id="audioDelayMinus" title="Audio −25 ms">A−</button><button id="audioDelayPlus" title="Audio +25 ms">A+</button>
         <button id="pip" aria-label="Picture-in-picture">⧉</button>
-        <button id="fs" aria-label="Tela cheia">⛶</button>
-        <button id="close" aria-label="Fechar">✕</button>
+        <button id="fs" aria-label="Fullscreen">⛶</button>
+        <button id="close" aria-label="Close">✕</button>
       </div>
     </div>
   </section>

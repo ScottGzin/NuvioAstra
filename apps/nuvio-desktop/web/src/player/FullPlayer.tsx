@@ -71,7 +71,7 @@ export function FullPlayer() {
   return (
     <div className={`full-player ${visible ? "" : "chrome-hidden"}`} onMouseMove={poke}>
       <div className="full-player-top">
-        <button className="back" onClick={() => void leave()} aria-label="Voltar">←</button>
+        <button className="back" onClick={() => void leave()} aria-label="Back">←</button>
         <div>
           <div className="full-player-title">{session?.title}</div>
           {session?.subtitle && <div className="muted">{session.subtitle}</div>}

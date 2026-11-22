@@ -19,7 +19,7 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
   const left = remaining(entry);
   return (
     <div className="cw-wrap">
-      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={`Continuar ${entry.title}`}>
+      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={`Resume ${entry.title}`}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
@@ -32,12 +32,12 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
           {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("")}
         </div>
         <div className="card-sub">
-          {[entry.positionMs > 0 && `${clock(entry.positionMs)} assistidos`, left].filter(Boolean).join(" · ")}
+          {[entry.positionMs > 0 && `${clock(entry.positionMs)} watched`, left].filter(Boolean).join(" · ")}
         </div>
         <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>
       {onRemove && (
-        <button className="fav-btn icon" aria-label={`Remover ${entry.title} de Continuar assistindo`} title="Remover" data-testid="cw-remove" onClick={() => onRemove(entry)}>
+        <button className="fav-btn icon" aria-label={`Remove ${entry.title} from Continue watching`} title="Remove" data-testid="cw-remove" onClick={() => onRemove(entry)}>
           ✕
         </button>
       )}
@@ -60,7 +60,7 @@ export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry
   return (
     <section className="row-section" data-testid="home-continue">
       <header className="row-header">
-        <h2>Continuar assistindo</h2>
+        <h2>Continue watching</h2>
       </header>
       <div className="row-track">
         {items.map((e) => (

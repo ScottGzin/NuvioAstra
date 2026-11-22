@@ -168,5 +168,5 @@ async function changed<T>(reason: "profile" | "addons", call: Promise<T>): Promi
 }
 
 export function errorText(error: unknown): string {
-  return typeof error === "string" ? error : error instanceof Error ? error.message : "erro desconhecido";
+  return typeof error === "string" ? error : error instanceof Error ? error.message : "unknown error";
 }

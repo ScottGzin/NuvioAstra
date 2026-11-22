@@ -19,7 +19,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub const NEEDS_CONSENT: &str = "P2P_CONSENT_REQUIRED";
 
 pub fn engine_dll() -> Result<PathBuf, String> {
-    nuvio_p2p::locate_engine().ok_or_else(|| "O motor P2P (nuvio_engine.dll) não está instalado com esta versão.".to_string())
+    nuvio_p2p::locate_engine().ok_or_else(|| "The P2P engine (nuvio_engine.dll) is not installed with this version.".to_string())
 }
 
 /// Engine folders: state with the app data, the (large) piece cache in the local, non-roaming
@@ -52,7 +52,7 @@ pub fn request_for(stream: &StreamItem) -> Result<StreamRequest, String> {
         .clone()
         .filter(|h| !h.trim().is_empty())
         .or_else(|| magnet.and_then(nuvio_p2p::info_hash_from_magnet))
-        .ok_or("Esta fonte torrent não informa o hash do torrent.")?;
+        .ok_or("This torrent source does not provide the torrent hash.")?;
     let mut trackers: Vec<String> = stream
         .sources
         .iter()
@@ -134,7 +134,7 @@ pub fn p2p_cache_size(state: State<'_, AppState>) -> u64 {
 pub fn prepared_url(state: &AppState, key: &str) -> Result<String, String> {
     match state.p2p_prepared.lock().expect("p2p prepared").as_ref() {
         Some((k, p)) if k == key && state.p2p.is_active() => Ok(p.url.clone()),
-        _ => Err("A fonte torrent não está pronta (inicie novamente).".into()),
+        _ => Err("The torrent source is not ready (start again).".into()),
     }
 }
 

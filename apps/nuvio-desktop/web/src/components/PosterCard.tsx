@@ -5,14 +5,14 @@ import { FavoriteButton } from "./FavoriteButton";
 interface Props {
   item: MetaPreview;
   onOpen(item: MetaPreview): void;
-  /** Shows "Filme"/"Série" on the art (Library grid). */
+  /** Shows "Movie"/"Series" on the art (Library grid). */
   showType?: boolean;
 }
 
 export function typeLabel(contentType: string): string {
   const t = contentType.toLowerCase();
-  if (t === "movie") return "Filme";
-  if (t === "series" || t === "tv" || t === "show") return "Série";
+  if (t === "movie") return "Movie";
+  if (t === "series" || t === "tv" || t === "show") return "Series";
   if (t === "anime") return "Anime";
   return contentType;
 }

@@ -206,13 +206,13 @@ pub async fn fetch_manifest(client: &AddonClient, url: &str, force: bool) -> Res
 
     fn describe(e: &CoreError) -> String {
         match e {
-            CoreError::MissingField(field) => format!("Campo ausente no manifesto: \"{field}\""),
-            CoreError::Json(_) | CoreError::InvalidPayload(_) => "A resposta não é um manifesto de addon válido.".into(),
-            CoreError::HttpStatus { status } => format!("O endereço respondeu com erro HTTP {status}."),
+            CoreError::MissingField(field) => format!("Missing field in the manifest: \"{field}\""),
+            CoreError::Json(_) | CoreError::InvalidPayload(_) => "The response is not a valid addon manifest.".into(),
+            CoreError::HttpStatus { status } => format!("The address returned an HTTP {status} error."),
             CoreError::Network { kind } => match kind {
-                nuvio_core::error::NetworkErrorKind::Timeout => "Tempo esgotado ao carregar o manifesto.".into(),
-                nuvio_core::error::NetworkErrorKind::Connect => "Não foi possível conectar ao endereço do addon.".into(),
-                _ => "Não foi possível carregar o manifesto.".into(),
+                nuvio_core::error::NetworkErrorKind::Timeout => "Timed out while loading the manifest.".into(),
+                nuvio_core::error::NetworkErrorKind::Connect => "Could not connect to the addon address.".into(),
+                _ => "Could not load the manifest.".into(),
             },
         }
     }
@@ -226,10 +226,10 @@ pub fn addon_instance_id(manifest: &AddonManifest) -> String {
 /// `localizedMediaTypeLabel` (pt-BR strings of the original).
 pub fn media_type_label(content_type: &str) -> String {
     match content_type.trim().to_lowercase().as_str() {
-        "movie" => "Filmes".into(),
-        "series" => "Séries".into(),
+        "movie" => "Movies".into(),
+        "series" => "Series".into(),
         "anime" => "Anime".into(),
-        "channel" => "Canais".into(),
+        "channel" => "Channels".into(),
         "tv" => "TV".into(),
         _ => {
             let mut chars = content_type.chars();

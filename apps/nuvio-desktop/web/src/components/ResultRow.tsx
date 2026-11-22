@@ -21,8 +21,8 @@ export function ResultRow({ title, addonName, items, onOpen }: Props) {
         <h2>{title}</h2>
         <span className="muted small">{addonName}</span>
         <span className="spacer" />
-        <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-        <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+        <button className="icon-btn" aria-label="Previous" onClick={() => scrollBy(-1)}>‹</button>
+        <button className="icon-btn" aria-label="Next" onClick={() => scrollBy(1)}>›</button>
       </header>
       <div className="row-track" ref={track}>
         {items.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)}

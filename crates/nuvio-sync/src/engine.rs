@@ -37,7 +37,7 @@ pub struct Report {
     pub changed: Vec<String>,
 }
 
-const OTHER_ACCOUNT: &str = "Os dados deste computador vieram de outra conta Nuvio. Ao confirmar, eles serão mesclados com esta conta: nada é apagado, os itens dos dois lados são mantidos.";
+const OTHER_ACCOUNT: &str = "The data on this computer came from another Nuvio account. When you confirm, it will be merged with this account: nothing is deleted, and items from both sides are kept.";
 
 /// One kind of data on both sides, by key.
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -139,17 +139,17 @@ pub struct Status {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum AccountError {
-    #[error("A conta Nuvio não está configurada nesta versão do Nuvio Astra.")]
+    #[error("Nuvio accounts are not configured in this version of Nuvio Astra.")]
     NotConfigured,
-    #[error("Entre na sua conta Nuvio para usar este recurso.")]
+    #[error("Sign in to your Nuvio account to use this feature.")]
     SignedOut,
-    #[error("Uma sincronização já está em andamento.")]
+    #[error("A sync is already in progress.")]
     Busy,
-    #[error("Revise a prévia da primeira sincronização e confirme para começar.")]
+    #[error("Review the first sync preview and confirm to start.")]
     NeedsReview,
     #[error("{0}")]
     Remote(#[from] RemoteError),
-    #[error("Erro ao gravar os dados locais: {0}")]
+    #[error("Error saving local data: {0}")]
     Store(String),
 }
 
@@ -390,7 +390,7 @@ impl Engine {
                 self.set_status(|s| {
                     s.signed_in = false;
                     s.state = "expired".into();
-                    s.last_error = Some("Sua sessão expirou. Entre novamente; nada do que está neste computador foi apagado.".into());
+                    s.last_error = Some("Your session has expired. Sign in again; nothing on this computer has been deleted.".into());
                 });
                 Err(AccountError::SignedOut)
             }
@@ -493,7 +493,7 @@ impl Engine {
                 let failed = report.failed.clone();
                 self.set_status(|s| {
                     s.state = if failed.is_empty() { "idle" } else { "error" }.into();
-                    s.last_error = (!failed.is_empty()).then(|| format!("Não sincronizado: {}", failed.join("; ")));
+                    s.last_error = (!failed.is_empty()).then(|| format!("Not synced: {}", failed.join("; ")));
                     s.last_report = Some(report.clone());
                 });
                 Ok(report)
@@ -506,7 +506,7 @@ impl Engine {
                     if s.signed_in {
                         s.state = if offline { "offline" } else { "error" }.into();
                     }
-                    s.last_error = Some(if offline { "Sem conexão. As alterações ficam guardadas e serão enviadas quando a conexão voltar.".into() } else { e.to_string() });
+                    s.last_error = Some(if offline { "No connection. Changes are saved and will be sent when the connection is restored.".into() } else { e.to_string() });
                 });
                 Err(e)
             }
@@ -968,7 +968,7 @@ impl Engine {
                         let _ = self.remember_pin(index, pin);
                         return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
                     }
-                    let message = if retry > 0 { format!("Bloqueado. Tente novamente em {retry}s") } else { row.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| "PIN incorreto".into()) };
+                    let message = if retry > 0 { format!("Locked. Try again in {retry}s") } else { row.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| "Incorrect PIN".into()) };
                     return PinResult { unlocked: false, retry_after_seconds: retry, message: Some(message) };
                 }
                 Err(AccountError::Remote(RemoteError::Offline)) | Err(AccountError::SignedOut) => {}
@@ -985,31 +985,31 @@ impl Engine {
         }
         let profile = profile.expect("checked");
         let Some(cached) = self.pin_cache().get(&index).cloned() else {
-            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("Este PIN ainda não pode ser verificado offline neste dispositivo. Conecte-se uma vez e desbloqueie online primeiro.".into()) };
+            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("This PIN cannot yet be verified offline on this device. Connect and unlock online first.".into()) };
         };
         if !cached.profile_updated_at.is_empty() && profile.updated_at.as_deref().is_some_and(|u| !u.is_empty() && u != cached.profile_updated_at) {
             let mut cache = self.pin_cache();
             cache.remove(&index);
             let _ = self.save_pin_cache(&cache);
-            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("O PIN deste perfil mudou. Conecte-se uma vez para atualizar o bloqueio neste dispositivo.".into()) };
+            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("This profile’s PIN has changed. Connect once to update the lock on this device.".into()) };
         }
         if crypto::sha256_hex(&format!("profile:{index}:{}:{pin}", cached.salt)) == cached.digest {
             PinResult { unlocked: true, retry_after_seconds: 0, message: None }
         } else {
-            PinResult { unlocked: false, retry_after_seconds: 0, message: Some("PIN incorreto".into()) }
+            PinResult { unlocked: false, retry_after_seconds: 0, message: Some("Incorrect PIN".into()) }
         }
     }
 
     /// `setPin`: needs the account (`set_profile_pin`); `current_pin` when changing an existing one.
     pub async fn set_pin(&self, index: i64, pin: &str, current_pin: Option<&str>) -> Result<(), AccountError> {
         if !is_pin(pin) {
-            return Err(AccountError::Store("O PIN deve ter 4 dígitos.".into()));
+            return Err(AccountError::Store("The PIN must have 4 digits.".into()));
         }
         let mut params = json!({ "p_profile_id": index, "p_pin": pin });
         if let Some(c) = current_pin {
             params["p_current_pin"] = json!(c);
         }
-        self.call("set_profile_pin", params).await.map_err(require_online("Conecte-se à internet para definir o bloqueio por PIN."))?;
+        self.call("set_profile_pin", params).await.map_err(require_online("Connect to the internet to set up the PIN lock."))?;
         self.st().set_profile_pin_state(index, true)?;
         self.remember_pin(index, pin)?;
         Ok(())
@@ -1021,7 +1021,7 @@ impl Engine {
         if let Some(c) = current_pin {
             params["p_current_pin"] = json!(c);
         }
-        self.call("clear_profile_pin", params).await.map_err(require_online("Conecte-se à internet para remover o bloqueio por PIN."))?;
+        self.call("clear_profile_pin", params).await.map_err(require_online("Connect to the internet to remove the PIN lock."))?;
         self.st().set_profile_pin_state(index, false)?;
         let mut cache = self.pin_cache();
         cache.remove(&index);

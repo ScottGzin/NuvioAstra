@@ -14,7 +14,7 @@ interface Props {
 export const FavoriteButton = memo(function FavoriteButton({ item, variant = "icon" }: Props) {
   const on = useIsFavorite(item.contentType, item.id);
   const [failed, setFailed] = useState(false);
-  const label = on ? "Remover da Biblioteca" : "Salvar na Biblioteca";
+  const label = on ? "Remove from Library" : "Save to Library";
   const click = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -27,12 +27,12 @@ export const FavoriteButton = memo(function FavoriteButton({ item, variant = "ic
       className={`fav-btn ${variant} ${on ? "on" : ""} ${failed ? "failed" : ""}`}
       aria-pressed={on}
       aria-label={label}
-      title={failed ? "Não foi possível salvar. Tente de novo." : label}
+      title={failed ? "Could not save. Try again." : label}
       data-testid="favorite"
       onClick={click}
     >
       <span aria-hidden>{on ? "♥" : "♡"}</span>
-      {variant === "pill" && <span>{on ? "Na Biblioteca" : "Salvar"}</span>}
+      {variant === "pill" && <span>{on ? "In Library" : "Save"}</span>}
     </button>
   );
 });

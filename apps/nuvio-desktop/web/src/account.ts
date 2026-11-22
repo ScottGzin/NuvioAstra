@@ -55,20 +55,20 @@ export function useAvatars(): AvatarItem[] {
 
 export function syncLabel(s: AccountStatus): { text: string; tone: "ok" | "busy" | "warn" | "off" | "error" } {
   switch (s.state) {
-    case "syncing": return { text: "Sincronizando…", tone: "busy" };
-    case "pending": return { text: `${s.pending} alteração(ões) aguardando envio`, tone: "warn" };
-    case "offline": return { text: "Sem conexão — alterações guardadas para enviar depois", tone: "off" };
-    case "error": return { text: "Erro de sincronização", tone: "error" };
-    case "needsReview": return { text: "Revise a primeira sincronização", tone: "warn" };
-    case "expired": return { text: "Sessão expirada", tone: "error" };
-    case "signedOut": return { text: "Desconectado", tone: "off" };
-    case "notConfigured": return { text: "Conta indisponível nesta versão", tone: "off" };
-    default: return { text: "Sincronizado", tone: "ok" };
+    case "syncing": return { text: "Syncing…", tone: "busy" };
+    case "pending": return { text: `${s.pending} change(s) waiting to be sent`, tone: "warn" };
+    case "offline": return { text: "No connection — changes stored to send later", tone: "off" };
+    case "error": return { text: "Sync error", tone: "error" };
+    case "needsReview": return { text: "Review the first sync", tone: "warn" };
+    case "expired": return { text: "Session expired", tone: "error" };
+    case "signedOut": return { text: "Signed out", tone: "off" };
+    case "notConfigured": return { text: "Account unavailable in this version", tone: "off" };
+    default: return { text: "Synced", tone: "ok" };
   }
 }
 
 export function when(epochMs: number): string {
-  if (!epochMs) return "nunca";
+  if (!epochMs) return "never";
   const d = new Date(epochMs);
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString("en-US", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }

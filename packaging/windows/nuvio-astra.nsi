@@ -23,11 +23,11 @@ Unicode true
 
 !define APPNAME "Nuvio Astra"
 !define EXENAME "Nuvio Astra.exe"
-!define UNINSTNAME "Desinstalar Nuvio Astra.exe"
+!define UNINSTNAME "Uninstall Nuvio Astra.exe"
 !define UNINSTKEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\NuvioAstra"
 
 Name "${APPNAME}"
-Caption "Instalação do ${APPNAME}"
+Caption "${APPNAME} Setup"
 OutFile "${OUTFILE}"
 InstallDir "$LOCALAPPDATA\Programs\${APPNAME}"
 InstallDirRegKey HKCU "Software\${APPNAME}" "InstallDir"
@@ -43,7 +43,7 @@ Var Relaunch
 !define MUI_UNICON "${SRCDIR}\nuvio-astra.ico"
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${EXENAME}"
-!define MUI_FINISHPAGE_RUN_TEXT "Abrir o ${APPNAME}"
+!define MUI_FINISHPAGE_RUN_TEXT "Open ${APPNAME}"
 
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipWhenPassive
 !insertmacro MUI_PAGE_DIRECTORY
@@ -52,15 +52,15 @@ Var Relaunch
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_LANGUAGE "PortugueseBR"
+!insertmacro MUI_LANGUAGE "English"
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "ProductName" "${APPNAME}"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileDescription" "Instalador do ${APPNAME}"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "CompanyName" "${APPNAME}"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "FileVersion" "${VERSION}"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "ProductVersion" "${VERSION}"
-VIAddVersionKey /LANG=${LANG_PORTUGUESEBR} "LegalCopyright" "GPL-3.0"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "${APPNAME}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "${APPNAME} Installer"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "${APPNAME}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${VERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${VERSION}"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "GPL-3.0"
 
 Function .onInit
   StrCpy $Passive 0
