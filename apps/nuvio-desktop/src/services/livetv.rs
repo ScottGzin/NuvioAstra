@@ -11,7 +11,7 @@ use nuvio_core::manifest::AddonManifest;
 use serde::Serialize;
 
 pub const MAX_PAGES_PER_CATALOG: usize = 5;
-pub const FALLBACK_CATEGORY: &str = "Outros";
+pub const FALLBACK_CATEGORY: &str = "Other";
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -158,7 +158,7 @@ mod tests {
         assert_eq!(merged.len(), 3);
         assert_eq!(merged[0].genres, vec!["News", "Sports"]);
         let cats = categories(&merged);
-        assert_eq!(cats.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), vec!["Anime", "News", "Sports", "Outros"]);
+        assert_eq!(cats.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), vec!["Anime", "News", "Sports", "Other"]);
     }
 
     #[test]

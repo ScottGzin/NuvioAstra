@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { megabytes, speed } from "../components/TorrentStart";
 import { listen } from "../tauri";
+import { t } from "../i18n";
 import type { P2pStatus } from "../types";
 
 export function P2pStats() {
@@ -20,7 +21,7 @@ export function P2pStats() {
 
   if (!status) return null;
   if (status.state === "error") {
-    return <div className="p2p-stats error" role="alert" data-testid="p2p-stats">P2P: {status.error ?? "erro no torrent"}</div>;
+    return <div className="p2p-stats error" role="alert" data-testid="p2p-stats">{t("P2P: {error}", { error: status.error ?? t("torrent error") })}</div>;
   }
   if (status.state !== "streaming" || hidden) return null;
   return (

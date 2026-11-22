@@ -9,7 +9,7 @@ use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub async fn trailer_play(app: AppHandle, state: State<'_, AppState>, key: String) -> Result<PlayerInfo, String> {
-    let id = nuvio_core::youtube::video_id(&key).ok_or("Endereço de trailer inválido.")?;
+    let id = nuvio_core::youtube::video_id(&key).ok_or("Invalid trailer address.")?;
     let source = state.youtube.resolve(&id).await?;
     eprintln!("[trailer] {} {}p{}", source.mode, source.height, if source.audio_url.is_some() { " + áudio separado" } else { "" });
     let profile = state.active_profile();

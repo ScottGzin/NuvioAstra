@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { t } from "../i18n";
 import { usePlayer } from "./PlayerContext";
 import { P2pStats } from "./P2pStats";
 import { PlayerControls } from "./PlayerControls";
@@ -71,7 +72,7 @@ export function FullPlayer() {
   return (
     <div className={`full-player ${visible ? "" : "chrome-hidden"}`} onMouseMove={poke}>
       <div className="full-player-top">
-        <button className="back" onClick={() => void leave()} aria-label="Voltar">←</button>
+        <button className="back" onClick={() => void leave()} aria-label={t("Back")}>←</button>
         <div>
           <div className="full-player-title">{session?.title}</div>
           {session?.subtitle && <div className="muted">{session.subtitle}</div>}

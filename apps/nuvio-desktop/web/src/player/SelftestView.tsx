@@ -5,6 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { listen } from "../tauri";
+import { t } from "../i18n";
 import type { PlayerSnapshot } from "../types";
 import { PlayerControls } from "./PlayerControls";
 
@@ -35,7 +36,7 @@ export function SelftestView() {
       {rect && (
         <aside className="selftest-side">
           <div className="brand">Nuvio Astra</div>
-          <p className="muted">Autoteste do player (libmpv + WebView2)</p>
+          <p className="muted">{t("Player self-test (libmpv + WebView2)")}</p>
         </aside>
       )}
       <div className="hole selftest-hole" style={style}>

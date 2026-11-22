@@ -1,3 +1,4 @@
+import { locale, t } from "./i18n";
 // Shared account state for every screen: the status Rust sends (`sync-status` event) and the avatar
 // catalog of the account (loaded once). What the account changed on this computer
 // (`sync-applied`) reloads the affected data through the data epoch, like a local change.
@@ -55,20 +56,20 @@ export function useAvatars(): AvatarItem[] {
 
 export function syncLabel(s: AccountStatus): { text: string; tone: "ok" | "busy" | "warn" | "off" | "error" } {
   switch (s.state) {
-    case "syncing": return { text: "Sincronizando…", tone: "busy" };
-    case "pending": return { text: `${s.pending} alteração(ões) aguardando envio`, tone: "warn" };
-    case "offline": return { text: "Sem conexão — alterações guardadas para enviar depois", tone: "off" };
-    case "error": return { text: "Erro de sincronização", tone: "error" };
-    case "needsReview": return { text: "Revise a primeira sincronização", tone: "warn" };
-    case "expired": return { text: "Sessão expirada", tone: "error" };
-    case "signedOut": return { text: "Desconectado", tone: "off" };
-    case "notConfigured": return { text: "Conta indisponível nesta versão", tone: "off" };
-    default: return { text: "Sincronizado", tone: "ok" };
+    case "syncing": return { text: t("Syncing…"), tone: "busy" };
+    case "pending": return { text: t("{n} change(s) waiting to be sent", { n: s.pending }), tone: "warn" };
+    case "offline": return { text: t("No connection — changes stored to send later"), tone: "off" };
+    case "error": return { text: t("Sync error"), tone: "error" };
+    case "needsReview": return { text: t("Review the first sync"), tone: "warn" };
+    case "expired": return { text: t("Session expired"), tone: "error" };
+    case "signedOut": return { text: t("Signed out"), tone: "off" };
+    case "notConfigured": return { text: t("Account unavailable in this version"), tone: "off" };
+    default: return { text: t("Synced"), tone: "ok" };
   }
 }
 
 export function when(epochMs: number): string {
-  if (!epochMs) return "nunca";
+  if (!epochMs) return t("never");
   const d = new Date(epochMs);
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(locale(), { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }

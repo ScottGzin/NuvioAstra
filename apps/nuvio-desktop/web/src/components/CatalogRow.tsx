@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
+import { t } from "../i18n";
 import type { HomeRow, MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
 import { useInView } from "./useInView";
@@ -64,15 +65,15 @@ export function CatalogRow({ row, onOpen, onLoaded }: Props) {
         <span className="spacer" />
         {items && (
           <>
-            <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-            <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+            <button className="icon-btn" aria-label={t("Previous")} onClick={() => scrollBy(-1)}>‹</button>
+            <button className="icon-btn" aria-label={t("Next")} onClick={() => scrollBy(1)}>›</button>
           </>
         )}
       </header>
       {error ? (
         <div className="row-error">
-          Não foi possível carregar este catálogo ({error}).{" "}
-          <button className="link" onClick={() => { setError(null); }}>Tentar novamente</button>
+          {t("Could not load this catalog ({error}).", { error })}{" "}
+          <button className="link" onClick={() => { setError(null); }}>{t("Try again")}</button>
         </div>
       ) : (
         <div className="row-track" ref={track} onScroll={onScroll}>

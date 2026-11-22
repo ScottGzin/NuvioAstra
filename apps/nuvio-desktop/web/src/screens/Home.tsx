@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, dataEpoch, errorText, onDataEpoch } from "../api";
 import { CatalogRow } from "../components/CatalogRow";
 import { ContinueWatchingRow } from "../components/ContinueWatching";
+import { t } from "../i18n";
 import type { HistoryEntry, HomeRow, HomeView, MetaPreview } from "../types";
 
 interface Props {
@@ -54,9 +55,9 @@ export function Home({ onOpen, onResume }: Props) {
     setHero((current) => current ?? items.find((i) => i.landscapePoster || i.banner) ?? null);
   }, []);
 
-  if (error) return <div className="screen-message">Não foi possível ler os addons: {error}</div>;
-  if (!rows) return <div className="screen-message">Carregando catálogos…</div>;
-  if (!rows.length) return <div className="screen-message">Nenhum catálogo disponível. Ative ou adicione um addon em Configurações → Addons para ver catálogos na tela inicial.</div>;
+  if (error) return <div className="screen-message">{t("Could not read addons: {error}", { error })}</div>;
+  if (!rows) return <div className="screen-message">{t("Loading catalogs…")}</div>;
+  if (!rows.length) return <div className="screen-message">{t("No catalogs available. Enable or add an addon in Settings → Addons to see catalogs on the home screen.")}</div>;
 
   return (
     <div className="home">
@@ -68,7 +69,7 @@ export function Home({ onOpen, onResume }: Props) {
               {[hero.releaseInfo, hero.imdbRating && `★ ${hero.imdbRating}`, hero.genres.slice(0, 3).join(" · ")].filter(Boolean).join("   ")}
             </div>
             {hero.description && <p className="hero-desc">{hero.description}</p>}
-            <button className="primary" onClick={() => onOpen(hero)}>Ver detalhes</button>
+            <button className="primary" onClick={() => onOpen(hero)}>{t("View details")}</button>
           </div>
         </section>
       )}

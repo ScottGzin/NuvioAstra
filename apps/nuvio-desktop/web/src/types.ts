@@ -93,12 +93,12 @@ export interface MetaDetails {
 /** What the details page needs to ask `meta_details`: the addon's own type and id, never guessed. */
 export interface MetaRef { contentType: string; id: string; name: string; resume?: ResumeTarget }
 
-/** Builds a `MetaRef` from a catalog/search item, or explains why it cannot. */
+/** Builds a `MetaRef` from a catalog/search item, or explains why it cannot (English text: pass it through t() to show it). */
 export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">): MetaRef | string {
   const contentType = typeof item.contentType === "string" ? item.contentType.trim() : "";
   const id = typeof item.id === "string" ? item.id.trim() : "";
-  if (!id) return "o addon não informou o identificador deste título";
-  if (!contentType) return "o addon não informou o tipo deste título (filme/série)";
+  if (!id) return "the addon did not provide this title's identifier";
+  if (!contentType) return "the addon did not provide this title's type (movie/series)";
   return { contentType, id, name: item.name };
 }
 export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null }

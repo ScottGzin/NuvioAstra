@@ -61,11 +61,11 @@ pub struct UpdateProgress {
 fn pt_error(e: tauri_plugin_updater::Error) -> String {
     use tauri_plugin_updater::Error as E;
     match e {
-        E::Minisign(_) | E::Base64(_) | E::SignatureUtf8(_) => "A assinatura da atualização não confere: a instalação foi cancelada por segurança.".into(),
-        E::Network(m) => format!("Sem conexão com o servidor de atualizações ({m})."),
-        E::Reqwest(e) => format!("Sem conexão com o servidor de atualizações ({e})."),
-        E::ReleaseNotFound => "Nenhuma versão publicada ainda.".into(),
-        other => format!("Não foi possível atualizar: {other}"),
+        E::Minisign(_) | E::Base64(_) | E::SignatureUtf8(_) => "The update signature does not match: installation was canceled for security.".into(),
+        E::Network(m) => format!("No connection to the update server ({m})."),
+        E::Reqwest(e) => format!("No connection to the update server ({e})."),
+        E::ReleaseNotFound => "No version has been published yet.".into(),
+        other => format!("Could not update: {other}"),
     }
 }
 
@@ -81,7 +81,7 @@ pub fn update_status(app: AppHandle) -> UpdateStatus {
 /// Asks the release endpoint whether a newer version exists (nothing is downloaded).
 #[tauri::command]
 pub async fn update_check(app: AppHandle, state: State<'_, AppState>) -> Result<Option<UpdateInfo>, String> {
-    let url = endpoint().ok_or("Atualizações automáticas não estão configuradas nesta compilação.")?;
+    let url = endpoint().ok_or("Automatic updates are not configured in this build.")?;
     let handle = app.clone();
     let updater = app
         .updater_builder()
@@ -111,7 +111,7 @@ pub async fn update_check(app: AppHandle, state: State<'_, AppState>) -> Result<
 /// its signature and runs the installer; the app then closes and the installer reopens it.
 #[tauri::command]
 pub async fn update_install(app: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let update = state.updates.pending.lock().expect("update lock").clone().ok_or("Nenhuma atualização pendente: verifique de novo.")?;
+    let update = state.updates.pending.lock().expect("update lock").clone().ok_or("No pending update: check again.")?;
     let progress = |phase: &str, downloaded: u64, total: Option<u64>, error: Option<String>| {
         let _ = app.emit("update-progress", UpdateProgress { phase: phase.into(), downloaded, total, error });
     };

@@ -72,15 +72,15 @@ fn base64url_decode(s: &str) -> Option<Vec<u8>> {
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum RemoteError {
-    #[error("sem conexão com o servidor da conta")]
+    #[error("no connection to the account server")]
     Offline,
-    #[error("sessão expirada ou inválida")]
+    #[error("expired or invalid session")]
     Unauthorized,
     #[error("{0}")]
     Auth(String),
-    #[error("o servidor da conta respondeu com erro {status}: {message}")]
+    #[error("the account server returned error {status}: {message}")]
     Http { status: u16, message: String },
-    #[error("resposta inesperada do servidor da conta")]
+    #[error("unexpected response from the account server")]
     Decode,
 }
 
@@ -235,17 +235,17 @@ fn error_of(status: u16, body: &Value, auth: bool) -> RemoteError {
     if auth {
         let lower = format!("{code} {text}").to_lowercase();
         let msg = if lower.contains("invalid_credentials") || lower.contains("invalid login credentials") {
-            "E-mail ou senha incorretos."
+            "Incorrect email or password."
         } else if lower.contains("email_not_confirmed") || lower.contains("email not confirmed") {
-            "Confirme seu e-mail antes de entrar (veja a mensagem enviada pela Nuvio)."
+            "Confirm your email before signing in (check the message sent by Nuvio)."
         } else if lower.contains("user_already_exists") || lower.contains("already registered") {
-            "Já existe uma conta com este e-mail."
+            "An account with this email already exists."
         } else if lower.contains("weak_password") || lower.contains("password should") {
-            "Senha fraca: use pelo menos 6 caracteres."
+            "Weak password: use at least 6 characters."
         } else if lower.contains("over_request_rate_limit") || status == 429 {
-            "Muitas tentativas. Aguarde um pouco e tente novamente."
+            "Too many attempts. Wait a moment and try again."
         } else if lower.contains("signup_disabled") || lower.contains("signups not allowed") {
-            "O servidor não aceita novos cadastros."
+            "The server is not accepting new registrations."
         } else if status == 401 || status == 403 {
             return RemoteError::Unauthorized;
         } else {
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn auth_errors_become_portuguese_messages() {
         let e = error_of(400, &serde_json::json!({ "error_code": "invalid_credentials", "msg": "Invalid login credentials" }), true);
-        assert_eq!(e, RemoteError::Auth("E-mail ou senha incorretos.".into()));
+        assert_eq!(e, RemoteError::Auth("Incorrect email or password.".into()));
         assert_eq!(error_of(401, &serde_json::json!({ "code": "PGRST303", "message": "JWT expired" }), false), RemoteError::Unauthorized);
     }
 }

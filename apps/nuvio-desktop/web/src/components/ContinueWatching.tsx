@@ -4,6 +4,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { api } from "../api";
+import { t, useLang } from "../i18n";
 import { clock, episodeCode, lastWatched, remaining, removeHistory, useLibraryVersion } from "../library";
 import type { HistoryEntry } from "../types";
 
@@ -14,12 +15,13 @@ interface CardProps {
 }
 
 export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove }: CardProps) {
+  useLang();
   const image = entry.background ?? entry.poster;
   const code = episodeCode(entry);
   const left = remaining(entry);
   return (
     <div className="cw-wrap">
-      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={`Continuar ${entry.title}`}>
+      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={t("Resume {title}", { title: entry.title })}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
@@ -32,12 +34,12 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
           {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("")}
         </div>
         <div className="card-sub">
-          {[entry.positionMs > 0 && `${clock(entry.positionMs)} assistidos`, left].filter(Boolean).join(" · ")}
+          {[entry.positionMs > 0 && t("{time} watched", { time: clock(entry.positionMs) }), left].filter(Boolean).join(" · ")}
         </div>
         <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>
       {onRemove && (
-        <button className="fav-btn icon" aria-label={`Remover ${entry.title} de Continuar assistindo`} title="Remover" data-testid="cw-remove" onClick={() => onRemove(entry)}>
+        <button className="fav-btn icon" aria-label={t("Remove {title} from Continue watching", { title: entry.title })} title={t("Remove")} data-testid="cw-remove" onClick={() => onRemove(entry)}>
           ✕
         </button>
       )}
@@ -60,7 +62,7 @@ export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry
   return (
     <section className="row-section" data-testid="home-continue">
       <header className="row-header">
-        <h2>Continuar assistindo</h2>
+        <h2>{t("Continue watching")}</h2>
       </header>
       <div className="row-track">
         {items.map((e) => (

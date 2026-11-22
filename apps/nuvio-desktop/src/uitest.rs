@@ -103,8 +103,8 @@ pub fn uitest_store_counts(app: AppHandle) -> Result<std::collections::BTreeMap<
 /// UI path (sources → P2P notice → engine → player) is tested without the user's addons' content.
 pub fn p2p_test_streams() -> Option<(&'static str, &'static str)> {
     (uitest_phase().ok()? == "p2p").then_some((
-        "Teste P2P (conteúdo livre)",
-        r#"{"streams":[{"name":"Big Buck Bunny (CC BY)","title":"Blender Foundation · torrent de teste","infoHash":"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c","sources":["tracker:udp://tracker.opentrackr.org:1337/announce","tracker:udp://tracker.leechers-paradise.org:6969"],"behaviorHints":{"filename":"Big Buck Bunny.mp4"}}]}"#,
+        "P2P test (free content)",
+        r#"{"streams":[{"name":"Big Buck Bunny (CC BY)","title":"Blender Foundation · test torrent","infoHash":"dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c","sources":["tracker:udp://tracker.opentrackr.org:1337/announce","tracker:udp://tracker.leechers-paradise.org:6969"],"behaviorHints":{"filename":"Big Buck Bunny.mp4"}}]}"#,
     ))
 }
 

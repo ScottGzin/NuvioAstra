@@ -132,7 +132,7 @@ mod tests {
         let r = requests(&[m], " ação ");
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].url, "https://a.test/cfg/catalog/movie/s/search=a%C3%A7%C3%A3o.json");
-        assert_eq!(r[0].title, "Busca - Filmes");
+        assert_eq!(r[0].title, "Busca - Movies");
         assert!(requests(&[], "x").is_empty());
     }
 }

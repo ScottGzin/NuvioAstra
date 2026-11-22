@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn default_rows_skip_required_extras_and_use_type_labels() {
         let rows = home_rows(&[manifest()], None);
-        assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Top - Filmes", "New - Séries", "Channels - TV"]);
+        assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Top - Movies", "New - Series", "Channels - TV"]);
         assert!(rows[2].supports_pagination);
     }
 
