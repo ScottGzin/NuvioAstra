@@ -4,6 +4,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { api } from "../api";
+import { useI18n } from "../i18n";
 import { clock, episodeCode, lastWatched, remaining, removeHistory, useLibraryVersion } from "../library";
 import type { HistoryEntry } from "../types";
 
@@ -14,12 +15,13 @@ interface CardProps {
 }
 
 export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove }: CardProps) {
+  const { t } = useI18n();
   const image = entry.background ?? entry.poster;
   const code = episodeCode(entry);
   const left = remaining(entry);
   return (
     <div className="cw-wrap">
-      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={`Continuar ${entry.title}`}>
+      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} title={t("continueWatching.continueTitle", { title: entry.title })}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
@@ -32,12 +34,12 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
           {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("")}
         </div>
         <div className="card-sub">
-          {[entry.positionMs > 0 && `${clock(entry.positionMs)} assistidos`, left].filter(Boolean).join(" · ")}
+          {[entry.positionMs > 0 && t("library.watchedTime", { time: clock(entry.positionMs) }), left].filter(Boolean).join(" · ")}
         </div>
         <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>
       {onRemove && (
-        <button className="fav-btn icon" aria-label={`Remover ${entry.title} de Continuar assistindo`} title="Remover" data-testid="cw-remove" onClick={() => onRemove(entry)}>
+        <button className="fav-btn icon" aria-label={t("continueWatching.removeAria", { title: entry.title })} title={t("common.remove")} data-testid="cw-remove" onClick={() => onRemove(entry)}>
           ✕
         </button>
       )}
@@ -47,6 +49,7 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
 
 /** Home row (hidden when empty), like the original's Continue watching section at the top. */
 export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry): void }) {
+  const { t } = useI18n();
   const version = useLibraryVersion();
   const [items, setItems] = useState<HistoryEntry[]>([]);
   useEffect(() => {
@@ -60,7 +63,7 @@ export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry
   return (
     <section className="row-section" data-testid="home-continue">
       <header className="row-header">
-        <h2>Continuar assistindo</h2>
+        <h2>{t("library.continue")}</h2>
       </header>
       <div className="row-track">
         {items.map((e) => (

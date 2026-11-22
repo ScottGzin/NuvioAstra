@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
+import { useI18n } from "./i18n";
 import { PinDialog } from "./components/PinDialog";
 import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
 import { Sidebar, type Tab } from "./components/Sidebar";
@@ -20,6 +21,7 @@ import { metaRef, type Bootstrap, type HistoryEntry, type MetaPreview, type Meta
 
 
 export function App() {
+  const { t } = useI18n();
   const player = usePlayer();
   const [appMode, setAppMode] = useState<string>("");
   useEffect(() => {
@@ -80,12 +82,12 @@ export function App() {
         if (player.session) await player.close();
         setProfiles(await api.profileSwitch(index));
       } catch (e) {
-        setOpenError(`Não foi possível trocar de perfil: ${errorText(e)}`);
+        setOpenError(t("app.switchProfileError", { error: errorText(e) }));
       } finally {
         setSwitching(null);
       }
     },
-    [player, profiles],
+    [player, profiles, t],
   );
 
   const select = useCallback(
@@ -103,12 +105,12 @@ export function App() {
   const open = useCallback((item: MetaPreview) => {
     const ref = metaRef(item);
     if (typeof ref === "string") {
-      setOpenError(`Não foi possível abrir “${item.name}”: ${ref}.`);
+      setOpenError(t("app.openError", { name: item.name, reason: ref }));
       return;
     }
     setOpenError(null);
     setDetails(ref);
-  }, []);
+  }, [t]);
 
   // Continue watching / history: the title's details with that movie/episode selected and its
   // sources listed; the chosen source starts at the saved position (the original's STREAM action).
@@ -147,14 +149,14 @@ export function App() {
         )}
         {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
         {switching !== null && (
-          <div className="switching" role="status" data-testid="profile-switching">Trocando para {switching || "outro perfil"}…</div>
+          <div className="switching" role="status" data-testid="profile-switching">{t("app.switching", { name: switching || t("common.anotherProfile") })}</div>
         )}
         <main className="content">
           <UpdateBanner automatic={appMode === "app"} />
-          {bootError && <div className="banner error">Não foi possível ler os dados do Nuvio Astra: {bootError}</div>}
+          {bootError && <div className="banner error">{t("app.bootError", { error: bootError })}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
           {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{boot.addonsFailed} de {boot.addonsEnabled} addon(s) não responderam; os demais estão disponíveis.</div>
+            <div className="banner">{t("app.addonsFailed", { failed: boot.addonsFailed, enabled: boot.addonsEnabled })}</div>
           )}
           <div className="screen" hidden={details !== null || tab !== "home"}><Home key={dataKey} onOpen={open} onResume={resume} /></div>
           {tab === "search" && <div className="screen" hidden={details !== null}><Search key={dataKey} onOpen={open} /></div>}

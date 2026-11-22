@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../api";
+import { useI18n } from "../i18n";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
@@ -17,11 +18,10 @@ interface Props {
   onBack(): void;
 }
 
-function episodeLabel(v: MetaVideo): string {
-  return v.season != null && v.episode != null ? `T${v.season} E${v.episode}` : "";
-}
-
 export function Details({ item, onBack }: Props) {
+  const { t } = useI18n();
+  const episodeLabel = (v: MetaVideo): string =>
+    v.season != null && v.episode != null ? t("library.episodeCode", { season: v.season, episode: v.episode }) : "";
   const { contentType, id } = item;
   const player = usePlayer();
   const [data, setData] = useState<DetailsData | null>(null);
@@ -100,7 +100,7 @@ export function Details({ item, onBack }: Props) {
   const playTrailer = async () => {
     if (!data?.trailer) return;
     setTrailerBusy(true);
-    await player.play(() => api.trailerPlay(data.trailer!.key), { title: data.meta.name, subtitle: `Trailer · ${data.trailer.name}`, view: "full" });
+    await player.play(() => api.trailerPlay(data.trailer!.key), { title: data.meta.name, subtitle: `${t("details.trailer")} · ${data.trailer.name}`, view: "full" });
     setTrailerBusy(false);
   };
 
@@ -124,11 +124,11 @@ export function Details({ item, onBack }: Props) {
   if (error) {
     return (
       <div className="screen-message">
-        <button className="back" onClick={onBack}>←</button> Não foi possível abrir os detalhes: {error}
+        <button className="back" onClick={onBack}>←</button> {t("details.error", { error })}
       </div>
     );
   }
-  if (!data) return <div className="screen-message">Carregando detalhes…</div>;
+  if (!data) return <div className="screen-message">{t("details.loading")}</div>;
   const m = data.meta;
   const movieEntry = entryFor("movie");
   const resumeVideo = progress?.resume ? m.videos.find((v) => v.season === progress.resume!.season && v.episode === progress.resume!.episode) : undefined;
@@ -137,7 +137,7 @@ export function Details({ item, onBack }: Props) {
     <div className="details" data-id={m.id} data-content-type={m.contentType}>
       <div className="details-backdrop" style={m.background ? { backgroundImage: `url("${m.background}")` } : undefined} />
       <div className="details-body">
-        <button className="back" onClick={onBack} aria-label="Voltar">←</button>
+        <button className="back" onClick={onBack} aria-label={t("common.back")}>←</button>
         <div className={`details-layout ${selected ? "with-sources" : ""}`}>
         <div className="details-main">
         <div className="details-head">
@@ -149,44 +149,46 @@ export function Details({ item, onBack }: Props) {
             </div>
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
             {m.description && <p className="details-desc">{m.description}</p>}
-            {m.director.length > 0 && <div className="muted">Direção: {m.director.join(", ")}</div>}
+            {m.director.length > 0 && <div className="muted">{t("details.director", { director: m.director.join(", ") })}</div>}
             <div className="details-actions">
               {!isSeries && (movieEntry?.inProgress ? (
                 <>
-                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ Continuar de {clock(movieEntry.positionMs)}</button>
-                  <button className="chip" data-testid="watch-from-start" onClick={() => choose("movie", true)}>Assistir do início</button>
+                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>{t("details.continueFrom", { time: clock(movieEntry.positionMs) })}</button>
+                  <button className="chip" data-testid="watch-from-start" onClick={() => choose("movie", true)}>{t("details.watchFromStart")}</button>
                 </>
               ) : (
-                <button className="primary" data-testid="watch" onClick={() => choose("movie", true)}>▶ Assistir</button>
+                <button className="primary" data-testid="watch" onClick={() => choose("movie", true)}>{t("details.watch")}</button>
               ))}
               {isSeries && resumeVideo && progress?.resume && (
                 <button className="primary" data-testid="resume-episode" onClick={() => { setSeason(resumeVideo.season); choose(resumeVideo); }}>
-                  ▶ Continuar {episodeCode(progress.resume)} · {clock(progress.resume.positionMs)}
+                  {t("details.resumeEpisode", { episode: episodeCode(progress.resume), time: clock(progress.resume.positionMs) })}
                 </button>
               )}
               {data.trailer && (
                 <button className="chip" data-testid="watch-trailer" disabled={trailerBusy} onClick={() => void playTrailer()}>
-                  {trailerBusy ? "Carregando trailer…" : "▶ Assistir trailer"}
+                  {trailerBusy ? t("details.trailerLoading") : t("details.watchTrailer")}
                 </button>
               )}
               <FavoriteButton item={libraryItemFromDetails(m)} variant="pill" />
             </div>
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
-                {movieEntry.completed ? "✓ Assistido" : [`${clock(movieEntry.positionMs)} assistidos`, remaining(movieEntry)].filter(Boolean).join(" · ")}
+                {movieEntry.completed
+                  ? t("common.watched")
+                  : [t("library.watchedTime", { time: clock(movieEntry.positionMs) }), remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
-            <div className="muted small">Detalhes por {data.addonName}</div>
+            <div className="muted small">{t("details.byAddon", { addon: data.addonName })}</div>
             <dl className="facts">
               {(
                 [
-                  ["Classificação", m.ageRating],
-                  ["Situação", m.status],
-                  ["Roteiro", m.writer.join(", ")],
-                  ["País", m.country],
-                  ["Idioma", m.language],
-                  ["Prêmios", m.awards],
-                  ["Site", m.website],
+                  [t("details.rating"), m.ageRating],
+                  [t("details.status"), m.status],
+                  [t("details.writer"), m.writer.join(", ")],
+                  [t("details.country"), m.country],
+                  [t("details.language"), m.language],
+                  [t("details.awards"), m.awards],
+                  [t("details.website"), m.website],
                 ] as const
               )
                 .filter(([, v]) => v)
@@ -197,14 +199,14 @@ export function Details({ item, onBack }: Props) {
           </div>
         </div>
 
-        {player.error && <div className="row-error">Falha ao reproduzir: {player.error}</div>}
+        {player.error && <div className="row-error">{t("details.playbackError", { error: player.error })}</div>}
 
         {isSeries && (
           <section className="details-section">
             <div className="season-tabs" role="tablist">
               {data.seasons.map((s) => (
                 <button key={s} role="tab" aria-selected={season === s} className={`chip ${season === s ? "active" : ""}`} onClick={() => setSeason(s)}>
-                  {s === 0 ? "Especiais" : `Temporada ${s}`}
+                  {s === 0 ? t("details.specials") : t("details.season", { season: s })}
                 </button>
               ))}
             </div>
@@ -222,7 +224,9 @@ export function Details({ item, onBack }: Props) {
                       {v.released && <div className="muted small">{v.released.slice(0, 10)}</div>}
                       {e && (
                         <div className="small episode-progress" data-testid="episode-progress">
-                          {e.completed ? "✓ Assistido" : `${clock(e.positionMs)} assistidos${remaining(e) ? ` · ${remaining(e)}` : ""}`}
+                          {e.completed
+                            ? t("common.watched")
+                            : `${t("library.watchedTime", { time: clock(e.positionMs) })}${remaining(e) ? ` · ${remaining(e)}` : ""}`}
                         </div>
                       )}
                       {v.overview && <div className="episode-overview">{v.overview}</div>}
@@ -236,7 +240,7 @@ export function Details({ item, onBack }: Props) {
 
         {m.cast.length > 0 && (
           <section className="details-section">
-            <h2>Elenco</h2>
+            <h2>{t("details.cast")}</h2>
             <div className="cast">
               {m.cast.slice(0, 30).map((p) => (
                 <div key={`${p.name}-${p.role ?? ""}`} className="person">
@@ -251,16 +255,16 @@ export function Details({ item, onBack }: Props) {
         </div>
 
         {selected && (
-          <aside className="sources-panel" ref={sources} aria-label="Fontes" data-testid="sources-panel">
+          <aside className="sources-panel" ref={sources} aria-label={t("details.sources")} data-testid="sources-panel">
             <header className="sources-header">
               <div>
-                <h2>Fontes</h2>
+                <h2>{t("details.sources")}</h2>
                 <div className="muted small">
                   {selected === "movie" ? m.name : `${episodeLabel(selected)} · ${selected.title}`}
-                  {resumeAt !== null && <span data-testid="resume-note"> · continua de {clock(resumeAt)}</span>}
+                  {resumeAt !== null && <span data-testid="resume-note"> {t("details.resumesFrom", { time: clock(resumeAt) })}</span>}
                 </div>
               </div>
-              <button className="icon-btn" aria-label="Fechar fontes" onClick={() => setSelected(null)}>✕</button>
+              <button className="icon-btn" aria-label={t("details.closeSources")} onClick={() => setSelected(null)}>✕</button>
             </header>
             <div className="sources-body">
               <StreamList contentType={m.contentType} id={selected === "movie" ? m.id : selected.id} onPlay={play} />

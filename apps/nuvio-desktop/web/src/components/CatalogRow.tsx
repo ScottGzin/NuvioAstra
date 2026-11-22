@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
+import { localizeCatalogTitle, useI18n } from "../i18n";
 import type { HomeRow, MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
 import { useInView } from "./useInView";
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function CatalogRow({ row, onOpen, onLoaded }: Props) {
+  const { t } = useI18n();
   const [ref, inView] = useInView<HTMLElement>();
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -59,20 +61,20 @@ export function CatalogRow({ row, onOpen, onLoaded }: Props) {
   return (
     <section className="row-section" ref={ref} data-content-type={row.contentType}>
       <header className="row-header">
-        <h2>{row.title}</h2>
+        <h2>{localizeCatalogTitle(row.title)}</h2>
         <span className="muted small">{row.addonName}</span>
         <span className="spacer" />
         {items && (
           <>
-            <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-            <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+            <button className="icon-btn" aria-label={t("common.previous")} onClick={() => scrollBy(-1)}>‹</button>
+            <button className="icon-btn" aria-label={t("common.next")} onClick={() => scrollBy(1)}>›</button>
           </>
         )}
       </header>
       {error ? (
         <div className="row-error">
-          Não foi possível carregar este catálogo ({error}).{" "}
-          <button className="link" onClick={() => { setError(null); }}>Tentar novamente</button>
+          {t("catalog.loadError", { error })}{" "}
+          <button className="link" onClick={() => { setError(null); }}>{t("common.retry")}</button>
         </div>
       ) : (
         <div className="row-track" ref={track} onScroll={onScroll}>

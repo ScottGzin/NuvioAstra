@@ -3,11 +3,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { useI18n } from "../i18n";
 import { usePlayer } from "./PlayerContext";
 import { P2pStats } from "./P2pStats";
 import { PlayerControls } from "./PlayerControls";
 
 export function FullPlayer() {
+  const { t } = useI18n();
   const player = usePlayer();
   const { session, snapshot } = player;
   const [visible, setVisible] = useState(true);
@@ -71,7 +73,7 @@ export function FullPlayer() {
   return (
     <div className={`full-player ${visible ? "" : "chrome-hidden"}`} onMouseMove={poke}>
       <div className="full-player-top">
-        <button className="back" onClick={() => void leave()} aria-label="Voltar">←</button>
+        <button className="back" onClick={() => void leave()} aria-label={t("common.back")}>←</button>
         <div>
           <div className="full-player-title">{session?.title}</div>
           {session?.subtitle && <div className="muted">{session.subtitle}</div>}

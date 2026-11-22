@@ -1,6 +1,8 @@
 // Contracts of the Rust commands (apps/nuvio-desktop/src/api.rs, main.rs). Display data only:
 // stream URLs, addon URLs and tokens never reach the UI.
 
+import { translate } from "./i18n";
+
 export interface ProfileInfo {
   index: number; name: string; avatarId: string | null; avatarColorHex: string; usesPrimaryAddons: boolean;
   /** Protected by a PIN set with the Nuvio account. */
@@ -97,8 +99,8 @@ export interface MetaRef { contentType: string; id: string; name: string; resume
 export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">): MetaRef | string {
   const contentType = typeof item.contentType === "string" ? item.contentType.trim() : "";
   const id = typeof item.id === "string" ? item.id.trim() : "";
-  if (!id) return "o addon não informou o identificador deste título";
-  if (!contentType) return "o addon não informou o tipo deste título (filme/série)";
+  if (!id) return translate("common.missingId");
+  if (!contentType) return translate("common.missingType");
   return { contentType, id, name: item.name };
 }
 export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null }

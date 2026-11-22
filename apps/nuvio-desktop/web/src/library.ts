@@ -5,6 +5,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api, dataEpoch, onDataEpoch } from "./api";
+import { locale, translate } from "./i18n";
 import { listen } from "./tauri";
 import type { HistoryEntry, LibraryItem, MetaDetails, MetaPreview, PlaybackItem, ResumeTarget } from "./types";
 
@@ -149,7 +150,9 @@ export function clock(ms: number): string {
 export function remaining(entry: Pick<HistoryEntry, "positionMs" | "durationMs">): string | null {
   if (entry.durationMs <= 0 || entry.positionMs <= 0) return null;
   const minutes = Math.max(1, Math.round((entry.durationMs - entry.positionMs) / 60000));
-  return minutes >= 60 ? `faltam ${Math.floor(minutes / 60)} h ${minutes % 60} min` : `faltam ${minutes} min`;
+  return minutes >= 60
+    ? translate("library.remainingHours", { hours: Math.floor(minutes / 60), minutes: minutes % 60 })
+    : translate("library.remainingMinutes", { minutes });
 }
 
 export function lastWatched(epochMs: number): string {
@@ -157,14 +160,14 @@ export function lastWatched(epochMs: number): string {
   const date = new Date(epochMs);
   const today = new Date();
   const days = Math.round((new Date(today.toDateString()).getTime() - new Date(date.toDateString()).getTime()) / 86400000);
-  const time = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (days === 0) return `hoje, ${time}`;
-  if (days === 1) return `ontem, ${time}`;
-  return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = date.toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
+  if (days === 0) return translate("library.today", { time });
+  if (days === 1) return translate("library.yesterday", { time });
+  return date.toLocaleDateString(locale(), { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 export function episodeCode(e: { season: number | null; episode: number | null }): string {
-  return e.season != null && e.episode != null ? `T${e.season} E${e.episode}` : "";
+  return e.season != null && e.episode != null ? translate("library.episodeCode", { season: e.season, episode: e.episode }) : "";
 }
 
 export function resumeTarget(e: HistoryEntry): ResumeTarget {

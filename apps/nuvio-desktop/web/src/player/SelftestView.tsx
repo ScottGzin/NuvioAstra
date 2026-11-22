@@ -5,12 +5,14 @@
 
 import { useEffect, useState } from "react";
 import { listen } from "../tauri";
+import { useI18n } from "../i18n";
 import type { PlayerSnapshot } from "../types";
 import { PlayerControls } from "./PlayerControls";
 
 type Rect = [number, number, number, number] | null;
 
 export function SelftestView() {
+  const { t } = useI18n();
   const [rect, setRect] = useState<Rect>(null);
   const [badge, setBadge] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<PlayerSnapshot | null>(null);
@@ -35,11 +37,11 @@ export function SelftestView() {
       {rect && (
         <aside className="selftest-side">
           <div className="brand">Nuvio Astra</div>
-          <p className="muted">Autoteste do player (libmpv + WebView2)</p>
+          <p className="muted">{t("selftest.title")}</p>
         </aside>
       )}
       <div className="hole selftest-hole" style={style}>
-        {badge && <div className="badge">Overlay WebView2 · {badge}</div>}
+        {badge && <div className="badge">{t("selftest.overlay", { badge })}</div>}
         <PlayerControls snapshot={snapshot} fullscreen={!rect} onToggleFullscreen={() => {}} onClose={() => {}} />
       </div>
     </div>

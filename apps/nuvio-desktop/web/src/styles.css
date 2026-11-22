@@ -375,6 +375,8 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 .settings-nav .nav-icon, .settings-nav .nav-icon > svg { width: 28px; height: 28px; }
 .settings-nav .nav-item.active { color: var(--text); }
 .settings-profile { display: flex; gap: 10px; align-items: center; padding: 4px 8px 16px; }
+.settings-language { display: flex; flex-direction: column; gap: 6px; padding: 0 8px 16px; }
+.settings-language select { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); }
 .settings-body { overflow-y: auto; padding: 24px 36px 48px; animation: fade-in .2s var(--ease); }
 .settings-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
 .settings-header h1 { margin: 0; font-size: 24px; }

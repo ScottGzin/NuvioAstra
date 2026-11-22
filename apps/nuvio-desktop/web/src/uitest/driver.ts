@@ -4,6 +4,7 @@
 // that movie and of one episode (explicitly chosen by this script), no channel resolution.
 
 import { api } from "../api";
+import { setUILanguage } from "../i18n";
 import { invoke } from "../tauri";
 
 interface Check { name: string; passed: boolean; detail: string }
@@ -1280,6 +1281,10 @@ async function trailerPhase(): Promise<Record<string, unknown>> {
 }
 
 export async function runUiTest() {
+  // The assertions and selectors below are written for the Portuguese UI: start in Portuguese
+  // whatever the user's saved preference is.
+  setUILanguage("pt");
+  await sleep(50);
   const started = performance.now();
   const phase = await invoke<string>("uitest_phase").catch(() => "");
   let extra: Record<string, unknown> = {};

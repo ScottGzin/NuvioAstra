@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../api";
+import { locale, useI18n, type TranslationKey } from "../i18n";
 import { ContinueCard } from "../components/ContinueWatching";
 import { PosterCard } from "../components/PosterCard";
 import { useWhenVisible } from "../components/useInView";
@@ -13,19 +14,19 @@ import {
 import type { HistoryEntry, LibraryItem, MetaPreview } from "../types";
 
 type Section = "continue" | "favorites" | "history";
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: "continue", label: "Continuar assistindo" },
-  { id: "favorites", label: "Favoritos" },
-  { id: "history", label: "Histórico" },
+const SECTIONS: { id: Section; labelKey: TranslationKey }[] = [
+  { id: "continue", labelKey: "library.continue" },
+  { id: "favorites", labelKey: "library.favorites" },
+  { id: "history", labelKey: "library.history" },
 ];
 
 /** Local-library sort options of the original (`availableLibrarySortOptions`, LOCAL). */
 type Sort = "addedDesc" | "addedAsc" | "titleAsc" | "titleDesc";
-const SORTS: { id: Sort; label: string }[] = [
-  { id: "addedDesc", label: "Adicionados recentemente" },
-  { id: "addedAsc", label: "Adicionados há mais tempo" },
-  { id: "titleAsc", label: "Título (A–Z)" },
-  { id: "titleDesc", label: "Título (Z–A)" },
+const SORTS: { id: Sort; labelKey: TranslationKey }[] = [
+  { id: "addedDesc", labelKey: "library.sortAddedDesc" },
+  { id: "addedAsc", labelKey: "library.sortAddedAsc" },
+  { id: "titleAsc", labelKey: "library.sortTitleAsc" },
+  { id: "titleDesc", labelKey: "library.sortTitleDesc" },
 ];
 type Kind = "all" | "movie" | "series";
 
@@ -38,6 +39,7 @@ interface Props {
 let lastSection: Section = "continue";
 
 export function Library({ onOpen, onResume, onOpenEntry }: Props) {
+  const { t } = useI18n();
   const [section, setSection] = useState<Section>(lastSection);
   const select = (s: Section) => {
     lastSection = s;
@@ -46,11 +48,11 @@ export function Library({ onOpen, onResume, onOpenEntry }: Props) {
   return (
     <div className="library">
       <header className="library-header">
-        <h1>Biblioteca</h1>
-        <div className="season-tabs" role="tablist" aria-label="Categorias da Biblioteca">
+        <h1>{t("nav.library")}</h1>
+        <div className="season-tabs" role="tablist" aria-label={t("library.categoriesAria")}>
           {SECTIONS.map((s) => (
             <button key={s.id} role="tab" aria-selected={section === s.id} className={`chip ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => select(s.id)}>
-              {s.label}
+              {t(s.labelKey)}
             </button>
           ))}
         </div>
@@ -67,6 +69,7 @@ function Empty({ children }: { children: React.ReactNode }) {
 }
 
 function ContinueSection({ onResume }: { onResume(entry: HistoryEntry): void }) {
+  const { t } = useI18n();
   const version = useLibraryVersion();
   const [items, setItems] = useState<HistoryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,9 +80,9 @@ function ContinueSection({ onResume }: { onResume(entry: HistoryEntry): void }) 
       cancelled = true;
     };
   }, [version]);
-  if (error) return <div className="row-error library-pad">Não foi possível ler o progresso: {error}</div>;
-  if (!items) return <div className="screen-message">Carregando…</div>;
-  if (!items.length) return <Empty>Nada em andamento. Filmes e episódios que você começar a assistir aparecem aqui.</Empty>;
+  if (error) return <div className="row-error library-pad">{t("library.continueError", { error })}</div>;
+  if (!items) return <div className="screen-message">{t("common.loading")}</div>;
+  if (!items.length) return <Empty>{t("library.continueEmpty")}</Empty>;
   return (
     <div className="cw-grid" data-testid="library-continue">
       {items.map((e) => (
@@ -92,6 +95,7 @@ function ContinueSection({ onResume }: { onResume(entry: HistoryEntry): void }) 
 const FAVORITES_STEP = 60;
 
 function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
+  const { t } = useI18n();
   const version = useLibraryVersion();
   const [items, setItems] = useState<LibraryItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +113,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
 
   const sorted = useMemo(() => {
     const list = (items ?? []).filter((i) => kind === "all" || (kind === "movie" ? i.contentType === "movie" : i.contentType !== "movie"));
-    const byTitle = (a: LibraryItem, b: LibraryItem) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    const byTitle = (a: LibraryItem, b: LibraryItem) => a.name.localeCompare(b.name, locale(), { sensitivity: "base" });
     switch (sort) {
       case "addedAsc": return [...list].sort((a, b) => a.savedAtEpochMs - b.savedAtEpochMs);
       case "titleAsc": return [...list].sort(byTitle);
@@ -121,26 +125,26 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
   // Next batch of cards when the end of the grid comes near (keeps large libraries light).
   const more = useWhenVisible<HTMLDivElement>(() => setShown((s) => Math.min(s + FAVORITES_STEP, sorted.length)), [shown, sorted.length], "600px");
 
-  if (error) return <div className="row-error library-pad">Não foi possível ler os favoritos: {error}</div>;
-  if (!items) return <div className="screen-message">Carregando…</div>;
-  if (!items.length) return <Empty>Nenhum filme ou série salvo. Use ♡ nos cards ou nos detalhes para salvar.</Empty>;
+  if (error) return <div className="row-error library-pad">{t("library.favoritesError", { error })}</div>;
+  if (!items) return <div className="screen-message">{t("common.loading")}</div>;
+  if (!items.length) return <Empty>{t("library.favoritesEmpty")}</Empty>;
   const counts = { all: items.length, movie: items.filter((i) => i.contentType === "movie").length, series: items.filter((i) => i.contentType !== "movie").length };
   return (
     <div data-testid="library-favorites">
       <div className="library-toolbar">
         {(["all", "movie", "series"] as const).map((k) => (
           <button key={k} className={`chip ${kind === k ? "active" : ""}`} aria-pressed={kind === k} onClick={() => { setKind(k); setShown(FAVORITES_STEP); }}>
-            {k === "all" ? "Todos" : k === "movie" ? "Filmes" : "Séries"} <span className="muted">{counts[k]}</span>
+            {k === "all" ? t("common.all") : k === "movie" ? t("common.movies") : t("common.series")} <span className="muted">{counts[k]}</span>
           </button>
         ))}
         <span className="spacer" />
-        <label className="muted small" htmlFor="library-sort">Ordenar</label>
+        <label className="muted small" htmlFor="library-sort">{t("library.sort")}</label>
         <select id="library-sort" className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} data-testid="library-sort">
-          {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {SORTS.map((s) => <option key={s.id} value={s.id}>{t(s.labelKey)}</option>)}
         </select>
       </div>
       {sorted.length === 0 ? (
-        <Empty>Nenhum item deste tipo.</Empty>
+        <Empty>{t("library.noType")}</Empty>
       ) : (
         <div className="grid library-grid">
           {sorted.slice(0, shown).map((i) => (
@@ -150,7 +154,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
       )}
       {shown < sorted.length && (
         <div ref={more} className="library-pad">
-          <button className="link" onClick={() => setShown((s) => s + FAVORITES_STEP)}>Mostrar mais ({sorted.length - shown})</button>
+          <button className="link" onClick={() => setShown((s) => s + FAVORITES_STEP)}>{t("library.showMore", { count: sorted.length - shown })}</button>
         </div>
       )}
     </div>
@@ -160,6 +164,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
 const HISTORY_PAGE = 40;
 
 function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): void; onOpenEntry(e: HistoryEntry): void }) {
+  const { t } = useI18n();
   const version = useLibraryVersion();
   const [items, setItems] = useState<HistoryEntry[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -205,38 +210,38 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
   };
   const sentinel = useWhenVisible<HTMLDivElement>(loadMore, [items?.length, next]);
 
-  if (error) return <div className="row-error library-pad">Não foi possível ler o histórico: {error}</div>;
-  if (!items) return <div className="screen-message">Carregando…</div>;
-  if (!items.length) return <Empty>Nenhuma reprodução registrada ainda.</Empty>;
+  if (error) return <div className="row-error library-pad">{t("library.historyError", { error })}</div>;
+  if (!items) return <div className="screen-message">{t("common.loading")}</div>;
+  if (!items.length) return <Empty>{t("library.historyEmpty")}</Empty>;
   return (
     <div className="history" data-testid="library-history">
-      <div className="muted small library-pad">{total} registro(s), mais recentes primeiro</div>
+      <div className="muted small library-pad">{t("library.records", { total })}</div>
       <ul className="history-list">
         {items.map((e) => (
           <li key={e.key} className="history-item" data-key={e.key}>
-            <button className="history-open" onClick={() => onOpenEntry(e)} title="Abrir detalhes">
+            <button className="history-open" onClick={() => onOpenEntry(e)} title={t("library.openDetails")}>
               <div className="history-thumb">{e.poster ? <img src={e.poster} alt="" loading="lazy" decoding="async" /> : null}</div>
               <div className="history-text">
                 <div className="episode-title">{e.title}</div>
                 <div className="muted small">
-                  {[episodeCode(e) && `${episodeCode(e)}${e.episodeTitle ? ` · ${e.episodeTitle}` : ""}`, e.metaType === "movie" ? "Filme" : null].filter(Boolean).join(" ")}
+                  {[episodeCode(e) && `${episodeCode(e)}${e.episodeTitle ? ` · ${e.episodeTitle}` : ""}`, e.metaType === "movie" ? t("common.movie") : null].filter(Boolean).join(" ")}
                 </div>
                 <div className="muted small">
-                  {e.completed ? "✓ Assistido" : [`${clock(e.positionMs)} assistidos`, remaining(e)].filter(Boolean).join(" · ")} · {lastWatched(e.lastWatchedEpochMs)}
+                  {e.completed ? t("common.watched") : [t("library.watchedTime", { time: clock(e.positionMs) }), remaining(e)].filter(Boolean).join(" · ")} · {lastWatched(e.lastWatchedEpochMs)}
                 </div>
                 {!e.completed && e.durationMs > 0 && (
                   <div className="progress inline"><div style={{ width: `${Math.max(2, e.fraction * 100)}%` }} /></div>
                 )}
               </div>
             </button>
-            {e.inProgress && <button className="chip" onClick={() => onResume(e)} data-testid="history-resume">▶ Continuar</button>}
-            <button className="icon-btn" aria-label={`Remover ${e.title} do histórico`} title="Remover do histórico" data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
+            {e.inProgress && <button className="chip" onClick={() => onResume(e)} data-testid="history-resume">{t("library.continueAction")}</button>}
+            <button className="icon-btn" aria-label={t("library.removeHistoryAria", { title: e.title })} title={t("library.removeHistory")} data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
           </li>
         ))}
       </ul>
       {next !== null && (
         <div ref={sentinel} className="library-pad">
-          {busy ? <span className="muted">Carregando…</span> : <button className="link" onClick={loadMore}>Carregar mais ({total - (items?.length ?? 0)})</button>}
+          {busy ? <span className="muted">{t("common.loading")}</span> : <button className="link" onClick={loadMore}>{t("library.loadMore", { count: total - (items?.length ?? 0) })}</button>}
         </div>
       )}
     </div>

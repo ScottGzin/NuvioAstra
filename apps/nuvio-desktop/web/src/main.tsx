@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { api } from "./api";
 import { invoke } from "./tauri";
 import { App } from "./App";
+import { I18nProvider } from "./i18n";
 import { PlayerProvider } from "./player/PlayerContext";
 import { SelftestView } from "./player/SelftestView";
 import { runUiTest } from "./uitest/driver";
@@ -23,11 +24,16 @@ function Root() {
     if (mode !== null) window.setTimeout(() => void invoke("window_ready").catch(() => {}), 30);
   }, [mode]);
   if (mode === null) return null;
-  if (mode === "selftest") return <SelftestView />;
   return (
-    <PlayerProvider>
-      <App />
-    </PlayerProvider>
+    <I18nProvider>
+      {mode === "selftest" ? (
+        <SelftestView />
+      ) : (
+        <PlayerProvider>
+          <App />
+        </PlayerProvider>
+      )}
+    </I18nProvider>
   );
 }
 

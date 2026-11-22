@@ -4,6 +4,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api, notifyRemoteChange } from "./api";
+import { locale, translate } from "./i18n";
 import { listen } from "./tauri";
 import type { AccountStatus, AvatarItem } from "./types";
 
@@ -55,20 +56,20 @@ export function useAvatars(): AvatarItem[] {
 
 export function syncLabel(s: AccountStatus): { text: string; tone: "ok" | "busy" | "warn" | "off" | "error" } {
   switch (s.state) {
-    case "syncing": return { text: "Sincronizando…", tone: "busy" };
-    case "pending": return { text: `${s.pending} alteração(ões) aguardando envio`, tone: "warn" };
-    case "offline": return { text: "Sem conexão — alterações guardadas para enviar depois", tone: "off" };
-    case "error": return { text: "Erro de sincronização", tone: "error" };
-    case "needsReview": return { text: "Revise a primeira sincronização", tone: "warn" };
-    case "expired": return { text: "Sessão expirada", tone: "error" };
-    case "signedOut": return { text: "Desconectado", tone: "off" };
-    case "notConfigured": return { text: "Conta indisponível nesta versão", tone: "off" };
-    default: return { text: "Sincronizado", tone: "ok" };
+    case "syncing": return { text: translate("account.statusSyncing"), tone: "busy" };
+    case "pending": return { text: translate("account.statusPending", { count: s.pending }), tone: "warn" };
+    case "offline": return { text: translate("account.statusOffline"), tone: "off" };
+    case "error": return { text: translate("account.statusError"), tone: "error" };
+    case "needsReview": return { text: translate("account.statusNeedsReview"), tone: "warn" };
+    case "expired": return { text: translate("account.statusExpired"), tone: "error" };
+    case "signedOut": return { text: translate("account.statusSignedOut"), tone: "off" };
+    case "notConfigured": return { text: translate("account.statusNotConfigured"), tone: "off" };
+    default: return { text: translate("account.statusSynced"), tone: "ok" };
   }
 }
 
 export function when(epochMs: number): string {
-  if (!epochMs) return "nunca";
+  if (!epochMs) return translate("account.never");
   const d = new Date(epochMs);
-  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleString(locale(), { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }

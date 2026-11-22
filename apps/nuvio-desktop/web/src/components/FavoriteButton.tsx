@@ -2,6 +2,7 @@
 // shows the same state on every screen; clicking never asks the addons anything.
 
 import { memo, useState } from "react";
+import { useI18n } from "../i18n";
 import { libraryItemFromPreview, toggleFavorite, useIsFavorite } from "../library";
 import type { LibraryItem, MetaPreview } from "../types";
 
@@ -12,9 +13,10 @@ interface Props {
 }
 
 export const FavoriteButton = memo(function FavoriteButton({ item, variant = "icon" }: Props) {
+  const { t } = useI18n();
   const on = useIsFavorite(item.contentType, item.id);
   const [failed, setFailed] = useState(false);
-  const label = on ? "Remover da Biblioteca" : "Salvar na Biblioteca";
+  const label = on ? t("favorite.remove") : t("favorite.save");
   const click = (e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -27,12 +29,12 @@ export const FavoriteButton = memo(function FavoriteButton({ item, variant = "ic
       className={`fav-btn ${variant} ${on ? "on" : ""} ${failed ? "failed" : ""}`}
       aria-pressed={on}
       aria-label={label}
-      title={failed ? "Não foi possível salvar. Tente de novo." : label}
+      title={failed ? t("favorite.failed") : label}
       data-testid="favorite"
       onClick={click}
     >
       <span aria-hidden>{on ? "♥" : "♡"}</span>
-      {variant === "pill" && <span>{on ? "Na Biblioteca" : "Salvar"}</span>}
+      {variant === "pill" && <span>{on ? t("favorite.inLibrary") : t("favorite.saveShort")}</span>}
     </button>
   );
 });

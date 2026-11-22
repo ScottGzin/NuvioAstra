@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { translate, translateBackendError, useI18n } from "../i18n";
 import type { MetaPreview } from "../types";
 import { FavoriteButton } from "./FavoriteButton";
 
@@ -10,16 +11,18 @@ interface Props {
 }
 
 export function typeLabel(contentType: string): string {
-  const t = contentType.toLowerCase();
-  if (t === "movie") return "Filme";
-  if (t === "series" || t === "tv" || t === "show") return "Série";
-  if (t === "anime") return "Anime";
-  return contentType;
+  const type = contentType.toLowerCase();
+  if (type === "movie") return translate("common.movie");
+  if (type === "series" || type === "tv" || type === "show") return translate("common.serie");
+  if (type === "anime") return translate("common.anime");
+  if (type === "channel" || type === "channels") return translate("common.channels");
+  return translateBackendError(contentType);
 }
 
 /** Poster with native lazy loading/decoding: off-screen images are not downloaded. The favorite
  *  heart is a sibling of the card button (no nested buttons). */
 export const PosterCard = memo(function PosterCard({ item, onOpen, showType = false }: Props) {
+  useI18n();
   const shape = item.posterShape === "Landscape" ? "landscape" : item.posterShape === "Square" ? "square" : "poster";
   const image = shape === "landscape" ? item.landscapePoster ?? item.poster : item.poster;
   return (

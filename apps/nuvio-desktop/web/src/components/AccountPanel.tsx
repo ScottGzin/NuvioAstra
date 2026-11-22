@@ -5,10 +5,12 @@
 import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import { set as setAccount, syncLabel, useAccount, when } from "../account";
+import { translateBackendError, useI18n } from "../i18n";
 import type { SyncPreview as Preview } from "../types";
 import { SyncPreview } from "./SyncPreview";
 
 export function AccountPanel() {
+  const { t } = useI18n();
   const account = useAccount();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,11 +39,11 @@ export function AccountPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reviewing, account?.signedIn]);
 
-  if (!account) return <div className="muted">Carregando conta…</div>;
+  if (!account) return <div className="muted">{t("account.loading")}</div>;
   if (!account.configured) {
     return (
       <div className="settings-group" data-testid="account">
-        <p className="muted">Esta versão do Nuvio Astra foi compilada sem o servidor da conta Nuvio, então login e sincronização não estão disponíveis. Todos os dados continuam funcionando neste computador.</p>
+        <p className="muted">{t("account.notConfigured")}</p>
       </div>
     );
   }
@@ -62,13 +64,13 @@ export function AccountPanel() {
     run("signin", async () => {
       setAccount(await api.accountSignIn(email, password));
       setPassword("");
-      setMessage({ ok: true, text: "Conectado. Nada foi sincronizado ainda: revise a prévia e inicie a primeira sincronização quando quiser." });
+      setMessage({ ok: true, text: t("account.signedIn") });
     });
 
   const signUp = () =>
     run("signup", async () => {
       const r = await api.accountSignUp(email, password);
-      setMessage({ ok: true, text: r.message });
+      setMessage({ ok: true, text: translateBackendError(r.message) });
       if (r.signedIn) setAccount(await api.accountStatus());
     });
 
@@ -81,8 +83,8 @@ export function AccountPanel() {
       const ok = !!r && s.state !== "error" && s.state !== "offline";
       setMessage(
         ok
-          ? { ok: true, text: "Sincronização concluída." }
-          : { ok: false, text: s.lastError ?? "Não foi possível sincronizar." },
+          ? { ok: true, text: t("account.syncDone") }
+          : { ok: false, text: translateBackendError(s.lastError ?? t("account.syncFailed")) },
       );
       // A comparison shown in "Ver detalhes" is refreshed; otherwise nothing more is requested.
       if (ok && preview) setPreview(await api.accountSyncPreview().catch(() => null));
@@ -90,18 +92,21 @@ export function AccountPanel() {
 
   const startFirstSync = () => {
     if (!preview) return;
-    const text = `Iniciar a primeira sincronização com ${account?.email ?? "esta conta"}?
-
-Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${preview.conflicts} conflito(s) resolvido(s) pelas regras mostradas. Nada é apagado, e uma cópia verificada dos dados deste computador é feita antes.`;
+    const text = t("account.firstSyncConfirm", {
+      account: account?.email ?? t("account.thisAccount"),
+      send: preview.toSend,
+      receive: preview.toReceive,
+      conflicts: preview.conflicts,
+    });
     if (window.confirm(text)) void syncNow(true);
   };
 
   const signOut = () => {
-    const pending = account.pending > 0 ? `\n\n${account.pending} alteração(ões) ainda não foram enviadas. Elas continuam guardadas neste computador e serão enviadas quando você entrar de novo nesta conta.` : "";
-    if (!window.confirm(`Sair da conta ${account.email ?? ""}?\n\nFavoritos, histórico, progresso, addons e perfis continuam neste computador.${pending}`)) return;
+    const pending = account.pending > 0 ? t("account.signOutPending", { pending: account.pending }) : "";
+    if (!window.confirm(t("account.signOutConfirm", { account: account.email ?? "", pending }))) return;
     void run("signout", async () => {
       setAccount(await api.accountSignOut());
-      setMessage({ ok: true, text: "Você saiu da conta. Os dados locais foram mantidos." });
+      setMessage({ ok: true, text: t("account.signedOut") });
     });
   };
 
@@ -120,69 +125,66 @@ Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${p
                 <div className={`sync-badge ${label.tone}`} data-testid="sync-state" data-state={account.state}>
                   <span className="sync-dot" aria-hidden /> {label.text}
                 </div>
-                <div className="muted small" data-testid="last-sync">Última sincronização: {when(account.lastSyncEpochMs)}</div>
+                <div className="muted small" data-testid="last-sync">{t("account.lastSync", { when: when(account.lastSyncEpochMs) })}</div>
               </div>
             </div>
             <div className="account-actions">
               {!reviewing && (
                 <button className="primary" onClick={() => void syncNow()} disabled={busy !== null || account.state === "syncing"} data-testid="sync-now">
-                  {busy === "sync" || account.state === "syncing" ? "Sincronizando…" : "Sincronizar agora"}
+                  {busy === "sync" || account.state === "syncing" ? t("account.syncing") : t("account.syncNow")}
                 </button>
               )}
-              <button className="ghost" onClick={signOut} disabled={busy !== null} data-testid="sign-out">Sair</button>
+              <button className="ghost" onClick={signOut} disabled={busy !== null} data-testid="sign-out">{t("account.signOut")}</button>
             </div>
           </div>
           {reviewing && (
             <div className="banner review" data-testid="first-sync-review">
-              <p>Nenhum dado foi sincronizado ainda. Confira a prévia em "Ver detalhes"; a primeira sincronização só começa quando você iniciar.</p>
-              {account.linkQuestion && <p data-testid="link-question">{account.linkQuestion}</p>}
-              {busy === "preview" && <p className="muted">Consultando a conta (somente leitura)…</p>}
-              {previewError && <div className="row-error">Não foi possível montar a prévia: {previewError}</div>}
+              <p>{t("account.review")}</p>
+              {account.linkQuestion && <p data-testid="link-question">{translateBackendError(account.linkQuestion)}</p>}
+              {busy === "preview" && <p className="muted">{t("account.previewLoading")}</p>}
+              {previewError && <div className="row-error">{t("account.previewError", { error: previewError })}</div>}
               <div className="account-actions">
                 <button className="primary" onClick={startFirstSync} disabled={busy !== null || !preview || !preview.firstSync} data-testid="first-sync-start">
-                  {busy === "sync" ? "Sincronizando…" : "Iniciar primeira sincronização"}
+                  {busy === "sync" ? t("account.syncing") : t("account.firstSyncStart")}
                 </button>
               </div>
             </div>
           )}
           <details className="account-details" data-testid="account-details" open={reviewing || undefined}>
-            <summary>Ver detalhes</summary>
+            <summary>{t("account.details")}</summary>
             <dl className="facts account-facts">
-              <div className="fact"><dt>Alterações aguardando envio</dt><dd>{account.pending}</dd></div>
+              <div className="fact"><dt>{t("account.pending")}</dt><dd>{account.pending}</dd></div>
               {account.lastReport && (
-                <div className="fact"><dt>Última execução</dt><dd>{account.lastReport.sent} enviado(s) · {account.lastReport.received} recebido(s)</dd></div>
+                <div className="fact"><dt>{t("account.lastRun")}</dt><dd>{t("account.lastRunValues", { sent: account.lastReport.sent, received: account.lastReport.received })}</dd></div>
               )}
             </dl>
-            {account.lastError && <div className="row-error" data-testid="sync-error">{account.lastError}</div>}
+            {account.lastError && <div className="row-error" data-testid="sync-error">{translateBackendError(account.lastError)}</div>}
             <div className="account-actions">
               <button className="ghost" onClick={() => void loadPreview()} disabled={busy !== null || account.state === "syncing"} data-testid={reviewing ? "preview-refresh" : "sync-compare"}>
-                {busy === "preview" ? "Comparando…" : reviewing ? "Atualizar prévia" : "Comparar com a conta"}
+                {busy === "preview" ? t("account.comparing") : reviewing ? t("account.refreshPreview") : t("account.compare")}
               </button>
             </div>
             {preview && <SyncPreview preview={preview} />}
-            <p className="muted small">
-              Sincronizados com a conta Nuvio, por perfil: perfis (nome, cor, avatar, PIN), addons e a ordem deles, favoritos de filmes e séries, progresso de reprodução e títulos assistidos.
-              Funciona sem internet: as alterações ficam guardadas e são enviadas quando a conexão voltar.
-            </p>
+            <p className="muted small">{t("account.syncedDescription")}</p>
           </details>
         </>
       ) : (
         <form className="account-form" onSubmit={(e) => { e.preventDefault(); void signIn(); }} noValidate>
-          {account.state === "expired" && <div className="banner">Sua sessão expirou. Entre novamente — nada deste computador foi apagado.</div>}
-          <p className="muted">Entre com a mesma conta Nuvio que você usa nos outros aparelhos para sincronizar perfis, addons, favoritos e progresso.</p>
+          {account.state === "expired" && <div className="banner">{t("account.sessionExpired")}</div>}
+          <p className="muted">{t("account.signInDescription")}</p>
           <label className="field">
-            <span>E-mail</span>
+            <span>{t("account.email")}</span>
             <input type="text" inputMode="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} data-testid="account-email" />
           </label>
           <label className="field">
-            <span>Senha</span>
+            <span>{t("account.password")}</span>
             <input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} data-testid="account-password" />
           </label>
           <div className="account-actions">
-            <button className="primary" type="submit" disabled={busy !== null || !email.trim() || !password} data-testid="sign-in">{busy === "signin" ? "Entrando…" : "Entrar"}</button>
-            <button className="ghost" type="button" disabled={busy !== null || !email.trim() || password.length < 6} onClick={() => void signUp()}>Criar conta</button>
+            <button className="primary" type="submit" disabled={busy !== null || !email.trim() || !password} data-testid="sign-in">{busy === "signin" ? t("account.signingIn") : t("account.signIn")}</button>
+            <button className="ghost" type="button" disabled={busy !== null || !email.trim() || password.length < 6} onClick={() => void signUp()}>{t("account.signUp")}</button>
           </div>
-          <p className="muted small">A senha vai apenas para o servidor da conta Nuvio. A sessão fica guardada criptografada pelo Windows (DPAPI) e só este usuário deste computador consegue usá-la.</p>
+          <p className="muted small">{t("account.passwordNote")}</p>
         </form>
       )}
       {message && <div className={`addon-feedback ${message.ok ? "ok" : "error"}`} role="status" data-testid="account-message">{message.text}</div>}

@@ -2,6 +2,7 @@
 // the Home rows: one line of posters, ‹ › buttons, drag with the mouse.
 
 import { useRef } from "react";
+import { useI18n } from "../i18n";
 import type { MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
 
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function ResultRow({ title, addonName, items, onOpen }: Props) {
+  const { t } = useI18n();
   const track = useRef<HTMLDivElement>(null);
   const scrollBy = (dir: number) => track.current?.scrollBy({ left: dir * track.current.clientWidth * 0.85, behavior: "smooth" });
   return (
@@ -21,8 +23,8 @@ export function ResultRow({ title, addonName, items, onOpen }: Props) {
         <h2>{title}</h2>
         <span className="muted small">{addonName}</span>
         <span className="spacer" />
-        <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-        <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+        <button className="icon-btn" aria-label={t("common.previous")} onClick={() => scrollBy(-1)}>‹</button>
+        <button className="icon-btn" aria-label={t("common.next")} onClick={() => scrollBy(1)}>›</button>
       </header>
       <div className="row-track" ref={track}>
         {items.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)}

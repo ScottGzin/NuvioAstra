@@ -3,6 +3,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
+import { translateBackendError, useI18n } from "../i18n";
 import type { ProfileInfo } from "../types";
 import { Avatar } from "./ProfileMenu";
 
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
+  const { t } = useI18n();
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -28,7 +30,7 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
       const r = await api.profileUnlock(profile.index, value);
       if (r.unlocked) onUnlocked();
       else {
-        setError(r.message ?? "PIN incorreto");
+        setError(translateBackendError(r.message ?? t("pin.incorrect")));
         setPin("");
       }
     } catch (e) {
@@ -42,9 +44,9 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={`PIN de ${profile.name}`} data-testid="pin-dialog">
+      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={t("pin.dialogAria", { name: profile.name })} data-testid="pin-dialog">
         <Avatar profile={profile} size={64} />
-        <h2>Insira o PIN para {profile.name}</h2>
+        <h2>{t("pin.enterFor", { name: profile.name })}</h2>
         <div className="pin-dots" aria-hidden>
           {[0, 1, 2, 3].map((i) => <span key={i} className={`pin-dot ${i < pin.length ? "filled" : ""} ${error ? "error" : ""}`} />)}
         </div>
@@ -64,8 +66,8 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
           }}
         />
         {error && <div className="row-error" role="alert">{error}</div>}
-        {busy && <div className="muted small">Verificando…</div>}
-        {onCancel && <button className="chip" onClick={onCancel}>Cancelar</button>}
+        {busy && <div className="muted small">{t("pin.verifying")}</div>}
+        {onCancel && <button className="chip" onClick={onCancel}>{t("common.cancel")}</button>}
       </div>
     </div>
   );
