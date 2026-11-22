@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 import { invoke } from "./tauri";
 import type {
   EpgView,
@@ -168,5 +169,5 @@ async function changed<T>(reason: "profile" | "addons", call: Promise<T>): Promi
 }
 
 export function errorText(error: unknown): string {
-  return typeof error === "string" ? error : error instanceof Error ? error.message : "erro desconhecido";
+  return typeof error === "string" ? error : error instanceof Error ? error.message : t("unknown error");
 }

@@ -60,7 +60,7 @@ pub fn canonical_info_hash(hash: &str) -> Result<String, String> {
     if (h.len() == 40 || h.len() == 64) && h.chars().all(|c| c.is_ascii_hexdigit()) {
         Ok(h)
     } else {
-        Err("O hash do torrent precisa ter 40 ou 64 caracteres hexadecimais.".into())
+        Err("The torrent hash must have 40 or 64 hexadecimal characters.".into())
     }
 }
 
@@ -234,8 +234,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn create(api: Arc<Api>, config: &EngineConfig) -> Result<Self, String> {
-        std::fs::create_dir_all(&config.data_dir).map_err(|e| format!("pasta do motor P2P: {e}"))?;
-        std::fs::create_dir_all(&config.cache_dir).map_err(|e| format!("cache do motor P2P: {e}"))?;
+        std::fs::create_dir_all(&config.data_dir).map_err(|e| format!("P2P engine folder: {e}"))?;
+        std::fs::create_dir_all(&config.cache_dir).map_err(|e| format!("P2P engine cache: {e}"))?;
         let data = path_cstring(&config.data_dir)?;
         let cache = path_cstring(&config.cache_dir)?;
         let mut c: ffi::Config = ffi::init(api.config_init);
@@ -254,7 +254,7 @@ impl Engine {
         // SAFETY: `c` was initialized by the engine and its strings outlive the call.
         let status = unsafe { (api.create)(&c, &mut handle) };
         if status != ffi::STATUS_OK || handle.is_null() {
-            return Err(format!("Não foi possível iniciar o motor P2P: {}", message(&api, status)));
+            return Err(format!("Could not start the P2P engine: {}", message(&api, status)));
         }
         let native = Arc::new(Native { api, handle, lock: Mutex::new(()) });
         let waiters: Arc<Mutex<Waiters>> = Arc::default();
@@ -301,7 +301,7 @@ impl Engine {
         loop {
             match rx.recv_timeout(Duration::from_millis(150)) {
                 Ok(r) => return r,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("motor P2P encerrado".into()),
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err("P2P engine stopped".into()),
                 Err(_) if cancel() => return Err(CANCELLED.into()),
                 Err(_) if Instant::now() >= deadline => return Err(TIMEOUT.into()),
                 Err(_) => {}
@@ -311,7 +311,7 @@ impl Engine {
 
     /// Adds a magnet link and waits for its metadata; returns the torrent id.
     pub fn add_magnet(&self, magnet: &str, cancel: &dyn Fn() -> bool) -> Result<String, String> {
-        let uri = CString::new(magnet).map_err(|_| "link magnet inválido".to_string())?;
+        let uri = CString::new(magnet).map_err(|_| "invalid magnet link".to_string())?;
         let e = self.command(ffi::EVENT_METADATA_READY, METADATA_TIMEOUT, cancel, |api, h, req| {
             let mut r: ffi::TorrentRequest = ffi::init(api.torrent_request_init);
             r.source_type = ffi::SOURCE_MAGNET;
@@ -414,8 +414,8 @@ impl Drop for Engine {
     }
 }
 
-const CANCELLED: &str = "cancelado";
-const TIMEOUT: &str = "O torrent não respondeu a tempo (sem peers ou metadados).";
+const CANCELLED: &str = "canceled";
+const TIMEOUT: &str = "The torrent did not respond in time (no peers or metadata).";
 
 fn event_loop(native: &Native, waiters: &Mutex<Waiters>, async_error: &Mutex<Option<String>>, stop: &AtomicBool) {
     while !stop.load(Ordering::SeqCst) {
@@ -442,7 +442,7 @@ fn event_loop(native: &Native, waiters: &Mutex<Waiters>, async_error: &Mutex<Opt
             };
             if e.request_id == 0 {
                 if data.kind == ffi::EVENT_TORRENT_ERROR || (data.kind == ffi::EVENT_STREAM_STOPPED && !data.message.is_empty()) {
-                    *async_error.lock().expect("p2p error") = Some(if data.message.is_empty() { "erro desconhecido do torrent".into() } else { data.message });
+                    *async_error.lock().expect("p2p error") = Some(if data.message.is_empty() { "unknown torrent error".into() } else { data.message });
                 }
                 continue;
             }
@@ -450,7 +450,7 @@ fn event_loop(native: &Native, waiters: &Mutex<Waiters>, async_error: &Mutex<Opt
             if let Some((expected, _)) = w.get(&e.request_id) {
                 if data.kind == ffi::EVENT_TORRENT_ERROR {
                     let (_, tx) = w.remove(&e.request_id).expect("present");
-                    let _ = tx.send(Err(if data.message.is_empty() { "falha na operação do torrent".into() } else { data.message }));
+                    let _ = tx.send(Err(if data.message.is_empty() { "torrent operation failed".into() } else { data.message }));
                 } else if data.kind == *expected {
                     let (_, tx) = w.remove(&e.request_id).expect("present");
                     let _ = tx.send(Ok(data));
@@ -466,13 +466,13 @@ fn event_loop(native: &Native, waiters: &Mutex<Waiters>, async_error: &Mutex<Opt
 fn message(api: &Api, status: i32) -> String {
     // SAFETY: static string of the engine.
     let m = unsafe { ffi::c_text((api.status_message)(status)) };
-    if m.is_empty() { format!("código {status}") } else { m }
+    if m.is_empty() { format!("code {status}") } else { m }
 }
 
 fn path_cstring(p: &Path) -> Result<CString, String> {
-    let s = p.to_str().ok_or("caminho do motor P2P com caracteres inválidos")?;
+    let s = p.to_str().ok_or("P2P engine path contains invalid characters")?;
     if s.len() >= 4096 {
-        return Err("caminho do motor P2P longo demais".into());
+        return Err("P2P engine path is too long".into());
     }
     CString::new(s).map_err(|e| e.to_string())
 }
@@ -573,7 +573,7 @@ impl P2pService {
                 file_count: files.len(),
             };
             if !prepared.url.starts_with("http://127.0.0.1") && !prepared.url.starts_with("http://localhost") && !prepared.url.starts_with("http://[::1]") {
-                return Err("o motor P2P devolveu um endereço que não é local".into());
+                return Err("the P2P engine returned a non-local address".into());
             }
             self.with_active(generation, |a| a.stream = Some(prepared.clone()))?;
             self.set_status(|s| {
@@ -664,7 +664,7 @@ impl P2pService {
     /// Clears the torrent cache (not while streaming), like "Limpar cache" in the original.
     pub fn clear_cache(&self, dll: &Path, config: &EngineConfig) -> Result<u64, String> {
         if self.is_active() {
-            return Err("O cache não pode ser limpo durante uma reprodução P2P.".into());
+            return Err("The cache cannot be cleared during P2P playback.".into());
         }
         let before = dir_size(&config.cache_dir);
         let engine = Engine::create(load_api(dll)?, config)?;

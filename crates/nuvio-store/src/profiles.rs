@@ -91,7 +91,7 @@ pub struct Profiles {
 
 impl Default for Profiles {
     fn default() -> Self {
-        Self { active: 1, profiles: vec![Profile { index: 1, name: "Perfil 1".into(), ..Profile::default() }] }
+        Self { active: 1, profiles: vec![Profile { index: 1, name: "Profile 1".into(), ..Profile::default() }] }
     }
 }
 
@@ -138,10 +138,10 @@ pub enum ProfileError {
 impl std::fmt::Display for ProfileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::Limit => "Limite de 6 perfis atingido.",
-            Self::NotFound => "Perfil não encontrado.",
-            Self::PrimaryCannotBeDeleted => "O perfil principal não pode ser excluído.",
-            Self::EmptyName => "Informe um nome para o perfil.",
+            Self::Limit => "The limit of 6 profiles has been reached.",
+            Self::NotFound => "Profile not found.",
+            Self::PrimaryCannotBeDeleted => "The primary profile cannot be deleted.",
+            Self::EmptyName => "Enter a name for the profile.",
         })
     }
 }
@@ -192,9 +192,9 @@ impl std::fmt::Display for AddonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Texts of the original (pt-BR).
         f.write_str(match self {
-            Self::AlreadyInstalled => "Esse addon já está instalado.",
-            Self::NotFound => "Addon não encontrado.",
-            Self::ReadOnlyProfile => "Este perfil usa addons primários.",
+            Self::AlreadyInstalled => "This addon is already installed.",
+            Self::NotFound => "Addon not found.",
+            Self::ReadOnlyProfile => "This profile uses the primary profile’s addons.",
         })
     }
 }

@@ -4,6 +4,7 @@
 // that movie and of one episode (explicitly chosen by this script), no channel resolution.
 
 import { api } from "../api";
+import { setLang } from "../i18n";
 import { invoke } from "../tauri";
 
 interface Check { name: string; passed: boolean; detail: string }
@@ -48,7 +49,7 @@ async function expectDetails(label: string, id: string | null, type: string): Pr
   const page = await waitFor(() => {
     const d = $$(".details").find((el) => visible(el) && (!id || el.dataset.id === id));
     if (d) return d;
-    const err = $$(".screen-message").find((el) => visible(el) && el.textContent?.includes("Não foi possível abrir"));
+    const err = $$(".screen-message").find((el) => visible(el) && el.textContent?.includes("Could not open"));
     return err ?? null;
   }, 30000);
   if (!page || !page.classList.contains("details")) {
@@ -71,7 +72,7 @@ async function playFirstSource(label: string, whilePlaying?: () => Promise<void>
   const list = await waitFor(() => {
     const s = $(".details .streams");
     if (s) return s;
-    const msg = $$(".details .sources-panel .muted, .details .details-section .muted, .details .row-error").find((el) => /Nenhum addon|Falha/.test(el.textContent ?? ""));
+    const msg = $$(".details .sources-panel .muted, .details .details-section .muted, .details .row-error").find((el) => /No installed addon|failed/i.test(el.textContent ?? ""));
     return msg ?? null;
   }, 45000);
   if (!list || !list.classList.contains("streams")) {
@@ -189,12 +190,12 @@ async function openSettings(sectionId: string): Promise<boolean> {
 }
 
 async function waitSaved(label: string) {
-  await sleep(50); // the change itself switches the status to "Salvando…"
+  await sleep(50); // the change itself switches the status to "Saving…"
   const status = await waitFor(() => {
     const el = $('[data-testid="save-status"]');
-    return el && /Salvo|Não foi possível/.test(el.textContent ?? "") ? el : null;
+    return el && /Saved|Could not/.test(el.textContent ?? "") ? el : null;
   }, 5000);
-  check(`${label}: saved`, !!status && /Salvo/.test(status.textContent ?? ""), status?.textContent ?? "no feedback in 5 s");
+  check(`${label}: saved`, !!status && /Saved/.test(status.textContent ?? ""), status?.textContent ?? "no feedback in 5 s");
   await sleep(200);
 }
 
@@ -206,7 +207,7 @@ async function settingsTour() {
   }
   const nav = $(".settings-nav");
   const sidebarItem = $('[data-tab="settings"]');
-  check("settings: sidebar item", !!sidebarItem && sidebarItem.classList.contains("active") && /Configurações/.test(sidebarItem.textContent ?? ""), "⚙ Configurações above the profile, highlighted when open");
+  check("settings: sidebar item", !!sidebarItem && sidebarItem.classList.contains("active") && /Settings/.test(sidebarItem.textContent ?? ""), "⚙ Configurações above the profile, highlighted when open");
   for (const id of ["home", "playback", "audio", "subtitles", "data", "pending"]) {
     const button = $(`.settings-nav [data-section="${id}"]`, nav!)!;
     click(button);
@@ -235,13 +236,13 @@ async function settingsWrite(): Promise<Record<string, unknown>> {
   setValue($<HTMLSelectElement>('select[data-setting="decoderPriority"]')!, "2");
   await waitSaved("set decoder software only");
   await openSettings("audio");
-  setValue($<HTMLSelectElement>('select[aria-label="Idioma de áudio preferido"]')!, "en");
+  setValue($<HTMLSelectElement>('select[aria-label="Preferred audio language"]')!, "en");
   await waitSaved("set audio language en");
   await openSettings("subtitles");
-  setValue($<HTMLInputElement>('input[aria-label="Tamanho da legenda"]')!, "24");
+  setValue($<HTMLInputElement>('input[aria-label="Subtitle size"]')!, "24");
   await waitSaved("set subtitle size 24");
   await openSettings("home");
-  const hero = $<HTMLButtonElement>('[role=switch][aria-label="Destaque no topo"]')!;
+  const hero = $<HTMLButtonElement>('[role=switch][aria-label="Featured at top"]')!;
   if (hero.getAttribute("aria-checked") === "true") click(hero);
   await waitSaved("hero off");
 
@@ -276,9 +277,9 @@ async function settingsVerify(original: { resizeMode: string; decoderPriority: n
   const resize = $<HTMLSelectElement>('select[data-setting="resizeMode"]')?.value;
   const decoder = $<HTMLSelectElement>('select[data-setting="decoderPriority"]')?.value;
   await openSettings("subtitles");
-  const font = $<HTMLInputElement>('input[aria-label="Tamanho da legenda"]')?.value;
+  const font = $<HTMLInputElement>('input[aria-label="Subtitle size"]')?.value;
   await openSettings("home");
-  const hero = $('[role=switch][aria-label="Destaque no topo"]')?.getAttribute("aria-checked");
+  const hero = $('[role=switch][aria-label="Featured at top"]')?.getAttribute("aria-checked");
   check("settings after restart: shown in the UI", resize === "Stretch" && decoder === "2" && font === "24" && hero === "false", JSON.stringify({ resize, decoder, font, hero }));
 
   // Restore through the same command the UI uses.
@@ -429,18 +430,18 @@ async function favoritesGrid(movie: Opened, series: Opened) {
   const m = cards().find((c) => c.dataset.id === movie.id);
   const s = cards().find((c) => c.dataset.id === series.id);
   check("library favorites: both titles in the grid", !!grid && !!m && !!s, `${cards().length} favorito(s); filme: ${$(".card-type", m ?? document)?.textContent ?? "—"}, série: ${$(".card-type", s ?? document)?.textContent ?? "—"}`);
-  check("library favorites: type, title, saved mark", $(".card-type", m!)?.textContent === "Filme" && $(".card-type", s!)?.textContent === "Série" && pressed(heartOf(m!)) && !!$(".card-title", m!)?.textContent, "selo Filme/Série, título, ♥");
+  check("library favorites: type, title, saved mark", $(".card-type", m!)?.textContent === "Movie" && $(".card-type", s!)?.textContent === "Series" && pressed(heartOf(m!)) && !!$(".card-title", m!)?.textContent, "selo Filme/Série, título, ♥");
   setValue($<HTMLSelectElement>('[data-testid="library-sort"]')!, "titleAsc");
   await sleep(300);
   const names = cards().map((c) => c.title);
-  const sorted = [...names].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  const sorted = [...names].sort((a, b) => a.localeCompare(b, "en-US", { sensitivity: "base" }));
   check("library favorites: sort by title", JSON.stringify(names) === JSON.stringify(sorted), names.slice(0, 5).join(" · "));
-  const moviesChip = $$<HTMLButtonElement>(".library-toolbar .chip").find((b) => b.textContent?.startsWith("Filmes"));
+  const moviesChip = $$<HTMLButtonElement>(".library-toolbar .chip").find((b) => b.textContent?.startsWith("Movies"));
   if (moviesChip) {
     click(moviesChip);
     await sleep(300);
     check("library favorites: filter Filmes", cards().every((c) => c.dataset.contentType === "movie") && cards().some((c) => c.dataset.id === movie.id), `${cards().length} filme(s)`);
-    click($$<HTMLButtonElement>(".library-toolbar .chip").find((b) => b.textContent?.startsWith("Todos"))!);
+    click($$<HTMLButtonElement>(".library-toolbar .chip").find((b) => b.textContent?.startsWith("All"))!);
   }
   setValue($<HTMLSelectElement>('[data-testid="library-sort"]')!, "addedDesc");
   click(m!);
@@ -503,7 +504,7 @@ async function movieProgress(movie: Opened): Promise<{ resumedFrom: number } | n
     `${history.length} registro(s) do filme; data ${historyBefore ? new Date(historyBefore.lastWatchedEpochMs).toLocaleTimeString() : "?"} → ${history[0] ? new Date(history[0].lastWatchedEpochMs).toLocaleTimeString() : "?"}`);
   const cwNow = await api.libraryContinueWatching();
   check("progress movie: completed leaves Continue watching", !cwNow.some((e) => e.key === closed.key), `${cwNow.length} item(ns) em Continuar assistindo`);
-  const shown = await waitFor(() => /Assistido/.test($('[data-testid="movie-progress"]')?.textContent ?? "") ? $('[data-testid="movie-progress"]') : null, 5000);
+  const shown = await waitFor(() => /Watched/.test($('[data-testid="movie-progress"]')?.textContent ?? "") ? $('[data-testid="movie-progress"]') : null, 5000);
   check("details: completed movie marked", !!shown, shown?.textContent ?? "no mark");
   await back();
   return { resumedFrom };
@@ -519,7 +520,7 @@ async function episodeProgress(): Promise<{ seriesId: string; key: string; posit
     click(card);
     const opened = await expectDetails(`progress series #${i + 1}`, card.dataset.id ?? null, "series");
     if (!opened) continue;
-    const seasons = $$<HTMLButtonElement>(".details .season-tabs .chip").filter((t) => !/Especiais/.test(t.textContent ?? ""));
+    const seasons = $$<HTMLButtonElement>(".details .season-tabs .chip").filter((t) => !/Specials/.test(t.textContent ?? ""));
     if (seasons.length) {
       click(seasons[seasons.length - 1]);
       await sleep(300);
@@ -747,7 +748,7 @@ async function manageWrite(): Promise<Record<string, unknown>> {
   typeInto(input, "endereco-que-nao-existe.invalid");
   await sleep(150); // React enables "Verificar" after the input event
   const invalid = await feedbackAfter(() => click($<HTMLButtonElement>('[data-testid="addon-check"]')!), 75000);
-  check("addons install: invalid address rejected", /erro:/.test(invalid) && !$('[data-testid="addon-preview"]'), invalid);
+  check("addons install: invalid address rejected", /error|invalid|could not|failed/i.test(invalid) && !$('[data-testid="addon-preview"]'), invalid);
   let installed: { key: string; name: string } | null = null;
   for (const url of PUBLIC_ADDONS) {
     typeInto(input, url);
@@ -769,7 +770,7 @@ async function manageWrite(): Promise<Record<string, unknown>> {
     typeInto(input, url);
     await sleep(150);
     const dup = await feedbackAfter(() => click($<HTMLButtonElement>('[data-testid="addon-check"]')!));
-    check("addons install: duplicate detected", /já está instalado/.test(dup), dup);
+    check("addons install: duplicate detected", /already installed/.test(dup), dup);
     break;
   }
   if (!installed) check("addons install: valid addon", false, "nenhum dos manifests públicos estava disponível ou todos já estavam instalados");
@@ -797,7 +798,7 @@ async function manageWrite(): Promise<Record<string, unknown>> {
     const refreshTarget = (await api.addonsList()).addons.find((a) => a.status === "ok");
     if (refreshTarget) {
       const r = await feedbackAfter(() => click($<HTMLButtonElement>('[data-testid="addon-refresh"]', cardByKey(refreshTarget.key)!)!));
-      check("addons: manual refresh feedback", /atualizado/.test(r), r);
+      check("addons: manual refresh feedback", /updated/.test(r), r);
     }
   }
   const counts1 = await storeCounts();
@@ -866,7 +867,7 @@ async function manageWrite(): Promise<Record<string, unknown>> {
   const libIds = $$(".library-grid .card[data-id]").map((c) => `${c.dataset.contentType}/${c.dataset.id}`);
   check("profiles: Library of the new profile", !!libShown && libIds.every((k) => fav2.includes(k)) && libIds.length === Math.min(fav2.length, 60), `${libIds.length} favorito(s) na tela`);
   await goTab("tv");
-  const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Carregando/.test(m.textContent ?? "")), 60000);
+  const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Loading/.test(m.textContent ?? "")), 60000);
   check("profiles: TV with the new profile's addons", !!tv, tv ? `${$$(".channel").length} canais` : "timeout");
   const countsAfter = await storeCounts();
   const p1Before = countsBefore[String(first)];
@@ -897,7 +898,7 @@ async function manageVerify(info: { first: number; other?: number; installed: { 
     check("after restart: addon and disabled state kept", a?.status === "disabled", a ? `${a.name}: ${a.status}` : "ausente");
     lastConfirm = "";
     const r = await feedbackAfter(() => click($<HTMLButtonElement>('[data-testid="addon-remove"]', cardByKey(info.installed!.key)!)!));
-    check("addons: remove with confirmation", /Excluir addon/.test(lastConfirm) && !(await api.addonsList()).addons.some((x) => x.key === info.installed!.key), `${r} · confirmação: “${lastConfirm.split("\n")[0]}”`);
+    check("addons: remove with confirmation", /Delete addon/.test(lastConfirm) && !(await api.addonsList()).addons.some((x) => x.key === info.installed!.key), `${r} · confirmação: “${lastConfirm.split("\n")[0]}”`);
     check("addons: library kept after removal", JSON.stringify(await storeCounts()) === JSON.stringify(counts0), JSON.stringify(counts0));
   }
   const home = await homeRowsByAddon();
@@ -926,7 +927,7 @@ async function manageVerify(info: { first: number; other?: number; installed: { 
   const tile = await waitFor(() => $$<HTMLButtonElement>(".profile-tile[data-profile]").find((t) => /Teste NextGen/.test(t.textContent ?? "")), 5000);
   const newIndex = Number(tile?.dataset.profile ?? 0);
   check("profiles: create", !!tile, tile ? `perfil ${newIndex}` : "não criado");
-  click($<HTMLButtonElement>('.modal [aria-label="Fechar"]')!);
+  click($<HTMLButtonElement>('.modal [aria-label="Close"]')!);
   if (!newIndex) return;
   check("profiles: switch to the new profile", await switchTo(newIndex), `perfil ${newIndex}`);
   const empty = await Promise.all([api.libraryFavoriteKeys(), api.libraryContinueWatching(), api.addonsList()]);
@@ -943,13 +944,13 @@ async function manageVerify(info: { first: number; other?: number; installed: { 
     lastConfirm = "";
     click((await waitFor(() => $<HTMLButtonElement>('[data-testid="profile-delete"]'), 3000))!);
     const gone = await waitFor(() => !$(`.profile-tile[data-profile="${newIndex}"]`) && $$(".profile-tile[data-profile]").length > 0, 5000);
-    check("profiles: delete with confirmation and backup", !!gone && /Excluir perfil/.test(lastConfirm) && !(await api.profilesList()).profiles.some((p) => p.index === newIndex), `confirmação: “${lastConfirm.split("\n")[0]}”`);
-    click($<HTMLButtonElement>('.modal [aria-label="Fechar"]')!);
+    check("profiles: delete with confirmation and backup", !!gone && /Delete profile/.test(lastConfirm) && !(await api.profilesList()).profiles.some((p) => p.index === newIndex), `confirmação: “${lastConfirm.split("\n")[0]}”`);
+    click($<HTMLButtonElement>('.modal [aria-label="Close"]')!);
   }
   const countsEnd = await storeCounts();
   check("profiles: other profiles untouched", [info.first, info.other].filter((x): x is number => x !== undefined).every((p) => JSON.stringify(countsEnd[String(p)]) === JSON.stringify(counts0[String(p)])), JSON.stringify(countsEnd));
   await goTab("tv");
-  const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Carregando/.test(m.textContent ?? "")), 60000);
+  const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Loading/.test(m.textContent ?? "")), 60000);
   check("regression: TV", !!tv, tv ? `${$$(".channel").length} canais` : "timeout");
   await capture("profiles-after");
 }
@@ -995,8 +996,8 @@ async function accountUi(): Promise<Record<string, unknown>> {
     await waitFor(() => imgs.some((i) => i.complete && i.naturalWidth > 0), 10000);
     const loaded = imgs.filter((i) => i.complete && i.naturalWidth > 0).length;
     check("avatars: picker shows the catalog images", !!picker && loaded > 0, `${imgs.length} opções, ${loaded} imagens carregadas`);
-    const pinText = $('[data-testid="pin-section"]')?.textContent ?? $$(".setting-row").find((r) => /Bloqueio por PIN/.test(r.textContent ?? ""))?.textContent ?? "";
-    check("pin: needs the account when signed out", /Entre na conta Nuvio/.test(pinText), pinText.slice(0, 90));
+    const pinText = $('[data-testid="pin-section"]')?.textContent ?? $$(".setting-row").find((r) => /PIN lock/.test(r.textContent ?? ""))?.textContent ?? "";
+    check("pin: needs the account when signed out", /Sign in to the Nuvio account/.test(pinText), pinText.slice(0, 90));
     const choice = picker ? $<HTMLButtonElement>(".avatar-choice[data-avatar]:not(.active)", picker) : null;
     if (choice) {
       chosen = choice.dataset.avatar ?? null;
@@ -1006,7 +1007,7 @@ async function accountUi(): Promise<Record<string, unknown>> {
       const saved = await waitFor(() => !$('[data-testid="profile-name"]') ? true : null, 5000);
       const after = await api.profilesList();
       check("avatars: chosen avatar saved", !!saved && after.profiles.find((p) => p.index === after.active)?.avatarId === chosen, `avatar ${chosen}`);
-      click($<HTMLButtonElement>('.modal [aria-label="Fechar"]')!);
+      click($<HTMLButtonElement>('.modal [aria-label="Close"]')!);
       const img = await waitFor(() => $<HTMLImageElement>('[data-testid="profile-chip"] .avatar-img img'), 5000);
       check("avatars: sidebar shows the avatar image", !!img, img ? "imagem do avatar na barra lateral" : "sem imagem");
     }
@@ -1079,7 +1080,7 @@ async function p2pPhase(): Promise<Record<string, unknown>> {
   // P2P is off on this profile: the original's notice comes first.
   const notice = await waitFor(() => $<HTMLButtonElement>('[data-testid="p2p-accept"]'), 15000);
   const noticeText = $(".p2p-consent")?.textContent ?? "";
-  check("p2p: notice before any connection", !!notice && /endereço IP ficará visível/.test(noticeText), notice ? "aviso P2P do original exibido" : "no notice");
+  check("p2p: notice before any connection", !!notice && /IP address will be visible/.test(noticeText), notice ? "aviso P2P do original exibido" : "no notice");
   const during0 = await resources();
   check("p2p: nothing started before consent", during0.udp <= before.udp && during0.tcpListening <= before.tcpListening, JSON.stringify(during0));
   if (!notice) return {};
@@ -1280,6 +1281,7 @@ async function trailerPhase(): Promise<Record<string, unknown>> {
 }
 
 export async function runUiTest() {
+  setLang("en"); // the checks match English text
   const started = performance.now();
   const phase = await invoke<string>("uitest_phase").catch(() => "");
   let extra: Record<string, unknown> = {};
@@ -1338,7 +1340,7 @@ export async function runUiTest() {
           click(card);
           if (!(await expectDetails(`series #${attempt + 1} (Home)`, card.dataset.id ?? null, "series"))) continue;
         }
-        const seasonTabs = $$<HTMLButtonElement>(".details .season-tabs .chip").filter((t) => !/Especiais/.test(t.textContent ?? ""));
+        const seasonTabs = $$<HTMLButtonElement>(".details .season-tabs .chip").filter((t) => !/Specials/.test(t.textContent ?? ""));
         if (seasonTabs.length) {
           click(seasonTabs[seasonTabs.length - 1]);
           await sleep(300);
@@ -1377,7 +1379,7 @@ export async function runUiTest() {
     click($('[data-tab="home"]')!);
     check("navigation: Home", !!(await waitFor(() => $$(".row-section").find(visible), 10000)), "rows visible");
     click($('[data-tab="tv"]')!);
-    const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Carregando/.test(m.textContent ?? "")), 60000);
+    const tv = await waitFor(() => $(".channel") ?? $$(".livetv .screen-message").find((m) => !/Loading/.test(m.textContent ?? "")), 60000);
     check("navigation: TV", !!tv, tv ? `${$$(".channel").length} canais, ${$$(".livetv .livetv-categories .cat-item").length} filtros` : "timeout");
 
     // 5. Settings: every category opens with its controls (read only in this phase).

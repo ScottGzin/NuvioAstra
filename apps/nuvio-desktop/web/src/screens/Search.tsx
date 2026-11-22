@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { dataEpoch, onDataEpoch } from "../api";
 import { ResultRow } from "../components/ResultRow";
+import { t } from "../i18n";
 import { invoke, listen } from "../tauri";
 import type { MetaPreview, SearchSection } from "../types";
 
@@ -183,22 +184,22 @@ export function Search({ onOpen }: Props) {
         <input
           ref={input}
           type="search"
-          placeholder="Buscar filmes, séries…"
+          placeholder={t("Search movies, series…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addHistory(query)}
-          aria-label="Buscar"
+          aria-label={t("Search")}
           data-testid="search-input"
         />
-        {loading && <span className="spinner" aria-label="Buscando" />}
+        {loading && <span className="spinner" aria-label={t("Searching")} />}
       </div>
 
       {empty && (
         history.length ? (
           <div className="search-history" data-testid="search-history">
             <div className="search-history-head">
-              <span>Pesquisas recentes</span>
-              <button className="link" onClick={clearHistory}>Limpar histórico</button>
+              <span>{t("Recent searches")}</span>
+              <button className="link" onClick={clearHistory}>{t("Clear history")}</button>
             </div>
             <div className="search-history-list">
               {history.map((h) => (
@@ -207,17 +208,17 @@ export function Search({ onOpen }: Props) {
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
                     {h}
                   </button>
-                  <button className="history-remove" aria-label={`Remover “${h}” do histórico`} onClick={() => removeHistory(h)}>×</button>
+                  <button className="history-remove" aria-label={t("Remove “{query}” from history", { query: h })} onClick={() => removeHistory(h)}>×</button>
                 </span>
               ))}
             </div>
           </div>
         ) : (
-          <div className="screen-message muted">Digite ao menos 2 letras.</div>
+          <div className="screen-message muted">{t("Type at least 2 characters.")}</div>
         )
       )}
 
-      {!empty && result?.done && !result.sections.length && <div className="screen-message">Nada encontrado para “{query.trim()}”.</div>}
+      {!empty && result?.done && !result.sections.length && <div className="screen-message">{t("No results for “{query}”.", { query: query.trim() })}</div>}
 
       {!empty &&
         shown.map(({ section }) => (

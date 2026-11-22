@@ -4,9 +4,10 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { locale, t } from "../i18n";
 import type { EpgView } from "../types";
 
-const hhmm = (ms: number) => new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" });
 
 export function EpgGuide({ channelKey }: { channelKey: string }) {
   const [view, setView] = useState<EpgView | null>(null);
@@ -58,9 +59,9 @@ export function EpgGuide({ channelKey }: { channelKey: string }) {
     list.current.scrollTop = current.current ? current.current.offsetTop - list.current.offsetTop : 0;
   }, [view, channelKey]);
 
-  if (failed) return <div className="epg-empty">Não foi possível carregar a programação deste canal.</div>;
-  if (!view) return <div className="epg-empty">Carregando a programação…</div>;
-  if (!view.programs.length) return <div className="epg-empty">Este canal não informa a programação.</div>;
+  if (failed) return <div className="epg-empty">{t("Could not load the schedule for this channel.")}</div>;
+  if (!view) return <div className="epg-empty">{t("Loading the schedule…")}</div>;
+  if (!view.programs.length) return <div className="epg-empty">{t("This channel provides no schedule.")}</div>;
 
   return (
     <div className="epg" ref={list} data-testid="epg">
@@ -76,12 +77,12 @@ export function EpgGuide({ channelKey }: { channelKey: string }) {
             </div>
             <div className="epg-text">
               <div className="epg-title">
-                {isNow && <span className="epg-badge">AGORA</span>}
+                {isNow && <span className="epg-badge">{t("NOW")}</span>}
                 {p.title}
               </div>
               {isNow && p.description && <div className="epg-desc">{p.description}</div>}
               {isNow && (
-                <div className="epg-progress" aria-label={`${Math.round(progress)}% exibido`}>
+                <div className="epg-progress" aria-label={t("{pct}% aired", { pct: Math.round(progress) })}>
                   <span style={{ width: `${progress}%` }} />
                 </div>
               )}

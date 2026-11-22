@@ -52,7 +52,7 @@ fn sign_in_errors_session_protection_and_sign_out_keep_local_data() {
         let e = engine(&base, &d, None);
         assert_eq!(e.status().state, "signedOut");
         let bad = e.sign_in(EMAIL, "errada").await.unwrap_err();
-        assert_eq!(bad, AccountError::Remote(RemoteError::Auth("E-mail ou senha incorretos.".into())));
+        assert_eq!(bad, AccountError::Remote(RemoteError::Auth("Incorrect email or password.".into())));
         let st = e.sign_in(EMAIL, PASSWORD).await.unwrap();
         assert!(st.signed_in && st.email.as_deref() == Some(EMAIL));
         // Session file protected with DPAPI: no token in clear.
@@ -331,7 +331,7 @@ fn pin_online_offline_lockout_and_avatars() {
     rt().block_on(async {
         let e = engine(&base, &d, None);
         // Signed out: setting a PIN needs the account.
-        assert!(e.set_pin(1, "1234", None).await.unwrap_err().to_string().contains("Conecte-se"));
+        assert!(e.set_pin(1, "1234", None).await.unwrap_err().to_string().contains("Connect"));
         e.sign_in(EMAIL, PASSWORD).await.unwrap();
         e.sync(1, true).await.unwrap();
         assert!(e.set_pin(1, "12a4", None).await.is_err(), "4 digits");
@@ -343,7 +343,7 @@ fn pin_online_offline_lockout_and_avatars() {
 
         assert!(e.verify_pin(1, "1234").await.unlocked);
         let wrong = e.verify_pin(1, "0000").await;
-        assert_eq!((wrong.unlocked, wrong.message.as_deref()), (false, Some("PIN incorreto")));
+        assert_eq!((wrong.unlocked, wrong.message.as_deref()), (false, Some("Incorrect PIN")));
         // Changing needs the current PIN.
         assert!(e.set_pin(1, "5678", Some("0000")).await.is_err());
         e.set_pin(1, "5678", Some("1234")).await.unwrap();
@@ -351,7 +351,7 @@ fn pin_online_offline_lockout_and_avatars() {
         m.lock().unwrap().down = true;
         assert!(e.verify_pin(1, "5678").await.unlocked);
         assert!(!e.verify_pin(1, "1234").await.unlocked);
-        assert!(e.clear_pin(1, Some("5678")).await.unwrap_err().to_string().contains("Conecte-se"));
+        assert!(e.clear_pin(1, Some("5678")).await.unwrap_err().to_string().contains("Connect"));
         m.lock().unwrap().down = false;
         // Server lockout after repeated failures.
         for _ in 0..3 {
@@ -359,7 +359,7 @@ fn pin_online_offline_lockout_and_avatars() {
         }
         let locked = e.verify_pin(1, "5678").await;
         assert_eq!(locked.retry_after_seconds, 30);
-        assert_eq!(locked.message.as_deref(), Some("Bloqueado. Tente novamente em 30s"));
+        assert_eq!(locked.message.as_deref(), Some("Locked. Try again in 30s"));
         m.lock().unwrap().pin_failures.clear();
         e.clear_pin(1, Some("5678")).await.unwrap();
         assert!(!store.profiles().unwrap().get(1).unwrap().pin_enabled);

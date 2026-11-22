@@ -1,6 +1,6 @@
 // Settings of the active profile. Only options that NextGen applies for real are shown; each one
 // is saved through Rust (`settings_set`, validated into the original's ranges) and read back.
-// The original's other settings pages are listed under "Ainda não disponível" (no controls).
+// The original's other settings pages are listed under "Not available yet" (no controls).
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { AccountIcon, AddonsIcon, AudioIcon, HomeIcon, P2pIcon, PendingIcon, PlaybackIcon, ProfileDataIcon, SubtitlesIcon, UpdatesIcon } from "../components/NavIcons";
@@ -9,23 +9,24 @@ import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";
 import { checkForUpdates, installUpdate, useUpdates } from "../updates";
 import { Avatar } from "../components/ProfileMenu";
-import { LANGUAGES } from "../languages";
+import { LANGUAGES, languageName } from "../languages";
+import { t, useLang, getLang, setLang, locale, LANGUAGES as UI_LANGUAGES, type Lang } from "../i18n";
 import { P2P_CONSENT_TEXT, megabytes } from "../components/TorrentStart";
 import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
 
 type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
-  { id: "account", label: "Conta", icon: <AccountIcon /> },
-  { id: "home", label: "Início", icon: <HomeIcon /> },
+  { id: "account", label: "Account", icon: <AccountIcon /> },
+  { id: "home", label: "Home", icon: <HomeIcon /> },
   { id: "addons", label: "Addons", icon: <AddonsIcon /> },
-  { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
+  { id: "playback", label: "Playback", icon: <PlaybackIcon /> },
   { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
-  { id: "audio", label: "Áudio", icon: <AudioIcon /> },
-  { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
-  { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
-  { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
-  { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
+  { id: "audio", label: "Audio", icon: <AudioIcon /> },
+  { id: "subtitles", label: "Subtitles", icon: <SubtitlesIcon /> },
+  { id: "data", label: "Profile and data", icon: <ProfileDataIcon /> },
+  { id: "updates", label: "Updates", icon: <UpdatesIcon /> },
+  { id: "pending", label: "Not available yet", icon: <PendingIcon /> },
 ];
 
 type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: string } | { kind: "error"; message: string };
@@ -71,7 +72,7 @@ function ColorField({ value, onChange, withOpacity, label }: { value: string; on
     <span className="color-field">
       <input type="color" value={rgb} aria-label={label} onChange={(e) => onChange(`#${alpha}${e.target.value.slice(1).toUpperCase()}`)} />
       {withOpacity && (
-        <Slider label={`${label} — opacidade`} value={opacity} min={0} max={100} unit="%" onChange={(o) => onChange(`#${hex2((o / 100) * 255)}${value.slice(3)}`)} />
+        <Slider label={t("{label} — opacity", { label })} value={opacity} min={0} max={100} unit="%" onChange={(o) => onChange(`#${hex2((o / 100) * 255)}${value.slice(3)}`)} />
       )}
     </span>
   );
@@ -83,7 +84,7 @@ function LanguageSelect({ value, onChange, special, label }: { value: string | n
     <select aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
       {special.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
       {!known && value && <option value={value}>{value}</option>}
-      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{languageName(name)}</option>)}
     </select>
   );
 }
@@ -91,6 +92,7 @@ function LanguageSelect({ value, onChange, special, label }: { value: string | n
 // ---------- page ----------
 
 export function Settings() {
+  useLang();
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<ProfileSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,13 +159,13 @@ export function Settings() {
   );
 
   const player = (change: (p: PlayerSettings) => PlayerSettings) =>
-    update((s) => ({ ...s, player: change(s.player) }), "Vale a partir da próxima reprodução.");
+    update((s) => ({ ...s, player: change(s.player) }), "Applies from the next playback.");
   const subtitle = (change: (p: SubtitleSettings) => SubtitleSettings) => player((p) => ({ ...p, subtitle: change(p.subtitle) }));
 
   const resetSection = (what: Section) => {
     if (!view || !draft) return;
-    const name = SECTIONS.find((s) => s.id === what)?.label ?? "";
-    if (!window.confirm(`Restaurar os padrões de “${name}” para o perfil ${view.profile.name}? As alterações desta seção serão descartadas.`)) return;
+    const name = t(SECTIONS.find((s) => s.id === what)?.label ?? "");
+    if (!window.confirm(t("Restore the defaults of “{name}” for profile {profile}? Changes in this section will be discarded.", { name, profile: view.profile.name }))) return;
     const d = view.defaults;
     update((s) => {
       switch (what) {
@@ -173,42 +175,42 @@ export function Settings() {
         case "subtitles": return { ...s, player: { ...s.player, preferredSubtitleLanguage: d.player.preferredSubtitleLanguage, secondaryPreferredSubtitleLanguage: d.player.secondaryPreferredSubtitleLanguage, subtitle: { ...d.player.subtitle } } };
         default: return s;
       }
-    }, "Padrões restaurados.", 0);
+    }, "Defaults restored.", 0);
   };
 
-  if (error) return <div className="screen-message">Não foi possível abrir as configurações: {error}</div>;
-  if (!view || !draft) return <div className="screen-message">Carregando configurações…</div>;
+  if (error) return <div className="screen-message">{t("Could not open settings: {error}", { error })}</div>;
+  if (!view || !draft) return <div className="screen-message">{t("Loading settings…")}</div>;
   const p = draft.player;
   const sub = p.subtitle;
 
   return (
     <div className="settings">
-      <nav className="settings-nav" aria-label="Categorias de configurações">
+      <nav className="settings-nav" aria-label={t("Settings categories")}>
         <div className="settings-profile">
           <Avatar profile={view.profile} />
           <div>
             <div className="setting-title">{view.profile.name}</div>
-            <div className="muted small">Configurações deste perfil</div>
+            <div className="muted small">{t("Settings for this profile")}</div>
           </div>
         </div>
         {SECTIONS.map((s) => (
           <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => setSection(s.id)}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
-            <span>{s.label}</span>
+            <span>{t(s.label)}</span>
           </button>
         ))}
       </nav>
 
       <div className="settings-body" key={section}>
         <header className="settings-header">
-          <h1>{SECTIONS.find((s) => s.id === section)?.label}</h1>
+          <h1>{t(SECTIONS.find((s) => s.id === section)?.label ?? "")}</h1>
           <span className={`save-status ${status.kind}`} role="status" data-testid="save-status">
-            {status.kind === "saving" && "Salvando…"}
-            {status.kind === "saved" && `✓ Salvo${status.note ? ` · ${status.note}` : ""}`}
-            {status.kind === "error" && `Não foi possível salvar: ${status.message}`}
+            {status.kind === "saving" && t("Saving…")}
+            {status.kind === "saved" && `${t("✓ Saved")}${status.note ? ` · ${t(status.note)}` : ""}`}
+            {status.kind === "error" && t("Could not save: {message}", { message: status.message })}
           </span>
           {["home", "playback", "audio", "subtitles"].includes(section) && (
-            <button className="ghost" onClick={() => resetSection(section)}>Restaurar padrões</button>
+            <button className="ghost" onClick={() => resetSection(section)}>{t("Restore defaults")}</button>
           )}
         </header>
 
@@ -221,51 +223,51 @@ export function Settings() {
 
         {section === "playback" && (
           <div className="settings-group">
-            <Row title="Modo de imagem padrão" description="Como o vídeo ocupa a tela ao iniciar (pode ser trocado durante a reprodução).">
-              <select aria-label="Modo de imagem padrão" data-setting="resizeMode" value={p.resizeMode} onChange={(e) => player((x) => ({ ...x, resizeMode: e.target.value as ResizeModeName }))}>
-                <option value="Fit">Ajustar</option>
-                <option value="Fill">Preencher</option>
-                <option value="Zoom">Zoom</option>
-                <option value="Stretch">Esticar</option>
+            <Row title={t("Default picture mode")} description={t("How the video fills the screen on start (can be changed during playback).")}>
+              <select aria-label={t("Default picture mode")} data-setting="resizeMode" value={p.resizeMode} onChange={(e) => player((x) => ({ ...x, resizeMode: e.target.value as ResizeModeName }))}>
+                <option value="Fit">{t("Fit")}</option>
+                <option value="Fill">{t("Fill")}</option>
+                <option value="Zoom">{t("Zoom")}</option>
+                <option value="Stretch">{t("Stretch")}</option>
               </select>
             </Row>
-            <Row title="Decodificação de vídeo" description="Prioridade do decodificador (libmpv).">
-              <select aria-label="Decodificação de vídeo" data-setting="decoderPriority" value={p.decoderPriority} onChange={(e) => player((x) => ({ ...x, decoderPriority: Number(e.target.value) }))}>
-                <option value={1}>Hardware, com software como reserva (padrão)</option>
-                <option value={0}>Somente hardware</option>
-                <option value={2}>Somente software</option>
+            <Row title={t("Video decoding")} description={t("Decoder priority (libmpv).")}>
+              <select aria-label={t("Video decoding")} data-setting="decoderPriority" value={p.decoderPriority} onChange={(e) => player((x) => ({ ...x, decoderPriority: Number(e.target.value) }))}>
+                <option value={1}>{t("Hardware, with software as fallback (default)")}</option>
+                <option value={0}>{t("Hardware only")}</option>
+                <option value={2}>{t("Software only")}</option>
               </select>
             </Row>
-            <Row title="NVIDIA RTX Video Super Resolution" description="Requer placa NVIDIA RTX e driver compatível; sem efeito em outras placas.">
-              <Toggle label="NVIDIA RTX Video Super Resolution" checked={p.nvidiaRtxSuperResolution} onChange={(v) => player((x) => ({ ...x, nvidiaRtxSuperResolution: v }))} />
+            <Row title={t("NVIDIA RTX Video Super Resolution")} description={t("Requires an NVIDIA RTX card and a compatible driver; no effect on other cards.")}>
+              <Toggle label={t("NVIDIA RTX Video Super Resolution")} checked={p.nvidiaRtxSuperResolution} onChange={(v) => player((x) => ({ ...x, nvidiaRtxSuperResolution: v }))} />
             </Row>
-            <Row title="NVIDIA RTX Video HDR" description="Converte SDR em HDR em telas HDR com placa RTX.">
-              <Toggle label="NVIDIA RTX Video HDR" checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
+            <Row title={t("NVIDIA RTX Video HDR")} description={t("Converts SDR to HDR on HDR displays with an RTX card.")}>
+              <Toggle label={t("NVIDIA RTX Video HDR")} checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
             </Row>
           </div>
         )}
 
-        {section === "p2p" && <P2pSection settings={draft.p2p} update={(change) => update((s) => ({ ...s, p2p: change(s.p2p) }), "Vale a partir da próxima fonte torrent.", 0)} />}
+        {section === "p2p" && <P2pSection settings={draft.p2p} update={(change) => update((s) => ({ ...s, p2p: change(s.p2p) }), "Applies from the next torrent source.", 0)} />}
 
         {section === "audio" && (
           <div className="settings-group">
-            <Row title="Idioma de áudio preferido" description={`“Idioma do dispositivo” = ${view.deviceLanguages.join(", ") || "não identificado"} neste PC.`}>
-              <LanguageSelect label="Idioma de áudio preferido" value={p.preferredAudioLanguage} special={[["device", "Idioma do dispositivo"], ["default", "Padrão do arquivo"], ["original", "Idioma original"]]} onChange={(v) => player((x) => ({ ...x, preferredAudioLanguage: v ?? "device" }))} />
+            <Row title={t("Preferred audio language")} description={t("“Device language” = {languages} on this PC.", { languages: view.deviceLanguages.join(", ") || t("not detected") })}>
+              <LanguageSelect label={t("Preferred audio language")} value={p.preferredAudioLanguage} special={[["device", t("Device language")], ["default", t("File default")], ["original", t("Original language")]]} onChange={(v) => player((x) => ({ ...x, preferredAudioLanguage: v ?? "device" }))} />
             </Row>
-            <Row title="Idioma de áudio secundário" description="Usado quando o preferido não existe no arquivo.">
-              <LanguageSelect label="Idioma de áudio secundário" value={p.secondaryPreferredAudioLanguage} special={[["", "Nenhum"]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredAudioLanguage: v }))} />
+            <Row title={t("Secondary audio language")} description={t("Used when the preferred one is not in the file.")}>
+              <LanguageSelect label={t("Secondary audio language")} value={p.secondaryPreferredAudioLanguage} special={[["", t("None")]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredAudioLanguage: v }))} />
             </Row>
-            <p className="muted small pad-top">“Idioma original” usa o idioma do dispositivo enquanto o Nuvio Astra não conhece o idioma original do título (mesma regra do Nuvio original quando essa informação falta).</p>
+            <p className="muted small pad-top">{t("“Original language” uses the device language while Nuvio Astra does not know the title's original language (same rule as the original Nuvio when that information is missing).")}</p>
           </div>
         )}
 
         {section === "subtitles" && (
           <div className="settings-group">
-            <Row title="Idioma de legenda preferido">
-              <LanguageSelect label="Idioma de legenda preferido" value={p.preferredSubtitleLanguage} special={[["none", "Nenhuma (só forçadas)"], ["device", "Idioma do dispositivo"], ["forced", "Somente forçadas"]]} onChange={(v) => player((x) => ({ ...x, preferredSubtitleLanguage: v ?? "none" }))} />
+            <Row title={t("Preferred subtitle language")}>
+              <LanguageSelect label={t("Preferred subtitle language")} value={p.preferredSubtitleLanguage} special={[["none", t("None (forced only)")], ["device", t("Device language")], ["forced", t("Forced only")]]} onChange={(v) => player((x) => ({ ...x, preferredSubtitleLanguage: v ?? "none" }))} />
             </Row>
-            <Row title="Idioma de legenda secundário">
-              <LanguageSelect label="Idioma de legenda secundário" value={p.secondaryPreferredSubtitleLanguage} special={[["", "Nenhum"]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredSubtitleLanguage: v }))} />
+            <Row title={t("Secondary subtitle language")}>
+              <LanguageSelect label={t("Secondary subtitle language")} value={p.secondaryPreferredSubtitleLanguage} special={[["", t("None")]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredSubtitleLanguage: v }))} />
             </Row>
             <div className="subtitle-preview" aria-hidden>
               <span
@@ -279,50 +281,55 @@ export function Settings() {
                   bottom: `${8 + sub.bottomOffset / 5}px`,
                 }}
               >
-                Exemplo de legenda
+                {t("Subtitle example")}
               </span>
             </div>
-            <Row title="Tamanho"><Slider label="Tamanho da legenda" value={sub.fontSizeSp} min={6} max={40} onChange={(v) => subtitle((s) => ({ ...s, fontSizeSp: v }))} /></Row>
-            <Row title="Distância da borda inferior"><Slider label="Distância da borda inferior" value={sub.bottomOffset} min={0} max={200} onChange={(v) => subtitle((s) => ({ ...s, bottomOffset: v }))} /></Row>
-            <Row title="Cor do texto"><ColorField label="Cor do texto" value={sub.textColor} onChange={(v) => subtitle((s) => ({ ...s, textColor: v }))} /></Row>
-            <Row title="Negrito"><Toggle label="Negrito" checked={sub.bold} onChange={(v) => subtitle((s) => ({ ...s, bold: v }))} /></Row>
-            <Row title="Contorno"><Toggle label="Contorno" checked={sub.outlineEnabled} onChange={(v) => subtitle((s) => ({ ...s, outlineEnabled: v }))} /></Row>
+            <Row title={t("Size")}><Slider label={t("Subtitle size")} value={sub.fontSizeSp} min={6} max={40} onChange={(v) => subtitle((s) => ({ ...s, fontSizeSp: v }))} /></Row>
+            <Row title={t("Distance from bottom edge")}><Slider label={t("Distance from bottom edge")} value={sub.bottomOffset} min={0} max={200} onChange={(v) => subtitle((s) => ({ ...s, bottomOffset: v }))} /></Row>
+            <Row title={t("Text color")}><ColorField label={t("Text color")} value={sub.textColor} onChange={(v) => subtitle((s) => ({ ...s, textColor: v }))} /></Row>
+            <Row title={t("Bold")}><Toggle label={t("Bold")} checked={sub.bold} onChange={(v) => subtitle((s) => ({ ...s, bold: v }))} /></Row>
+            <Row title={t("Outline")}><Toggle label={t("Outline")} checked={sub.outlineEnabled} onChange={(v) => subtitle((s) => ({ ...s, outlineEnabled: v }))} /></Row>
             {sub.outlineEnabled && (
               <>
-                <Row title="Cor do contorno"><ColorField label="Cor do contorno" value={sub.outlineColor} onChange={(v) => subtitle((s) => ({ ...s, outlineColor: v }))} /></Row>
-                <Row title="Espessura do contorno"><Slider label="Espessura do contorno" value={sub.outlineWidth} min={1} max={5} onChange={(v) => subtitle((s) => ({ ...s, outlineWidth: v }))} /></Row>
+                <Row title={t("Outline color")}><ColorField label={t("Outline color")} value={sub.outlineColor} onChange={(v) => subtitle((s) => ({ ...s, outlineColor: v }))} /></Row>
+                <Row title={t("Outline thickness")}><Slider label={t("Outline thickness")} value={sub.outlineWidth} min={1} max={5} onChange={(v) => subtitle((s) => ({ ...s, outlineWidth: v }))} /></Row>
               </>
             )}
-            <Row title="Fundo"><ColorField label="Cor de fundo" withOpacity value={sub.backgroundColor} onChange={(v) => subtitle((s) => ({ ...s, backgroundColor: v }))} /></Row>
-            <Row title="Remover descrições para surdos (SDH)" description="Oculta trechos como [música] e (risos).">
-              <Toggle label="Remover SDH" checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
+            <Row title={t("Background")}><ColorField label={t("Background color")} withOpacity value={sub.backgroundColor} onChange={(v) => subtitle((s) => ({ ...s, backgroundColor: v }))} /></Row>
+            <Row title={t("Remove descriptions for the deaf (SDH)")} description={t("Hides cues such as [music] and (laughter).")}>
+              <Toggle label={t("Remove SDH")} checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
             </Row>
           </div>
         )}
 
         {section === "data" && (
           <div className="settings-group">
+            <Row title={t("Language")} description={t("Language of the app interface.")}>
+              <select aria-label={t("Language")} data-testid="ui-language" value={getLang()} onChange={(e) => setLang(e.target.value as Lang)}>
+                {UI_LANGUAGES.map(({ code, label }) => <option key={code} value={code}>{label}</option>)}
+              </select>
+            </Row>
             <div className="about" data-testid="about">
               <img src="./nuvio-astra-128.png" alt="" width={56} height={56} draggable={false} />
               <div>
-                <div className="about-name">Nuvio Astra</div>
-                <div className="muted small">Versão {view.appVersion} · Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados</div>
+                <div className="about-name">{t("Nuvio Astra")}</div>
+                <div className="muted small">{t("Version {version} · Windows x64 · fork of Nuvio Desktop, compatible with your addons and data", { version: view.appVersion })}</div>
               </div>
             </div>
-            <Row title="Perfil ativo" description="Cada perfil tem suas próprias configurações, como no Nuvio original.">
+            <Row title={t("Active profile")} description={t("Each profile has its own settings, as in the original Nuvio.")}>
               <span>{view.profile.name}</span>
             </Row>
-            <Row title="Pasta de dados do Nuvio Astra" description="Gravação atômica com cópia .bak para recuperação. O nome técnico da pasta foi mantido para preservar os dados existentes.">
+            <Row title={t("Nuvio Astra data folder")} description={t("Atomic writes with a .bak copy for recovery. The technical folder name was kept to preserve existing data.")}>
               <code className="path">{view.dataDir}</code>
             </Row>
             {view.migration && (
               <>
-                <Row title="Migração do Nuvio original" description="Os arquivos originais não são alterados.">
+                <Row title={t("Migration from the original Nuvio")} description={t("The original files are not modified.")}>
                   <span>
-                    versão {view.migration.version} · {view.migration.backupFiles} arquivos em backup · {view.migration.profiles} perfis · configurações de {view.migration.settingsProfiles ?? 0} perfil(is)
+                    {t("version {version} · {files} files backed up · {profiles} profiles · settings of {settingsProfiles} profile(s)", { version: view.migration.version, files: view.migration.backupFiles, profiles: view.migration.profiles, settingsProfiles: view.migration.settingsProfiles ?? 0 })}
                   </span>
                 </Row>
-                <Row title="Backup verificado"><code className="path">{view.migration.backupDir}</code></Row>
+                <Row title={t("Verified backup")}><code className="path">{view.migration.backupDir}</code></Row>
               </>
             )}
           </div>
@@ -332,18 +339,18 @@ export function Settings() {
 
         {section === "pending" && (
           <div className="settings-group">
-            <p className="muted">Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.</p>
+            <p className="muted">{t("Features of the original Nuvio that Nuvio Astra does not have yet. They will appear in Settings when added — no option is shown unless it works.")}</p>
             <ul className="pending-list">
-              <li><b>Tela de detalhes</b> — escolher as seções exibidas, títulos semelhantes.</li>
-              <li><b>Continuar assistindo</b> — estilo, ordenação e ação do clique (a fileira em si já funciona).</li>
-              <li><b>Fontes e reprodução automática</b> — autoplay, filtros por regex, troca automática de fontes, reutilizar o último link.</li>
-              <li><b>Próximo episódio e pular introdução/créditos</b> — próximo episódio automático, AnimeSkip, IntroDB.</li>
-              <li><b>Legendas</b> — legendas dos addons e sincronização automática.</li>
-              <li><b>Buffer e cache do player</b>, <b>áudio avançado</b> (amplificação, downmix).</li>
-              <li><b>Debrid</b> — Real-Debrid, Premiumize, TorBox.</li>
-              <li><b>Integrações</b> — Trakt, Simkl, MDBList, TMDB; <b>servidores de mídia</b> (Plex, Jellyfin/Emby, Silo).</li>
-              <li><b>Plugins</b>, avatares exclusivos de membros, Watch Party e entrar com outro dispositivo (QR).</li>
-              <li>Sincronizar as preferências do player com outros aparelhos, credenciais de provedores, coleções; Discord Rich Presence, idioma do aplicativo.</li>
+              <li><b>{t("Details screen")}</b> {t("— choose which sections are shown, similar titles.")}</li>
+              <li><b>{t("Continue watching")}</b> {t("— style, sorting and click action (the row itself already works).")}</li>
+              <li><b>{t("Sources and autoplay")}</b> {t("— autoplay, regex filters, automatic source switching, reusing the last link.")}</li>
+              <li><b>{t("Next episode and skip intro/credits")}</b> {t("— automatic next episode, AnimeSkip, IntroDB.")}</li>
+              <li><b>{t("Subtitles")}</b> {t("— addon subtitles and automatic synchronization.")}</li>
+              <li><b>{t("Player buffer and cache")}</b>, <b>{t("advanced audio")}</b> {t("(amplification, downmix).")}</li>
+              <li><b>{t("Debrid")}</b> {t("— Real-Debrid, Premiumize, TorBox.")}</li>
+              <li><b>{t("Integrations")}</b> {t("— Trakt, Simkl, MDBList, TMDB;")} <b>{t("media servers")}</b> {t("(Plex, Jellyfin/Emby, Silo).")}</li>
+              <li><b>{t("Plugins")}</b>{t(", member-exclusive avatars, Watch Party and signing in with another device (QR).")}</li>
+              <li>{t("Syncing player preferences with other devices, provider credentials, collections; Discord Rich Presence.")}</li>
             </ul>
           </div>
         )}
@@ -357,35 +364,35 @@ export function Settings() {
 function UpdatesSection() {
   const u = useUpdates();
   const s = u.status;
-  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
+  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString(locale(), { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
   return (
     <div className="settings-group" data-testid="updates-settings">
-      <Row title="Versão instalada" description={s?.repository ? `Atualizações publicadas em github.com/${s.repository}` : undefined}>
+      <Row title={t("Installed version")} description={s?.repository ? t("Updates published at github.com/{repository}", { repository: s.repository }) : undefined}>
         <span>{s?.currentVersion ?? "…"}</span>
       </Row>
-      {s && !s.configured && <p className="muted">Esta compilação não tem atualizações automáticas configuradas (compilação local). As versões publicadas pelo GitHub têm.</p>}
+      {s && !s.configured && <p className="muted">{t("This build has no automatic updates configured (local build). Versions published on GitHub do.")}</p>}
       {s?.configured && (
         <>
-          <Row title="Procurar atualizações" description="O Nuvio Astra também procura sozinho ao abrir e a cada 6 horas. Toda atualização é verificada pela assinatura antes de ser instalada.">
+          <Row title={t("Check for updates")} description={t("Nuvio Astra also checks on its own at launch and every 6 hours. Every update is verified by its signature before it is installed.")}>
             <button className="ghost" disabled={u.checking || !!u.installing} onClick={() => void checkForUpdates()} data-testid="update-check">
-              {u.checking ? "Procurando…" : "Verificar agora"}
+              {u.checking ? t("Checking…") : t("Check now")}
             </button>
           </Row>
           {u.checkError && <div className="row-error">{u.checkError}</div>}
-          {!u.checking && !u.checkError && u.lastCheck && !u.available && <div className="addon-feedback ok" role="status">Você já está na versão mais recente (verificado às {when}).</div>}
+          {!u.checking && !u.checkError && u.lastCheck && !u.available && <div className="addon-feedback ok" role="status">{t("You are on the latest version (checked at {when}).", { when: when ?? "" })}</div>}
           {u.available && (
             <div className="update-card">
-              <div className="setting-title">Nova versão {u.available.version}</div>
+              <div className="setting-title">{t("New version {version}", { version: u.available.version })}</div>
               {u.available.notes && <pre className="update-notes">{u.available.notes}</pre>}
               <div className="account-actions">
                 <button className="primary" disabled={!!u.installing && u.installing.phase !== "error"} onClick={() => void installUpdate()}>
-                  {u.installing && u.installing.phase !== "error" ? "Atualizando…" : "Atualizar agora"}
+                  {u.installing && u.installing.phase !== "error" ? t("Updating…") : t("Update now")}
                 </button>
               </div>
               {u.installing?.phase === "error" && <div className="row-error">{u.installing.error}</div>}
             </div>
           )}
-          <p className="muted small">Atualizar mantém perfis, addons, configurações, biblioteca e a sessão da conta: o instalador troca só os arquivos do programa.</p>
+          <p className="muted small">{t("Updating keeps profiles, addons, settings, library and the account session: the installer replaces only the program files.")}</p>
         </>
       )}
     </div>
@@ -396,14 +403,14 @@ function UpdatesSection() {
 
 function P2pSection({ settings, update }: { settings: P2pSettings; update(change: (s: P2pSettings) => P2pSettings): void }) {
   const [cache, setCache] = useState<number | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | number | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     api.p2pCacheSize().then(setCache, () => setCache(null));
   }, []);
 
   const enable = (on: boolean) => {
-    if (on && !window.confirm(P2P_CONSENT_TEXT.join("\n\n"))) return;
+    if (on && !window.confirm(P2P_CONSENT_TEXT.map((text) => t(text)).join("\n\n"))) return;
     update((s) => ({ ...s, enabled: on }));
   };
   const clear = async () => {
@@ -411,7 +418,7 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
     setMessage(null);
     try {
       const freed = await api.p2pClearCache();
-      setMessage(`Cache limpo: ${megabytes(freed)} liberados.`);
+      setMessage(freed);
       setCache(await api.p2pCacheSize());
     } catch (e) {
       setMessage(errorText(e));
@@ -422,37 +429,37 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
 
   return (
     <div className="settings-group" data-testid="p2p-settings">
-      <Row title="Streaming P2P" description="Reproduz fontes torrent dos addons no próprio player, baixando por partes enquanto você assiste.">
-        <Toggle label="Streaming P2P" checked={settings.enabled} onChange={enable} />
+      <Row title={t("P2P streaming")} description={t("Plays addon torrent sources in the built-in player, downloading in pieces while you watch.")}>
+        <Toggle label={t("P2P streaming")} checked={settings.enabled} onChange={enable} />
       </Row>
-      <Row title="Enviar dados (upload)" description="Compartilha com outros peers as partes já baixadas enquanto o vídeo toca.">
-        <Toggle label="Enviar dados" checked={settings.enableUpload} onChange={(v) => update((s) => ({ ...s, enableUpload: v }))} />
+      <Row title={t("Upload data")} description={t("Shares the pieces already downloaded with other peers while the video plays.")}>
+        <Toggle label={t("Upload data")} checked={settings.enableUpload} onChange={(v) => update((s) => ({ ...s, enableUpload: v }))} />
       </Row>
-      <Row title="Ocultar estatísticas do torrent" description="Peers, velocidade e progresso sobre o player.">
-        <Toggle label="Ocultar estatísticas" checked={settings.hideTorrentStats} onChange={(v) => update((s) => ({ ...s, hideTorrentStats: v }))} />
+      <Row title={t("Hide torrent stats")} description={t("Peers, speed and progress over the player.")}>
+        <Toggle label={t("Hide stats")} checked={settings.hideTorrentStats} onChange={(v) => update((s) => ({ ...s, hideTorrentStats: v }))} />
       </Row>
-      <Row title="Perfil de conexão" description="Quantas conexões e requisições o motor abre ao mesmo tempo.">
-        <select aria-label="Perfil de conexão" value={settings.torrentProfile} onChange={(e) => update((s) => ({ ...s, torrentProfile: e.target.value as P2pProfileName }))}>
-          <option value="SOFT">Leve</option>
-          <option value="BALANCED">Equilibrado (padrão)</option>
-          <option value="FAST">Rápido</option>
+      <Row title={t("Connection profile")} description={t("How many connections and requests the engine opens at the same time.")}>
+        <select aria-label={t("Connection profile")} value={settings.torrentProfile} onChange={(e) => update((s) => ({ ...s, torrentProfile: e.target.value as P2pProfileName }))}>
+          <option value="SOFT">{t("Light")}</option>
+          <option value="BALANCED">{t("Balanced (default)")}</option>
+          <option value="FAST">{t("Fast")}</option>
         </select>
       </Row>
-      <Row title="Tamanho do cache" description="Espaço em disco para partes já baixadas (reaproveitadas ao assistir de novo).">
-        <select aria-label="Tamanho do cache" value={settings.cacheSize} onChange={(e) => update((s) => ({ ...s, cacheSize: e.target.value as P2pCacheName }))}>
-          <option value="NONE">Sem cache</option>
-          <option value="GB_2">2 GB (padrão)</option>
-          <option value="GB_5">5 GB</option>
-          <option value="GB_10">10 GB</option>
+      <Row title={t("Cache size")} description={t("Disk space for pieces already downloaded (reused when watching again).")}>
+        <select aria-label={t("Cache size")} value={settings.cacheSize} onChange={(e) => update((s) => ({ ...s, cacheSize: e.target.value as P2pCacheName }))}>
+          <option value="NONE">{t("No cache")}</option>
+          <option value="GB_2">{t("2 GB (default)")}</option>
+          <option value="GB_5">{t("5 GB")}</option>
+          <option value="GB_10">{t("10 GB")}</option>
         </select>
       </Row>
-      <Row title="Cache em uso" description="Não pode ser limpo durante uma reprodução P2P.">
+      <Row title={t("Cache in use")} description={t("Cannot be cleared during P2P playback.")}>
         <span className="account-actions" style={{ marginTop: 0 }}>
           <span>{cache === null ? "—" : megabytes(cache)}</span>
-          <button className="ghost" disabled={busy} onClick={() => void clear()}>{busy ? "Limpando…" : "Limpar cache"}</button>
+          <button className="ghost" disabled={busy} onClick={() => void clear()}>{busy ? t("Clearing…") : t("Clear cache")}</button>
         </span>
       </Row>
-      {message && <div className="addon-feedback ok" role="status">{message}</div>}
+      {message !== null && <div className="addon-feedback ok" role="status">{typeof message === "number" ? t("Cache cleared: {size} freed.", { size: megabytes(message) }) : message}</div>}
     </div>
   );
 }
@@ -464,7 +471,7 @@ function HomeSection({ settings, catalogs, update }: {
   catalogs: CatalogChoice[];
   update(change: (s: ProfileSettings) => ProfileSettings, note?: string, delay?: number): void;
 }) {
-  const note = "A tela Início é atualizada.";
+  const note = "The Home screen is updated.";
   const home = settings.home;
   // Current order: saved preferences first (by order), then catalogs without one.
   const ordered = [...catalogs].sort((a, b) => {
@@ -502,36 +509,36 @@ function HomeSection({ settings, catalogs, update }: {
   return (
     <>
       <div className="settings-group">
-        <Row title="Destaque no topo" description="Mostra o título em destaque no início da tela.">
-          <Toggle label="Destaque no topo" checked={home.heroEnabled} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, heroEnabled: v } }), note)} />
+        <Row title={t("Featured at top")} description={t("Shows the featured title at the top of the screen.")}>
+          <Toggle label={t("Featured at top")} checked={home.heroEnabled} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, heroEnabled: v } }), note)} />
         </Row>
-        <Row title="Mostrar o tipo no nome do catálogo" description="Ex.: “Em Alta - Filmes”.">
-          <Toggle label="Mostrar o tipo no nome do catálogo" checked={home.showCatalogType} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, showCatalogType: v } }), note)} />
+        <Row title={t("Show type in catalog name")} description={t("E.g. “Trending - Movies”.")}>
+          <Toggle label={t("Show type in catalog name")} checked={home.showCatalogType} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, showCatalogType: v } }), note)} />
         </Row>
-        <Row title="Ocultar conteúdo ainda não lançado" description="Remove dos catálogos títulos com data de lançamento futura.">
-          <Toggle label="Ocultar conteúdo ainda não lançado" checked={home.hideUnreleasedContent} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, hideUnreleasedContent: v } }), note)} />
+        <Row title={t("Hide unreleased content")} description={t("Removes titles with a future release date from catalogs.")}>
+          <Toggle label={t("Hide unreleased content")} checked={home.hideUnreleasedContent} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, hideUnreleasedContent: v } }), note)} />
         </Row>
       </div>
-      <h2 className="settings-subtitle">Catálogos ({ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length} de {ordered.length} visíveis)</h2>
+      <h2 className="settings-subtitle">{t("Catalogs ({visible} of {total} visible)", { visible: ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length, total: ordered.length })}</h2>
       <div className="settings-group catalogs">
         {ordered.map((c, index) => {
           const enabled = pref(c)?.enabled ?? c.enabled;
           const title = pref(c)?.customTitle ?? c.customTitle;
           return (
             <div key={c.key} className={`catalog-pref ${enabled ? "" : "off"}`} data-key={c.key}>
-              <Toggle label={`Mostrar ${c.defaultTitle}`} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
+              <Toggle label={t("Show {title}", { title: c.defaultTitle })} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
               <div className="catalog-pref-text">
                 <input
                   className="catalog-title-input"
                   value={title}
                   placeholder={c.defaultTitle}
-                  aria-label={`Nome de ${c.defaultTitle}`}
+                  aria-label={t("Name of {title}", { title: c.defaultTitle })}
                   onChange={(e) => saveCatalogs(ordered, { key: c.key, customTitle: e.target.value }, 600)}
                 />
                 <span className="muted small">{c.addonName}</span>
               </div>
-              <button className="icon-btn" aria-label={`Subir ${c.defaultTitle}`} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
-              <button className="icon-btn" aria-label={`Descer ${c.defaultTitle}`} disabled={index === ordered.length - 1} onClick={() => move(index, 1)}>↓</button>
+              <button className="icon-btn" aria-label={t("Move up {title}", { title: c.defaultTitle })} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
+              <button className="icon-btn" aria-label={t("Move down {title}", { title: c.defaultTitle })} disabled={index === ordered.length - 1} onClick={() => move(index, 1)}>↓</button>
             </div>
           );
         })}

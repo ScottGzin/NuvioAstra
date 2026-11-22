@@ -98,7 +98,7 @@ fn view_of(url: &str, enabled: bool, manifest: Option<&AddonManifest>, summary: 
                 key: addon_key(url),
                 enabled,
                 status,
-                error: if enabled { Some(error.cloned().unwrap_or_else(|| "Não foi possível carregar o manifesto.".into())) } else { None },
+                error: if enabled { Some(error.cloned().unwrap_or_else(|| "Could not load the manifest.".into())) } else { None },
                 // `ManagedAddon.displayTitle` without a manifest: the last path segment.
                 name: if s.name.is_empty() { host.clone() } else { s.name },
                 description: s.description,
@@ -161,9 +161,9 @@ pub struct AddonPreview {
 /// (one request, no cache). The manifest is kept for step 2, which makes no new request.
 #[tauri::command]
 pub async fn addon_preview(state: State<'_, AppState>, address: String) -> Result<AddonPreview, String> {
-    let url = nuvio_core::url::normalize_manifest_url(&address).ok_or("Insira uma URL de addon.")?;
+    let url = nuvio_core::url::normalize_manifest_url(&address).ok_or("Enter an addon URL.")?;
     if !(url.starts_with("https://") || url.starts_with("http://")) || host_of(&url).0.is_empty() {
-        return Err("Insira uma URL de addon válida".into());
+        return Err("Enter a valid addon URL".into());
     }
     let profile = state.active_profile();
     let all = state.app_store.profiles().map_err(|e| e.to_string())?;
@@ -187,9 +187,9 @@ pub async fn addon_install(state: State<'_, AppState>, key: String, tracking_con
         let pending = state.pending_addon.lock().expect("pending lock");
         pending.as_ref().filter(|m| addon_key(&m.transport_url) == key).cloned()
     }
-    .ok_or("Verifique o endereço do addon novamente.")?;
+    .ok_or("Check the addon address again.")?;
     if manifest.is_tracking_addon() && !tracking_consent {
-        return Err("Este addon de rastreamento só pode ser instalado com o seu consentimento.".into());
+        return Err("This tracking addon can only be installed with your consent.".into());
     }
     let profile = state.active_profile();
     addon_result(state.app_store.install_addon(profile, &manifest.transport_url, summary_of(&manifest)))?;
@@ -261,11 +261,11 @@ fn open_in_browser(url: &str) -> Result<(), String> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return Err("endereço inválido".into());
+        return Err("invalid address".into());
     }
     // SAFETY: plain Win32 call with owned, NUL-terminated strings.
     let result = unsafe { ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(url), None, None, SW_SHOWNORMAL) };
-    if result.0 as isize > 32 { Ok(()) } else { Err("Não foi possível abrir o navegador.".into()) }
+    if result.0 as isize > 32 { Ok(()) } else { Err("Could not open the browser.".into()) }
 }
 
 #[cfg(not(windows))]
@@ -319,7 +319,7 @@ pub fn profile_switch(state: State<'_, AppState>, index: i64) -> Result<Profiles
         let mut gate = state.pin_gate.lock().expect("pin gate");
         let unlocked = gate.unlocked.remove(&index);
         if protected && !unlocked && !(state.active_profile() == index && gate.locked_active.is_none()) {
-            return Err("Este perfil é protegido por PIN.".into());
+            return Err("This profile is PIN-protected.".into());
         }
         if gate.locked_active.is_some_and(|p| p != index) || protected {
             gate.locked_active = None;
@@ -524,12 +524,12 @@ mod ipc_tests {
         assert_eq!(hits.load(Ordering::SeqCst), 1, "install reused the previewed manifest");
         // Duplicate (same address typed differently), invalid manifests, unreachable address.
         let dup = call(&w, "addon_preview", json!({ "address": format!("{base}/good/manifest.json#x") })).unwrap_err();
-        assert_eq!(dup, "Esse addon já está instalado.");
-        assert!(call(&w, "addon_preview", json!({ "address": format!("{base}/bad") })).unwrap_err().as_str().unwrap().contains("Campo ausente no manifesto"));
-        assert!(call(&w, "addon_preview", json!({ "address": format!("{base}/html") })).unwrap_err().as_str().unwrap().contains("não é um manifesto"));
+        assert_eq!(dup, "This addon is already installed.");
+        assert!(call(&w, "addon_preview", json!({ "address": format!("{base}/bad") })).unwrap_err().as_str().unwrap().contains("Missing field in the manifest"));
+        assert!(call(&w, "addon_preview", json!({ "address": format!("{base}/html") })).unwrap_err().as_str().unwrap().contains("is not a valid addon manifest"));
         assert!(call(&w, "addon_preview", json!({ "address": format!("{base}/nothing") })).unwrap_err().as_str().unwrap().contains("HTTP 404"));
-        assert!(call(&w, "addon_preview", json!({ "address": "http://127.0.0.1:1/x" })).unwrap_err().as_str().unwrap().contains("conectar"));
-        assert_eq!(call(&w, "addon_preview", json!({ "address": "  " })).unwrap_err(), "Insira uma URL de addon.");
+        assert!(call(&w, "addon_preview", json!({ "address": "http://127.0.0.1:1/x" })).unwrap_err().as_str().unwrap().contains("connect"));
+        assert_eq!(call(&w, "addon_preview", json!({ "address": "  " })).unwrap_err(), "Enter an addon URL.");
         // Tracking addon: consent required.
         let track = call(&w, "addon_preview", json!({ "address": format!("{base}/track") })).unwrap();
         assert_eq!(track["tracking"], true);
@@ -564,7 +564,7 @@ mod ipc_tests {
             use tauri::Manager;
             app.state::<AppState>().app_store.set_profile_pin_state(2, true).unwrap();
         }
-        assert_eq!(call(&w, "profile_switch", json!({ "index": 2 })).unwrap_err(), "Este perfil é protegido por PIN.");
+        assert_eq!(call(&w, "profile_switch", json!({ "index": 2 })).unwrap_err(), "This profile is PIN-protected.");
         let unlock = call(&w, "profile_unlock", json!({ "index": 2, "pin": "1234" })).unwrap();
         assert_eq!(unlock["unlocked"], false, "no account and no verified PIN on this computer");
         assert!(unlock["message"].as_str().unwrap().contains("offline"));
@@ -579,7 +579,7 @@ mod ipc_tests {
         call(&w, "profile_update", json!({ "index": 2, "name": "Dois", "color": "#E53935", "usesPrimaryAddons": true })).unwrap();
         let shared = call(&w, "addons_list", json!({})).unwrap();
         assert_eq!((shared["readOnly"].clone(), shared["addons"].as_array().unwrap().len()), (json!(true), 2));
-        assert_eq!(call(&w, "addon_remove", json!({ "key": keys[0] })).unwrap_err(), "Este perfil usa addons primários.");
+        assert_eq!(call(&w, "addon_remove", json!({ "key": keys[0] })).unwrap_err(), "This profile uses the primary profile’s addons.");
         // Delete: profile 1 refused; profile 2 removed with its data, profile 1 active again.
         assert!(call(&w, "profile_delete", json!({ "index": 1 })).is_err());
         let p = call(&w, "profile_delete", json!({ "index": 2 })).unwrap();

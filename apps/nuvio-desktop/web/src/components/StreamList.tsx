@@ -5,11 +5,12 @@
 import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import type { StreamEntry, StreamGroup, StreamKind } from "../types";
+import { t } from "../i18n";
 
 const PENDING: Record<Exclude<StreamKind, "direct" | "torrent">, string> = {
-  debrid: "Debrid — ainda não suportado nesta versão",
-  external: "Link externo — abre fora do player",
-  youTube: "YouTube — ainda não suportado nesta versão",
+  debrid: "Debrid — not supported in this version yet",
+  external: "External link — opens outside the player",
+  youTube: "YouTube — not supported in this version yet",
 };
 
 interface Props {
@@ -35,9 +36,9 @@ export function StreamList({ contentType, id, onPlay }: Props) {
     };
   }, [contentType, id]);
 
-  if (error) return <div className="row-error">Falha ao buscar fontes: {error}</div>;
-  if (!groups) return <div className="muted">Buscando fontes nos addons…</div>;
-  if (!groups.length) return <div className="muted">Nenhum addon instalado fornece fontes para este título.</div>;
+  if (error) return <div className="row-error">{t("Failed to fetch sources: {error}", { error })}</div>;
+  if (!groups) return <div className="muted">{t("Fetching sources from addons…")}</div>;
+  if (!groups.length) return <div className="muted">{t("No installed addon provides sources for this title.")}</div>;
 
   return (
     <div className="streams">
@@ -45,15 +46,15 @@ export function StreamList({ contentType, id, onPlay }: Props) {
         <div key={group.addonName} className="stream-group">
           <div className="stream-group-title">
             {group.addonName}
-            <span className="muted small"> · {group.error ? `erro: ${group.error}` : `${group.streams.length} fonte(s)`}</span>
+            <span className="muted small"> · {group.error ? t("error: {error}", { error: group.error }) : t("{n} source(s)", { n: group.streams.length })}</span>
           </div>
           {group.streams.map((s) => {
             const playable = s.kind === "direct" || s.kind === "torrent";
             return (
               <button key={s.key} className="stream" data-kind={s.kind} disabled={!playable} onClick={() => playable && onPlay(s)}>
-                <span className="stream-name">{s.name || "Fonte"}{s.kind === "torrent" && <span className="stream-tag">P2P</span>}</span>
+                <span className="stream-name">{s.name || t("Source")}{s.kind === "torrent" && <span className="stream-tag">P2P</span>}</span>
                 <span className="stream-desc">{s.description}</span>
-                {!playable && <span className="stream-pending">{PENDING[s.kind as Exclude<StreamKind, "direct" | "torrent">]}</span>}
+                {!playable && <span className="stream-pending">{t(PENDING[s.kind as Exclude<StreamKind, "direct" | "torrent">])}</span>}
               </button>
             );
           })}

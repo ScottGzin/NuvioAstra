@@ -40,7 +40,7 @@ impl AppState {
     pub fn ensure_unlocked(&self) -> Result<(), String> {
         let gate = self.pin_gate.lock().expect("pin gate");
         if gate.locked_active.is_some_and(|p| p == self.active_profile()) {
-            return Err("Este perfil está bloqueado. Digite o PIN para continuar.".into());
+            return Err("This profile is locked. Enter the PIN to continue.".into());
         }
         Ok(())
     }
@@ -134,7 +134,7 @@ pub async fn account_sign_up(state: State<'_, AppState>, email: String, password
     }
     Ok(SignUpResult {
         signed_in,
-        message: if signed_in { "Conta criada e conectada.".into() } else { "Conta criada. Confirme o e-mail enviado pela Nuvio e depois entre com sua senha.".into() },
+        message: if signed_in { "Account created and signed in.".into() } else { "Account created. Confirm the email sent by Nuvio, then sign in with your password.".into() },
     })
 }
 

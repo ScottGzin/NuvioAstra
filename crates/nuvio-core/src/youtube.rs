@@ -225,7 +225,7 @@ impl Extractor {
 
     /// Resolves a trailer (id or URL) to what the player opens; `None`-like errors are in pt-BR.
     pub async fn resolve(&self, input: &str) -> Result<TrailerSource, String> {
-        let id = video_id(input).ok_or("Endereço de trailer inválido.")?;
+        let id = video_id(input).ok_or("Invalid trailer address.")?;
         let watch = self
             .text(
                 self.http
@@ -234,8 +234,8 @@ impl Extractor {
                     .header("user-agent", BROWSER_UA),
             )
             .await
-            .map_err(|e| format!("YouTube indisponível ({e})"))?;
-        let api_key = between(&watch, "\"INNERTUBE_API_KEY\":\"").ok_or("O YouTube não respondeu como esperado.")?.to_string();
+            .map_err(|e| format!("YouTube unavailable ({e})"))?;
+        let api_key = between(&watch, "\"INNERTUBE_API_KEY\":\"").ok_or("YouTube did not respond as expected.")?.to_string();
         let visitor = between(&watch, "\"VISITOR_DATA\":\"").map(str::to_string);
 
         let (mut progressive, mut video, mut audio, mut manifests) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
@@ -297,7 +297,7 @@ impl Extractor {
             }
         }
         if progressive.is_empty() && video.is_empty() && audio.is_empty() && manifests.is_empty() {
-            return Err("Este trailer não está disponível para reprodução.".into());
+            return Err("This trailer is not available for playback.".into());
         }
 
         let mut best_manifest: Option<Manifest> = None;
@@ -342,7 +342,7 @@ impl Extractor {
         if let Some(v) = separated_video {
             return Ok(TrailerSource { video_url: v, audio_url: None, mode: "adaptive_video_only", height: best_video.map_or(0, |b| b.height) });
         }
-        Err("O YouTube não liberou nenhum formato reproduzível para este trailer.".into())
+        Err("YouTube did not provide any playable format for this trailer.".into())
     }
 
     /// `resolveReachableUrlOrNull`: the URL, or an alternate `mn` server, that answers ranges.
