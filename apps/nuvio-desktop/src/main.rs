@@ -588,6 +588,7 @@ fn main() {
             api::library_title_progress,
             api::library_toggle_watched,
             api::stream_open_external,
+            api::parental_guide,
             manage::addons_list,
             manage::addon_preview,
             manage::addon_install,

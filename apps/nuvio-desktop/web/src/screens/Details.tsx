@@ -9,7 +9,7 @@ import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -48,6 +48,10 @@ function ratingValue(rating: { source: string; value: number }): string {
   }
 }
 
+const GUIDE_LABELS: Record<string, string> = {
+  nudity: "Nu", violence: "Violência", profanity: "Linguagem", alcohol: "Álcool e drogas", frightening: "Tensão",
+};
+
 function episodeLabel(v: MetaVideo): string {
   return v.season != null && v.episode != null ? t("T{season} E{episode}", { season: v.season, episode: v.episode }) : "";
 }
@@ -66,6 +70,8 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
   const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
   const [metaSettings, setMetaSettings] = useState<MetaScreenSettings | null>(null);
+  const [guide, setGuide] = useState<ParentalGuide | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -83,8 +89,18 @@ export function Details({ item, onBack, onOpen }: Props) {
 
   // Details screen settings (the original's MetaScreenSettingsRepository).
   useEffect(() => {
-    api.settingsGet().then((v) => setMetaSettings(v.settings.metaScreen), () => {});
+    api.settingsGet().then((v) => {
+      setMetaSettings(v.settings.metaScreen);
+      setShowGuide(v.settings.player.showParentalGuide);
+    }, () => {});
   }, [version]);
+
+  useEffect(() => {
+    if (!showGuide) return;
+    let cancelled = false;
+    api.parentalGuide(id).then((value) => !cancelled && setGuide(value), () => !cancelled && setGuide(null));
+    return () => { cancelled = true; };
+  }, [showGuide, id]);
   const sectionOn = (key: string) => metaSettings?.sections.find((s) => s.key === key)?.enabled ?? true;
 
   const watchedKey = (contentType: string, id: string, season: number | null, episode: number | null) => {
@@ -248,6 +264,17 @@ export function Details({ item, onBack, onOpen }: Props) {
               </div>
             )}
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
+            {guide && (
+              <div className="chips warning-chips" aria-label={t("Avisos de conteúdo")}>
+                {(Object.entries(guide) as [string, string | null][])
+                  .filter(([, severity]) => !!severity)
+                  .map(([label, severity]) => (
+                    <span key={label} className={`chip warning ${severity}`} title={t("Avisos de conteúdo")}>
+                      {t(GUIDE_LABELS[label] ?? label)}: {t(severity ?? "")}
+                    </span>
+                  ))}
+              </div>
+            )}
             {sectionOn("overview") && m.description && <p className="details-desc">{m.description}</p>}
             {m.director.length > 0 && <div className="muted">{t("Direção:")} {m.director.join(", ")}</div>}
             {sectionOn("actions") && <div className="details-actions">

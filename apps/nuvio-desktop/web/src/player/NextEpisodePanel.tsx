@@ -6,7 +6,7 @@ import { api } from "../api";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, playbackItem } from "../library";
-import type { MetaVideo, StreamEntry } from "../types";
+import type { MetaVideo, PlayerSettings, StreamEntry } from "../types";
 import { episodeTitle, type EpisodeContext } from "./episodes";
 import { usePlayer } from "./PlayerContext";
 import { t } from "../i18n";
@@ -17,9 +17,11 @@ interface Props {
   /** The current episode reached its end (credits): it counts as watched when the next one starts. */
   finished(): boolean;
   onClose(): void;
+  /** Settings → Reprodução: autoplay of the next episode with source fallback. */
+  autoPlay?: PlayerSettings | null;
 }
 
-export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
+export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }: Props) {
   const player = usePlayer();
   const { meta } = context;
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
@@ -44,6 +46,44 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
     window.addEventListener("keydown", block, true);
     return () => window.removeEventListener("keydown", block, true);
   }, [torrent]);
+
+  // `PlayerNextEpisodeAutoPlay`: after a short countdown, start the first eligible source. If it
+  // cannot start, try the next one (up to `autoPlayFallbackMaxSources`) before leaving the picker.
+  useEffect(() => {
+    if (!autoPlay?.autoPlayNextEpisodeEnabled) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const groups = await api.streams(meta.contentType, next.id);
+          let candidates = groups.flatMap((group) => group.streams).filter((stream) =>
+            ["direct", "torrent", "debrid", "youTube"].includes(stream.kind));
+          if (autoPlay.autoPlayMode === "regexMatch" && autoPlay.autoPlayRegex.trim()) {
+            let re: RegExp | null = null;
+            try { re = new RegExp(autoPlay.autoPlayRegex.trim(), "i"); } catch { re = null; }
+            if (re) candidates = candidates.filter((stream) => re!.test([stream.name, stream.description, stream.filename].filter(Boolean).join(" ")));
+          }
+          for (const stream of candidates.slice(0, Math.max(1, autoPlay.autoPlayFallbackMaxSources))) {
+            if (cancelled) return;
+            const resume = resumeAt !== null ? resumeAt / 1000 : null;
+            const ok = await player.play(() => api.playStream(stream.key, resume, playbackItem(meta, next), finished()), {
+              title: meta.name,
+              subtitle: episodeTitle(next),
+              view: "full",
+              returnTo: null,
+              episode: { meta, video: next },
+              torrent: stream.kind === "torrent" && !stream.debridPlayable,
+            });
+            if (ok) return; // the panel unmounts with the new session
+          }
+        } catch {
+          // Keep the manual picker on screen when no source could start.
+        }
+      })();
+    }, 3000);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay?.autoPlayNextEpisodeEnabled, autoPlay?.autoPlayMode, autoPlay?.autoPlayRegex, autoPlay?.autoPlayFallbackMaxSources, meta.id, next.id, resumeAt]);
 
   const play = async (stream: StreamEntry, prepared = false) => {
     if (starting) return;

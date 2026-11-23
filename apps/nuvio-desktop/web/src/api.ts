@@ -19,6 +19,7 @@ import type {
   TmdbSettingsView,
   DebridSettingsInput,
   DebridSettingsView,
+  ParentalGuide,
   MdblistSettingsInput,
   MdblistSettingsView,
   MetaPreview,
@@ -106,6 +107,8 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** IMDb parents-guide warnings, only when enabled in Settings → Reprodução. */
+  parentalGuide: (id: string) => invoke<ParentalGuide | null>("parental_guide", { id }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
   streams: (contentType: string, id: string, refresh = false) =>

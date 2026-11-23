@@ -133,6 +133,17 @@ body.playing .screen-fill { background: transparent; }
 
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
+/* Chapters over the player, and the hold-to-speed feedback on the forward button. */
+.chapters-overlay { position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
+.chapters-panel { width: min(480px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.chapters-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.chapter-row { display: flex; gap: 12px; width: 100%; text-align: left; border: 0; border-radius: 8px; padding: 8px 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; }
+.chapter-row:hover { background: var(--surface-hover); }
+.chapter-time { color: var(--accent); font-variant-numeric: tabular-nums; }
+.pc-btn.holding { color: var(--accent); }
+.pc-chapters { font-size: 12px; padding: 4px 8px; }
+.chip-select { display: flex; flex-wrap: wrap; gap: 6px; }
+.regex-input { min-width: 240px; }
 .meta-section-controls { display: flex; align-items: center; gap: 6px; }
 .meta-section-controls .icon-btn { padding: 4px 8px; }
 .see-all-btn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; padding: 4px 8px; }
@@ -197,6 +208,7 @@ body.playing .screen-fill { background: transparent; }
 .fact dt { color: var(--muted); font-size: 12px; }
 .fact dd { margin: 0; user-select: text; overflow-wrap: anywhere; }
 .details-section h2 { font-size: 18px; margin: 0 0 12px; }
+.warning-chips .chip.warning { border-color: var(--warning, #e0a131); color: var(--warning, #e0a131); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
   border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 999px;

@@ -15,6 +15,7 @@ pub mod livetv;
 pub mod meta;
 pub mod mdblist;
 pub mod next_up;
+pub mod parental;
 pub mod playback;
 pub mod progress;
 pub mod search;

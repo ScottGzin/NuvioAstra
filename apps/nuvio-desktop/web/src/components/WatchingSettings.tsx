@@ -45,6 +45,42 @@ export function WatchingSettings({ value: p, onChange }: { value: PlayerSettings
         </Row>
       )}
 
+      <h3 className="settings-subhead">{t("Próximo episódio automático")}</h3>
+      <Row title={t("Reproduzir o próximo episódio automaticamente")} description={t("Escolhe uma fonte e começa o próximo episódio quando o atual termina.")}>
+        <Toggle label={t("Reproduzir o próximo episódio automaticamente")} checked={p.autoPlayNextEpisodeEnabled} onChange={(v) => onChange((x) => ({ ...x, autoPlayNextEpisodeEnabled: v }))} />
+      </Row>
+      <Row title={t("Preferir o mesmo grupo de fontes")} description={t("No próximo episódio, tenta primeiro o addon da fonte atual.")}>
+        <Toggle label={t("Preferir o mesmo grupo de fontes")} checked={p.autoPlayPreferBingeGroup} onChange={(v) => onChange((x) => ({ ...x, autoPlayPreferBingeGroup: v }))} />
+      </Row>
+      {p.autoPlayNextEpisodeEnabled && (
+        <>
+          <Row title={t("Permitir outra fonte se a preferida falhar")}>
+            <Toggle label={t("Permitir outra fonte se a preferida falhar")} checked={p.autoPlayNextEpisodeFallbackEnabled} onChange={(v) => onChange((x) => ({ ...x, autoPlayNextEpisodeFallbackEnabled: v }))} />
+          </Row>
+          <Row title={t("Pré-carregar fontes do próximo episódio")} description={t("Busca as fontes antes do fim do episódio atual.")}>
+            <Toggle label={t("Pré-carregar fontes do próximo episódio")} checked={p.preloadNextEpisodeSources} onChange={(v) => onChange((x) => ({ ...x, preloadNextEpisodeSources: v }))} />
+          </Row>
+        </>
+      )}
+
+      <h3 className="settings-subhead">{t("Player")}</h3>
+      <Row title={t("Títulos dos capítulos")} description={t("Mostra o nome do capítulo quando o vídeo os traz.")}>
+        <Toggle label={t("Títulos dos capítulos")} checked={p.chapterTitleEnabled} onChange={(v) => onChange((x) => ({ ...x, chapterTitleEnabled: v }))} />
+      </Row>
+      <Row title={t("Segurar para acelerar")} description={t("Segure o botão de avanço no player para reproduzir mais rápido.")}>
+        <Toggle label={t("Segurar para acelerar")} checked={p.holdToSpeedEnabled} onChange={(v) => onChange((x) => ({ ...x, holdToSpeedEnabled: v }))} />
+      </Row>
+      {p.holdToSpeedEnabled && (
+        <Row title={t("Velocidade ao segurar")}>
+          <select aria-label={t("Velocidade ao segurar")} value={p.holdToSpeedValue} onChange={(e) => onChange((x) => ({ ...x, holdToSpeedValue: Number(e.target.value) }))}>
+            {[1, 1.5, 2, 2.5, 3, 3.5, 4].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}
+          </select>
+        </Row>
+      )}
+      <Row title={t("Avisos de conteúdo")} description={t("Mostra o guia parental quando disponível para o título.")}>
+        <Toggle label={t("Avisos de conteúdo")} checked={p.showParentalGuide} onChange={(v) => onChange((x) => ({ ...x, showParentalGuide: v }))} />
+      </Row>
+
       <h3 className="settings-subhead">{t("Pular introdução e créditos")}</h3>
       <Row title={t("Botões de pular")} description={t("Os tempos vêm dos capítulos do vídeo, do IntroDB e, para animes, do AniSkip. Para isso o app envia a esses serviços o código público do título e o número do episódio.")}>
         <Toggle label={t("Botões de pular")} checked={p.skipSegmentsEnabled} onChange={(v) => onChange((x) => ({ ...x, skipSegmentsEnabled: v }))} />

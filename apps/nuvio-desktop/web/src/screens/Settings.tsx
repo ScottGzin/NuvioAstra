@@ -19,18 +19,22 @@ import { ANIME_MODES, ENHANCEMENTS, MOTIONS } from "../player/EnhanceMenu";
 import { Row, Toggle } from "../components/SettingControls";
 import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
+import { AudioSettings } from "../components/AudioSettings";
+import { BufferSettings } from "../components/BufferSettings";
+import { SourceSettings } from "../components/SourceSettings";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
 import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, MetaScreenSettings, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "details" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "details" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "account", label: "Conta", icon: <AccountIcon /> },
   { id: "home", label: "Início", icon: <HomeIcon /> },
   { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
+  { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
   { id: "addons", label: "Addons", icon: <AddonsIcon /> },
   { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
   { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
@@ -338,6 +342,11 @@ export function Settings() {
         )}
 
         {section === "account" && <AccountPanel />}
+        {section === "sources" && (
+          <div className="settings-group">
+            <SourceSettings value={draft.player} addons={[...new Set(view.catalogs.map((c) => c.addonName))].sort()} onChange={player} />
+          </div>
+        )}
         {section === "addons" && <AddonsManager />}
 
         {section === "playback" && (
@@ -379,6 +388,7 @@ export function Settings() {
               <Toggle label="NVIDIA RTX Video HDR" checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
             </Row>
             <WatchingSettings value={p} onChange={player} />
+            <BufferSettings value={p} onChange={player} />
           </div>
         )}
 
@@ -392,6 +402,7 @@ export function Settings() {
             <Row title={t("Idioma de áudio secundário")} description={t("Usado quando o preferido não existe no arquivo.")}>
               <LanguageSelect label={t("Idioma de áudio secundário")} value={p.secondaryPreferredAudioLanguage} special={[["", t("Nenhum")]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredAudioLanguage: v }))} />
             </Row>
+            <AudioSettings value={p} onChange={player} />
             <p className="muted small pad-top">{t("“Idioma original” usa o idioma do dispositivo enquanto o Nuvio Astra não conhece o idioma original do título (mesma regra do Nuvio original quando essa informação falta).")}</p>
           </div>
         )}

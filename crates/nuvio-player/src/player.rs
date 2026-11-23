@@ -275,6 +275,12 @@ pub enum PlayerCommand {
     SetSubtitleDelay { ms: i64 },
     /// ±60 000 ms. Not exposed by the original Windows player (Android only); added on request.
     SetAudioDelay { ms: i64 },
+    /// 0–10 dB of gain, expressed as mpv's `volume` percentage (100 × 10^(dB/20)).
+    SetAudioAmplification { db: i64 },
+    /// Downmix to an ffmpeg layout name (`stereo`, `5.1`, …); empty restores the default.
+    SetAudioDownmix { layout: String },
+    /// HTTP stream buffer: `cache-secs`, `demuxer-readahead-secs` and `demuxer-max-bytes`.
+    SetBuffer { max_seconds: f64, back_seconds: f64, max_bytes: i64 },
     ApplySubtitleStyle { style: SubtitleStyle },
     SetResizeMode { mode: ResizeMode },
     SetMotion { motion: Motion },
@@ -666,6 +672,18 @@ impl Player {
             }
             PlayerCommand::SetAudioDelay { ms } => {
                 mpv.set_property_f64("audio-delay", (*ms).clamp(-AUDIO_DELAY_LIMIT_MS, AUDIO_DELAY_LIMIT_MS) as f64 / 1000.0)
+            }
+            PlayerCommand::SetAudioAmplification { db } => {
+                let gain = 100.0 * 10f64.powf((*db).clamp(0, 10) as f64 / 20.0);
+                mpv.set_property_f64("volume", gain.min(1000.0))
+            }
+            PlayerCommand::SetAudioDownmix { layout } => {
+                mpv.set_property("audio-channels", if layout.is_empty() { "auto" } else { layout })
+            }
+            PlayerCommand::SetBuffer { max_seconds, back_seconds, max_bytes } => {
+                mpv.set_property_f64("cache-secs", max_seconds.max(0.0))?;
+                mpv.set_property_f64("demuxer-readahead-secs", back_seconds.max(0.0))?;
+                mpv.set_property("demuxer-max-bytes", &(*max_bytes).max(0).to_string())
             }
             PlayerCommand::ApplySubtitleStyle { style } => self.apply_subtitle_style(style),
             PlayerCommand::SetResizeMode { mode } => {

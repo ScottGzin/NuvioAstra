@@ -152,6 +152,63 @@ pub struct PlayerSettings {
     pub next_episode_threshold_minutes: f64,
     /// Astra only: 90–100, from where an episode or movie counts as watched (the original's is 90).
     pub watched_percent: i64,
+
+    // ---- Sources / automatic playback (PlayerSettingsUiState of the original) ----
+    /// `streamReuseLastLinkEnabled`: replay the cached stream link (default false).
+    pub reuse_last_link_enabled: bool,
+    /// `streamReuseLastLinkCacheHours`, one of 1,2,3,6,12,24,48,72,168.
+    pub reuse_last_link_cache_hours: i64,
+    /// `streamAutoPlayFallbackOnFailure`: try the next candidate if a source fails to start.
+    pub auto_play_fallback_on_failure: bool,
+    pub auto_play_fallback_max_sources: i64,
+    pub auto_play_fallback_startup_timeout_seconds: i64,
+    /// `streamAutoPlayMode`: `manual`, `firstStream` or `regexMatch`.
+    pub auto_play_mode: String,
+    /// `streamAutoPlaySource`: `allSources`, `installedAddonsOnly` or `enabledPluginsOnly`.
+    pub auto_play_source: String,
+    pub auto_play_selected_addons: Vec<String>,
+    pub auto_play_selected_plugins: Vec<String>,
+    pub auto_play_regex: String,
+    /// `streamAutoPlayTimeoutSeconds`, snapped to `STREAM_AUTO_PLAY_TIMEOUT_VALUES`.
+    pub auto_play_timeout_seconds: i64,
+
+    // ---- Next episode, chapters, hold-to-speed, content warnings ----
+    pub auto_play_next_episode_enabled: bool,
+    pub auto_play_next_episode_fallback_enabled: bool,
+    pub auto_play_prefer_binge_group: bool,
+    pub auto_play_reuse_binge_group: bool,
+    pub preload_next_episode_sources: bool,
+    pub chapter_title_enabled: bool,
+    pub hold_to_speed_enabled: bool,
+    /// Clamped to 1.0–4.0 (the original's `holdToSpeedValue`, default 2).
+    pub hold_to_speed_value: f64,
+    pub show_parental_guide: bool,
+
+    // ---- Audio (SubtitleAudioModels / PlayerSettingsRepository) ----
+    pub remember_audio_delay_per_device: bool,
+    pub persist_audio_amplification: bool,
+    /// 0–10 dB.
+    pub audio_amplification_db: i64,
+    pub downmix_enabled: bool,
+    /// One of `2.0`, `2.1`, `3.0`, `3.1`, `4.0`, `4.1`, `5.0`, `5.1`, `7.0`, `7.1`.
+    pub audio_output_channels: String,
+    pub maintain_original_audio_on_downmix: bool,
+    /// -10–30 dB, used by the downmix center filter.
+    pub center_mix_level_db: i64,
+
+    // ---- Buffer / disk cache (PlaybackBufferSettings / VodCacheSizing) ----
+    pub buffer_enabled: bool,
+    pub min_buffer_ms: i64,
+    pub max_buffer_ms: i64,
+    pub buffer_for_playback_ms: i64,
+    pub buffer_for_playback_after_rebuffer_ms: i64,
+    pub back_buffer_duration_ms: i64,
+    pub target_buffer_size_mb: i64,
+    pub vod_cache_enabled: bool,
+    /// `auto` or `manual`.
+    pub vod_cache_size_mode: String,
+    /// 100–65536 MB (the original's default is 500 MB).
+    pub vod_cache_size_mb: i64,
 }
 
 impl Default for PlayerSettings {
@@ -176,6 +233,47 @@ impl Default for PlayerSettings {
             next_episode_threshold_percent: 99.0,
             next_episode_threshold_minutes: 2.0,
             watched_percent: crate::library::COMPLETION_PERCENT,
+
+            reuse_last_link_enabled: false,
+            reuse_last_link_cache_hours: 24,
+            auto_play_fallback_on_failure: false,
+            auto_play_fallback_max_sources: 3,
+            auto_play_fallback_startup_timeout_seconds: 15,
+            auto_play_mode: "manual".into(),
+            auto_play_source: "allSources".into(),
+            auto_play_selected_addons: Vec::new(),
+            auto_play_selected_plugins: Vec::new(),
+            auto_play_regex: String::new(),
+            auto_play_timeout_seconds: 3,
+
+            auto_play_next_episode_enabled: false,
+            auto_play_next_episode_fallback_enabled: true,
+            auto_play_prefer_binge_group: true,
+            auto_play_reuse_binge_group: false,
+            preload_next_episode_sources: false,
+            chapter_title_enabled: true,
+            hold_to_speed_enabled: true,
+            hold_to_speed_value: 2.0,
+            show_parental_guide: true,
+
+            remember_audio_delay_per_device: true,
+            persist_audio_amplification: false,
+            audio_amplification_db: 0,
+            downmix_enabled: false,
+            audio_output_channels: "2.0".into(),
+            maintain_original_audio_on_downmix: true,
+            center_mix_level_db: 0,
+
+            buffer_enabled: false,
+            min_buffer_ms: 15_000,
+            max_buffer_ms: 45_000,
+            buffer_for_playback_ms: 5_000,
+            buffer_for_playback_after_rebuffer_ms: 3_000,
+            back_buffer_duration_ms: 10_000,
+            target_buffer_size_mb: 100,
+            vod_cache_enabled: false,
+            vod_cache_size_mode: "auto".into(),
+            vod_cache_size_mb: 500,
         }
     }
 }
@@ -317,6 +415,12 @@ pub struct ProfileSettings {
     pub meta_screen: MetaScreenSettings,
 }
 
+pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
+pub const REUSE_LINK_CACHE_HOURS: &[i64] = &[1, 2, 3, 6, 12, 24, 48, 72, 168];
+pub const AUDIO_OUTPUT_CHANNELS: &[&str] = &["2.0", "2.1", "3.0", "3.1", "4.0", "4.1", "5.0", "5.1", "7.0", "7.1"];
+pub const AUTO_PLAY_MODES: &[&str] = &["manual", "firstStream", "regexMatch"];
+pub const AUTO_PLAY_SOURCES: &[&str] = &["allSources", "installedAddonsOnly", "enabledPluginsOnly"];
+
 pub const MOTION_SMOOTHING: &[&str] = &["off", "steady", "fluid"];
 pub const VIDEO_ENHANCEMENT: &[&str] = &["off", "movies", "animeFast", "animeQuality"];
 pub const P2P_PROFILES: &[&str] = &["SOFT", "BALANCED", "FAST"];
@@ -443,6 +547,37 @@ impl PlayerSettings {
         self.next_episode_threshold_percent = half(self.next_episode_threshold_percent, 97.0, 100.0);
         self.next_episode_threshold_minutes = half(self.next_episode_threshold_minutes, 0.0, 3.5);
         self.watched_percent = self.watched_percent.clamp(90, 100);
+
+        if !REUSE_LINK_CACHE_HOURS.contains(&self.reuse_last_link_cache_hours) {
+            self.reuse_last_link_cache_hours = d.reuse_last_link_cache_hours;
+        }
+        self.auto_play_fallback_max_sources = self.auto_play_fallback_max_sources.clamp(1, 10);
+        self.auto_play_fallback_startup_timeout_seconds = self.auto_play_fallback_startup_timeout_seconds.clamp(5, 45);
+        if !AUTO_PLAY_MODES.contains(&self.auto_play_mode.as_str()) {
+            self.auto_play_mode = d.auto_play_mode;
+        }
+        if !AUTO_PLAY_SOURCES.contains(&self.auto_play_source.as_str()) {
+            self.auto_play_source = d.auto_play_source;
+        }
+        self.auto_play_timeout_seconds = snap_auto_play_timeout(self.auto_play_timeout_seconds);
+        self.auto_play_regex = self.auto_play_regex.trim().to_string();
+        self.hold_to_speed_value = self.hold_to_speed_value.clamp(1.0, 4.0);
+        self.audio_amplification_db = self.audio_amplification_db.clamp(0, 10);
+        if !AUDIO_OUTPUT_CHANNELS.contains(&self.audio_output_channels.as_str()) {
+            self.audio_output_channels = d.audio_output_channels;
+        }
+        self.center_mix_level_db = self.center_mix_level_db.clamp(-10, 30);
+        // Buffer/caches: ms values, as in the original's sliders.
+        self.min_buffer_ms = self.min_buffer_ms.clamp(5_000, 120_000);
+        self.max_buffer_ms = self.max_buffer_ms.clamp(5_000, 1_200_000);
+        self.buffer_for_playback_ms = self.buffer_for_playback_ms.clamp(1_000, 60_000);
+        self.buffer_for_playback_after_rebuffer_ms = self.buffer_for_playback_after_rebuffer_ms.clamp(1_000, 120_000);
+        self.back_buffer_duration_ms = self.back_buffer_duration_ms.clamp(0, 120_000);
+        self.target_buffer_size_mb = self.target_buffer_size_mb.clamp(50, 65_536);
+        if !matches!(self.vod_cache_size_mode.as_str(), "auto" | "manual") {
+            self.vod_cache_size_mode = d.vod_cache_size_mode;
+        }
+        self.vod_cache_size_mb = self.vod_cache_size_mb.clamp(100, 65_536);
         self
     }
 }
@@ -467,6 +602,14 @@ impl LegacyStore {
         let boolean = |name: &str| get(name).and_then(|v| v.parse::<bool>().ok());
         let int = |name: &str| get(name).and_then(|v| v.parse::<i64>().ok());
         let number = |name: &str| get(name).and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite());
+        let list = |name: &str| -> Vec<String> {
+            match get(name) {
+                Some(value) => serde_json::from_str::<Vec<String>>(&value).unwrap_or_else(|_| {
+                    value.split(',').map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect()
+                }),
+                None => Vec::new(),
+            }
+        };
         let d = PlayerSettings::default();
         let ds = SubtitleSettings::default();
         let appearance: serde_json::Value = get("subtitle_appearance").and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default();
@@ -514,6 +657,47 @@ impl LegacyStore {
             next_episode_threshold_percent: number("next_episode_threshold_percent_v2").unwrap_or(d.next_episode_threshold_percent),
             next_episode_threshold_minutes: number("next_episode_threshold_minutes_before_end_v2").unwrap_or(d.next_episode_threshold_minutes),
             watched_percent: d.watched_percent,
+
+            reuse_last_link_enabled: boolean("stream_reuse_last_link_enabled").unwrap_or(d.reuse_last_link_enabled),
+            reuse_last_link_cache_hours: int("stream_reuse_last_link_cache_hours").unwrap_or(d.reuse_last_link_cache_hours),
+            auto_play_fallback_on_failure: boolean("stream_auto_play_fallback_on_failure").unwrap_or(d.auto_play_fallback_on_failure),
+            auto_play_fallback_max_sources: int("stream_auto_play_fallback_max_sources").unwrap_or(d.auto_play_fallback_max_sources),
+            auto_play_fallback_startup_timeout_seconds: int("stream_auto_play_fallback_startup_timeout_seconds").unwrap_or(d.auto_play_fallback_startup_timeout_seconds),
+            auto_play_mode: get("stream_auto_play_mode").unwrap_or(d.auto_play_mode),
+            auto_play_source: get("stream_auto_play_source").unwrap_or(d.auto_play_source),
+            auto_play_selected_addons: list("stream_auto_play_selected_addons"),
+            auto_play_selected_plugins: list("stream_auto_play_selected_plugins"),
+            auto_play_regex: get("stream_auto_play_regex").unwrap_or_default(),
+            auto_play_timeout_seconds: int("stream_auto_play_timeout_seconds").unwrap_or(d.auto_play_timeout_seconds),
+
+            auto_play_next_episode_enabled: boolean("stream_auto_play_next_episode_enabled").unwrap_or(d.auto_play_next_episode_enabled),
+            auto_play_next_episode_fallback_enabled: boolean("stream_auto_play_next_episode_fallback_enabled").unwrap_or(d.auto_play_next_episode_fallback_enabled),
+            auto_play_prefer_binge_group: boolean("stream_auto_play_prefer_binge_group").unwrap_or(d.auto_play_prefer_binge_group),
+            auto_play_reuse_binge_group: boolean("stream_auto_play_reuse_binge_group").unwrap_or(d.auto_play_reuse_binge_group),
+            preload_next_episode_sources: boolean("preload_next_episode_sources").unwrap_or(d.preload_next_episode_sources),
+            chapter_title_enabled: boolean("chapter_title_enabled").unwrap_or(d.chapter_title_enabled),
+            hold_to_speed_enabled: boolean("hold_to_speed_enabled").unwrap_or(d.hold_to_speed_enabled),
+            hold_to_speed_value: number("hold_to_speed_value").unwrap_or(d.hold_to_speed_value),
+            show_parental_guide: boolean("show_parental_guide").unwrap_or(d.show_parental_guide),
+
+            remember_audio_delay_per_device: boolean("remember_audio_delay_per_device").unwrap_or(d.remember_audio_delay_per_device),
+            persist_audio_amplification: boolean("persist_audio_amplification").unwrap_or(d.persist_audio_amplification),
+            audio_amplification_db: int("audio_amplification_db").unwrap_or(d.audio_amplification_db),
+            downmix_enabled: boolean("downmix_enabled").unwrap_or(d.downmix_enabled),
+            audio_output_channels: get("audio_output_channels").unwrap_or(d.audio_output_channels),
+            maintain_original_audio_on_downmix: boolean("maintain_original_audio_on_downmix").unwrap_or(d.maintain_original_audio_on_downmix),
+            center_mix_level_db: int("center_mix_level_db").unwrap_or(d.center_mix_level_db),
+
+            buffer_enabled: boolean("buffer_engine_enabled").unwrap_or(d.buffer_enabled),
+            min_buffer_ms: int("min_buffer_ms").unwrap_or(d.min_buffer_ms),
+            max_buffer_ms: int("max_buffer_ms").unwrap_or(d.max_buffer_ms),
+            buffer_for_playback_ms: int("buffer_for_playback_ms").unwrap_or(d.buffer_for_playback_ms),
+            buffer_for_playback_after_rebuffer_ms: int("buffer_for_playback_after_rebuffer_ms").unwrap_or(d.buffer_for_playback_after_rebuffer_ms),
+            back_buffer_duration_ms: int("back_buffer_duration_ms").unwrap_or(d.back_buffer_duration_ms),
+            target_buffer_size_mb: int("target_buffer_size_mb").unwrap_or(d.target_buffer_size_mb),
+            vod_cache_enabled: boolean("vod_cache_enabled").unwrap_or(d.vod_cache_enabled),
+            vod_cache_size_mode: get("vod_cache_size_mode").unwrap_or(d.vod_cache_size_mode),
+            vod_cache_size_mb: int("vod_cache_size_mb").unwrap_or(d.vod_cache_size_mb),
         }
         .sanitized())
     }
@@ -545,6 +729,35 @@ mod tests {
         let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();
         assert_eq!((bad.style.as_str(), bad.sort_mode.as_str(), bad.click_action.as_str()), ("card", "default", "stream"));
         assert_eq!(ProfileSettings::default().continue_watching, ContinueWatchingSettings::default());
+    }
+
+    #[test]
+    fn phase2_defaults_and_ranges() {
+        let p = PlayerSettings::default();
+        assert!(!p.reuse_last_link_enabled && p.reuse_last_link_cache_hours == 24);
+        assert!(!p.auto_play_fallback_on_failure && p.auto_play_fallback_max_sources == 3 && p.auto_play_fallback_startup_timeout_seconds == 15);
+        assert_eq!((p.auto_play_mode.as_str(), p.auto_play_source.as_str(), p.auto_play_timeout_seconds), ("manual", "allSources", 3));
+        assert!(!p.auto_play_next_episode_enabled && p.auto_play_next_episode_fallback_enabled);
+        assert!(p.auto_play_prefer_binge_group && !p.auto_play_reuse_binge_group && !p.preload_next_episode_sources);
+        assert!(p.chapter_title_enabled && p.hold_to_speed_enabled && p.show_parental_guide);
+        assert_eq!(p.hold_to_speed_value, 2.0);
+        assert_eq!((p.audio_amplification_db, p.center_mix_level_db, p.audio_output_channels.as_str()), (0, 0, "2.0"));
+        assert!(!p.buffer_enabled && p.min_buffer_ms == 15_000 && p.max_buffer_ms == 45_000 && p.target_buffer_size_mb == 100);
+        assert!(!p.vod_cache_enabled && p.vod_cache_size_mode == "auto" && p.vod_cache_size_mb == 500);
+
+        let bad = PlayerSettings {
+            auto_play_mode: "bad".into(), auto_play_source: "bad".into(), auto_play_timeout_seconds: 11,
+            hold_to_speed_value: 9.0, audio_amplification_db: 99, center_mix_level_db: 99,
+            audio_output_channels: "9.9".into(), buffer_enabled: true, min_buffer_ms: 1,
+            max_buffer_ms: 9_000_000, target_buffer_size_mb: 1, vod_cache_size_mode: "bad".into(),
+            vod_cache_size_mb: 1, ..Default::default()
+        }.sanitized();
+        assert_eq!((bad.auto_play_mode.as_str(), bad.auto_play_source.as_str()), ("manual", "allSources"));
+        assert_eq!(bad.auto_play_timeout_seconds, 10);
+        assert_eq!(bad.hold_to_speed_value, 4.0);
+        assert_eq!((bad.audio_amplification_db, bad.center_mix_level_db, bad.audio_output_channels.as_str()), (10, 30, "2.0"));
+        assert_eq!((bad.min_buffer_ms, bad.max_buffer_ms, bad.target_buffer_size_mb), (5_000, 1_200_000, 50));
+        assert_eq!((bad.vod_cache_size_mode.as_str(), bad.vod_cache_size_mb), ("auto", 100));
     }
 
     #[test]

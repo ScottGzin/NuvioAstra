@@ -4,9 +4,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { listen } from "../tauri";
+import type { PlayerSettings } from "../types";
 import { usePlayer } from "./PlayerContext";
 import { P2pStats } from "./P2pStats";
 import { EnhanceNotice } from "./EnhanceMenu";
+import { ChaptersPanel } from "./ChaptersPanel";
 import { PlayerControls } from "./PlayerControls";
 import { airDate, episodeTitle, hasAired, nextEpisode } from "./episodes";
 import { NextEpisodePanel } from "./NextEpisodePanel";
@@ -26,8 +28,17 @@ export function FullPlayer() {
   const next = useMemo(() => (episode ? nextEpisode(episode) : null), [episode]);
   const nextAired = next !== null && hasAired(next.released);
   const [choosingNext, setChoosingNext] = useState(false);
+  const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null);
+  const [chaptersOpen, setChaptersOpen] = useState(false);
   // Another episode started: its panel is gone.
-  useEffect(() => setChoosingNext(false), [episode]);
+  useEffect(() => { setChoosingNext(false); setChaptersOpen(false); }, [episode]);
+
+  // Player settings are read once per session: hold-to-speed, chapters and next-episode autoplay.
+  useEffect(() => {
+    let cancelled = false;
+    api.settingsGet().then((view) => !cancelled && setPlayerSettings(view.settings.player), () => {});
+    return () => { cancelled = true; };
+  }, []);
   const openNext = useCallback(() => {
     if (!nextAired) return;
     if (player.session && snapshot?.pictureInPicture) void api.pictureInPicture(false, "").catch(() => {});
@@ -119,6 +130,8 @@ export function FullPlayer() {
         onToggleFullscreen={toggleFullscreen}
         onPictureInPicture={() => void togglePip()}
         subtitles={snapshot ? <SubtitleMenu key={`subtitles-${snapshot.session}`} snapshot={snapshot} /> : undefined}
+        holdSpeed={{ enabled: playerSettings?.holdToSpeedEnabled ?? true, value: playerSettings?.holdToSpeedValue ?? 2 }}
+        onChapters={snapshot && snapshot.chapters.length > 0 ? () => setChaptersOpen(true) : undefined}
         next={
           next
             ? {
@@ -140,6 +153,9 @@ export function FullPlayer() {
           onNext={openNext}
         />
       )}
+      {chaptersOpen && snapshot && snapshot.chapters.length > 0 && (
+        <ChaptersPanel chapters={snapshot.chapters} onClose={() => setChaptersOpen(false)} />
+      )}
       {choosingNext && episode && next && (
         <NextEpisodePanel
           key={next.id}
@@ -147,6 +163,7 @@ export function FullPlayer() {
           next={next}
           finished={() => reachedNextEpisode(snapshot, moments)}
           onClose={() => setChoosingNext(false)}
+          autoPlay={playerSettings}
         />
       )}
     </div>

@@ -5,7 +5,7 @@
 // cache ahead, the same for HTTP and P2P sources), played part with glow and a moving dot; an
 // invisible range input on top handles dragging and keyboard.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { PlayerSnapshot, ResizeMode, Track } from "../types";
 import { EnhanceMenu } from "./EnhanceMenu";
@@ -57,9 +57,35 @@ interface Props {
   subtitles?: ReactNode;
   /** A series with a following episode: opens its sources. */
   next?: { label: string; disabled: boolean; open(): void };
+  /** Hold the forward button to play faster (the original's holdToSpeed). */
+  holdSpeed?: { enabled: boolean; value: number };
+  /** Opens the chapters panel when the video provides chapters. */
+  onChapters?(): void;
 }
 
-export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next }: Props) {
+export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, holdSpeed, onChapters }: Props) {
+  const holdTimer = useRef<number>(0);
+  const holdActive = useRef(false);
+  const holdSpeedBefore = useRef<number>(1);
+  const startHold = () => {
+    if (!holdSpeed?.enabled) return;
+    holdSpeedBefore.current = s?.speed ?? 1;
+    holdActive.current = false;
+    window.clearTimeout(holdTimer.current);
+    holdTimer.current = window.setTimeout(() => {
+      holdActive.current = true;
+      void api.playerCommand({ type: "setSpeed", speed: holdSpeed.value });
+    }, 350);
+  };
+  const endHold = () => {
+    window.clearTimeout(holdTimer.current);
+    if (holdActive.current) {
+      holdActive.current = false;
+      void api.playerCommand({ type: "setSpeed", speed: holdSpeedBefore.current });
+    } else if (holdSpeed?.enabled) {
+      void api.playerCommand({ type: "seek", seconds: 10, relative: true });
+    }
+  };
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
   const [mode, setMode] = useState<ResizeMode>("fit");
   const duration = s?.duration ?? 0;
@@ -139,7 +165,16 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             <button className="pc-btn pc-skip" aria-label={t("Voltar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: -10, relative: true })}>
               {Icons.back}<span>10</span>
             </button>
-            <button className="pc-btn pc-skip" aria-label={t("Avançar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: 10, relative: true })}>
+            <button
+              className={`pc-btn pc-skip ${holdActive.current ? "holding" : ""}`}
+              aria-label={holdSpeed?.enabled ? t("Avançar 10 s (segure para acelerar)") : t("Avançar 10 s")}
+              data-testid="forward-10"
+              onPointerDown={holdSpeed?.enabled ? startHold : undefined}
+              onPointerUp={holdSpeed?.enabled ? endHold : undefined}
+              onPointerLeave={holdSpeed?.enabled ? endHold : undefined}
+              onPointerCancel={holdSpeed?.enabled ? endHold : undefined}
+              onClick={holdSpeed?.enabled ? undefined : () => void api.playerCommand({ type: "seek", seconds: 10, relative: true })}
+            >
               <span>10</span>{Icons.forward}
             </button>
             <span className="time">
@@ -153,6 +188,11 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
         {next && (
           <button className="pc-btn pc-next" aria-label={t("Próximo episódio")} title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
             {Icons.next}<span>{t("Próximo episódio")}</span>
+          </button>
+        )}
+        {onChapters && (
+          <button className="pc-btn pc-chapters" aria-label={t("Capítulos")} data-testid="chapters" onClick={onChapters}>
+            {t("Capítulos")}
           </button>
         )}
         <span className="spacer" />

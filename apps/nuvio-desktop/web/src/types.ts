@@ -98,6 +98,26 @@ export interface PlayerSettings {
   skipSegmentsEnabled: boolean; autoSkipSegments: string[];
   nextEpisodeThresholdMode: "PERCENTAGE" | "MINUTES_BEFORE_END";
   nextEpisodeThresholdPercent: number; nextEpisodeThresholdMinutes: number; watchedPercent: number;
+  // Sources / automatic playback
+  reuseLastLinkEnabled: boolean; reuseLastLinkCacheHours: number;
+  autoPlayFallbackOnFailure: boolean; autoPlayFallbackMaxSources: number; autoPlayFallbackStartupTimeoutSeconds: number;
+  autoPlayMode: "manual" | "firstStream" | "regexMatch";
+  autoPlaySource: "allSources" | "installedAddonsOnly" | "enabledPluginsOnly";
+  autoPlaySelectedAddons: string[]; autoPlaySelectedPlugins: string[];
+  autoPlayRegex: string; autoPlayTimeoutSeconds: number;
+  // Next episode / chapters / hold / warnings
+  autoPlayNextEpisodeEnabled: boolean; autoPlayNextEpisodeFallbackEnabled: boolean;
+  autoPlayPreferBingeGroup: boolean; autoPlayReuseBingeGroup: boolean;
+  preloadNextEpisodeSources: boolean; chapterTitleEnabled: boolean;
+  holdToSpeedEnabled: boolean; holdToSpeedValue: number; showParentalGuide: boolean;
+  // Audio
+  rememberAudioDelayPerDevice: boolean; persistAudioAmplification: boolean;
+  audioAmplificationDb: number; downmixEnabled: boolean; audioOutputChannels: string;
+  maintainOriginalAudioOnDownmix: boolean; centerMixLevelDb: number;
+  // Buffer / cache
+  bufferEnabled: boolean; minBufferMs: number; maxBufferMs: number; bufferForPlaybackMs: number;
+  bufferForPlaybackAfterRebufferMs: number; backBufferDurationMs: number; targetBufferSizeMb: number;
+  vodCacheEnabled: boolean; vodCacheSizeMode: "auto" | "manual"; vodCacheSizeMb: number;
 }
 export interface HomeCatalogPreference { key: string; customTitle: string; enabled: boolean; heroSourceEnabled: boolean; order: number }
 export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[]; heroCatalogs: string[] | null }
@@ -175,6 +195,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
+export interface ParentalGuide { nudity: string | null; violence: string | null; profanity: string | null; alcohol: string | null; frightening: string | null }
 export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[]; watchedKeys: string[] }
 
 export type StreamKind = "direct" | "torrent" | "debrid" | "external" | "youTube";

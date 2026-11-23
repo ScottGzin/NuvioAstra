@@ -196,6 +196,22 @@ pub fn startup_commands(settings: &PlayerSettings, audio: &[String], font: (Stri
     if !audio.is_empty() {
         commands.push(PlayerCommand::SetAudioLanguages { languages: audio.to_vec() });
     }
+    // Audio gain: each session starts at 0 dB unless the user asked to keep it (`persistAudioAmplification`).
+    commands.push(PlayerCommand::SetAudioAmplification {
+        db: if settings.persist_audio_amplification { settings.audio_amplification_db } else { 0 },
+    });
+    // The original's `effectiveDownmixEnabled`: only with software decoding.
+    if settings.downmix_enabled && settings.decoder_priority == 2 {
+        let layout = if settings.audio_output_channels == "2.0" { "stereo" } else { settings.audio_output_channels.as_str() };
+        commands.push(PlayerCommand::SetAudioDownmix { layout: layout.to_string() });
+    }
+    if settings.buffer_enabled {
+        commands.push(PlayerCommand::SetBuffer {
+            max_seconds: settings.max_buffer_ms as f64 / 1000.0,
+            back_seconds: settings.back_buffer_duration_ms as f64 / 1000.0,
+            max_bytes: settings.target_buffer_size_mb * 1024 * 1024,
+        });
+    }
     commands
 }
 
