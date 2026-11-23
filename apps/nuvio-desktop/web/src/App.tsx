@@ -42,6 +42,8 @@ export function App() {
   const [profilesFailed, setProfilesFailed] = useState(false);
   /** The account screen of the first opening; it waits while a profile is locked. */
   const [welcome, setWelcome] = useState<"unknown" | "waiting" | "open" | "none">("unknown");
+  /** The original asks "Who's watching?" on every launch, before opening the last profile. */
+  const [needChooser, setNeedChooser] = useState(true);
   const [menu, setMenu] = useState(false);
   const [manage, setManage] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
@@ -83,6 +85,7 @@ export function App() {
   }, []);
   const openFromLock = useCallback((next: ProfilesView) => {
     setProfiles(next);
+    setNeedChooser(false);
     reloadProfileData();
   }, []);
 
@@ -171,11 +174,11 @@ export function App() {
   // Nothing of the profile is drawn before it is known to be open.
   const starting = (!profiles && !profilesFailed) || welcome === "unknown" || (welcome === "waiting" && !profiles?.locked && !profilesFailed);
   if (starting) return <div className="gate" aria-busy />;
-  if (welcome === "open" || profiles?.locked) {
+  if (welcome === "open" || profiles?.locked || needChooser) {
     return (
       <div className="gate-page">
         <UpdateBanner automatic={appMode === "app"} />
-        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} />}
+        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} initialMode={needChooser ? "profiles" : "pin"} />}
       </div>
     );
   }

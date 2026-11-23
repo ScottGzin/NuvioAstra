@@ -16,13 +16,15 @@ type Mode = "pin" | "profiles" | "account";
 
 interface Props {
   view: ProfilesView;
+  /** At startup show the profile chooser first, like the original app. */
+  initialMode?: Mode;
   /** The lock is gone: the PIN was right, it was removed, or another profile was opened. */
   onOpen(view: ProfilesView): void;
 }
 
-export function LockScreen({ view, onOpen }: Props) {
+export function LockScreen({ view, onOpen, initialMode }: Props) {
   const account = useAccount();
-  const [mode, setMode] = useState<Mode>("pin");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "pin");
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const profile = view.profiles.find((p) => p.index === view.active) ?? view.profiles[0];
@@ -96,7 +98,7 @@ export function LockScreen({ view, onOpen }: Props) {
             <div className="gate-actions">
               {account?.configured && (
                 <button className={account.signedIn ? "ghost" : "primary"} data-testid="lock-account" onClick={() => void openAccount()}>
-                  {account.signedIn ? "Usar outra conta" : "Entrar na conta Nuvio"}
+                  {account.signedIn ? t("Usar outra conta") : t("Entrar na conta Nuvio")}
                 </button>
               )}
               <button className="ghost" disabled={checking} data-testid="lock-recheck" onClick={() => void check(true)}>{checking ? t("Verificando…") : "Já removi o PIN"}</button>
@@ -113,7 +115,7 @@ export function LockScreen({ view, onOpen }: Props) {
         )}
         {mode === "account" && (
           <>
-            <h1>Entre na conta Nuvio</h1>
+            <h1>{t("Entre na conta Nuvio")}</h1>
             <p className="muted">Use a conta dona de “{profile.name}”. Seus dados deste computador continuam aqui.</p>
             <SignInForm
               onSignedIn={() => {

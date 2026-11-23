@@ -730,4 +730,8 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "War": { en: "War", ar: "حرب" },
   "Western": { en: "Western", ar: "غرب" },
   "Gêneros": { en: "Genres", ar: "الأنواع" },
+  "Usar outra conta": { en: "Use another account", ar: "استخدام حساب آخر" },
+  "Entrar na conta Nuvio": { en: "Sign in to Nuvio", ar: "الدخول إلى حساب Nuvio" },
+  "Entre na conta Nuvio": { en: "Sign in to your Nuvio account", ar: "سجّل الدخول إلى حساب Nuvio" },
+  "Com PIN": { en: "PIN protected", ar: "محمي برقم سري" },
 };

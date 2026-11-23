@@ -49,7 +49,7 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
         <PinPad profile={profile} onUnlocked={onUnlocked} />
         {note && <p className="muted small" role="status">{note}</p>}
         <div className="gate-actions">
-          <button className="ghost" disabled={checking} onClick={() => void recheck()}>{checking ? t("Verificando…") : "Já removi o PIN"}</button>
+          <button className="ghost" disabled={checking} onClick={() => void recheck()}>{checking ? t("Verificando…") : t("Já removi o PIN")}</button>
           <button className="ghost" data-testid="pin-cancel" onClick={onCancel}>{t("Cancelar")}</button>
         </div>
       </div>
