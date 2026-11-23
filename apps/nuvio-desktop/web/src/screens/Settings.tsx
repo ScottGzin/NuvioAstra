@@ -99,7 +99,7 @@ export function Settings() {
   const [settingSearch, setSettingSearch] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Services → Integrations → TMDB (the only integration ported so far).
-  const [servicePage, setServicePage] = useState<"integrations" | "tmdb" | "debrid" | "mdblist" | "servers">("integrations");
+  const [servicePage, setServicePage] = useState<"menu" | "integrations" | "tracking" | "tmdb" | "debrid" | "mdblist" | "servers">("menu");
   const [tmdb, setTmdb] = useState<TmdbSettingsView | null>(null);
   const [tmdbError, setTmdbError] = useState<string | null>(null);
   const [tmdbStatus, setTmdbStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -346,7 +346,7 @@ export function Settings() {
           const keywords = SETTING_KEYWORDS[s.id] ?? "";
           return label.includes(q) || keywords.includes(q);
         }).map((s) => (
-          <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => setSection(s.id)}>
+          <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); setSection(s.id); }}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
             <span>{t(s.label)}</span>
           </button>
@@ -458,7 +458,34 @@ export function Settings() {
           </div>
         )}
 
-        {section === "services" && (servicePage === "integrations" ? (
+        {section === "services" && (servicePage === "menu" ? (
+          <div className="settings-group">
+            <button className="integration-row" data-service="integrations" onClick={() => setServicePage("integrations")}>
+              <span className="integration-icon link">↔</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Integrações")}</span>
+                <span className="muted small">{t("Gerenciar integrações disponíveis")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" data-service="tracking" onClick={() => setServicePage("tracking")}>
+              <span className="integration-icon link">♻</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Rastreamento")}</span>
+                <span className="muted small">{t("Conecte provedores de rastreamento e escolha qual alimenta sua Biblioteca e Continuar assistindo.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          </div>
+        ) : servicePage === "tracking" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
+              <h2>{t("Rastreamento")}</h2>
+            </div>
+            <TrackingCredentialsPanel />
+          </>
+        ) : servicePage === "integrations" ? (
           <div className="settings-group">
             <button className="integration-row" onClick={() => setServicePage("tmdb")} data-service="tmdb">
               <span className="integration-icon tmdb">TMDB</span>
@@ -491,7 +518,6 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
-          <TrackingCredentialsPanel />
           <Row title={t("Presença no Discord")} description={t("Mostra o que você está assistindo no Discord.")}>
             <Toggle
               label={t("Presença no Discord")}
@@ -506,7 +532,7 @@ export function Settings() {
         ) : servicePage === "servers" ? (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
               <h2>{t("Servidores de mídia")}</h2>
             </div>
             <ServersPanel />
@@ -514,7 +540,7 @@ export function Settings() {
         ) : servicePage === "mdblist" ? (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
               <h2>{t("MDBList Ratings")}</h2>
               <span className={`save-status ${mdblistStatus}`} role="status" data-testid="mdblist-save-status">
                 {mdblistStatus === "saving" && t("Salvando…")}
@@ -575,7 +601,7 @@ export function Settings() {
         ) : servicePage === "debrid" ? (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
               <h2>{t("Serviços conectados")}</h2>
               <span className={`save-status ${debridStatus}`} role="status" data-testid="debrid-save-status">
                 {debridStatus === "saving" && t("Salvando…")}
@@ -629,7 +655,7 @@ export function Settings() {
         ) : (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
               <h2>{t("Enriquecimento TMDB")}</h2>
               <span className={`save-status ${tmdbStatus}`} role="status" data-testid="tmdb-save-status">
                 {tmdbStatus === "saving" && t("Salvando…")}

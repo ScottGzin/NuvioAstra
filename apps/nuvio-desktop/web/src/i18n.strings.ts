@@ -1117,6 +1117,8 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "نسخ الكود": { en: "Copy code", ar: "نسخ الكود" },
   "تم النسخ ✓": { en: "Copied ✓", ar: "تم النسخ ✓" },
   "Conectar ao MDBList": { en: "Connect MDBList", ar: "الاتصال بـ MDBList" },
+  "Gerenciar integrações disponíveis": { en: "Manage available integrations", ar: "Gerenciar integrações disponíveis" },
+  "Conecte provedores de rastreamento e escolha qual alimenta sua Biblioteca e Continuar assistindo.": { en: "Connect tracking providers and choose which one powers your Library and Continue Watching.", ar: "Conecte provedores de rastreamento e escolha qual alimenta sua Biblioteca e Continuar assistindo." },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },
