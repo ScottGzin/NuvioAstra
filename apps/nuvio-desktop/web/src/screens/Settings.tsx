@@ -500,13 +500,14 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
-            <section className="provider-card mdblist" data-provider="mdblist">
-              <div className="provider-logo mdb-logo">M</div>
-              <h3 className="provider-title">{t("MDBList Ratings")}</h3>
-              <p className="provider-desc">{t("Avaliações externas")}</p>
-              <button className="provider-action large" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>{t("Conectar ao MDBList")}</button>
-              <button className="provider-link" onClick={() => void api.openUrl("https://mdblist.com")}>{t("Visitar MDBList")}</button>
-            </section>
+            <button className="integration-row" data-service="mdblist" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>
+              <span className="integration-icon mdb">M</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("MDBList Ratings")}</span>
+                <span className="muted small">{t("Avaliações externas")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
             <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
               <span className="integration-icon link">▣</span>
               <span className="integration-text">
