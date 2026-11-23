@@ -257,7 +257,16 @@ pub fn set_tracking_credential(&self, profile: i64, key: String, value: String) 
 
     /// Settings of one profile; the original's defaults when it never had any.
     pub fn profile_settings(&self, profile: i64) -> Result<ProfileSettings, StoreError> {
-        Ok(self.all_settings()?.remove(&profile).unwrap_or_default())
+        let mut settings = self.all_settings()?.remove(&profile).unwrap_or_default();
+        // One-time migration: the original defaults Continue watching to the wide info card.
+        if !self.read::<bool>("cw-wide-migrated")?.unwrap_or(false) && settings.continue_watching.style == "card" {
+            settings.continue_watching.style = "wide".into();
+            let mut all = self.all_settings()?;
+            all.insert(profile, settings.clone());
+            self.write("settings", &all)?;
+            self.write("cw-wide-migrated", &true)?;
+        }
+        Ok(settings)
     }
 
     /// Validates (original ranges) and saves one profile's settings; other profiles untouched.
