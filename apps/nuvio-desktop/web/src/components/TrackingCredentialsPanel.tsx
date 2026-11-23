@@ -1,5 +1,5 @@
-// Trakt/Simkl credentials and authorization. Client ids are entered locally (or come from the
-// gitignored build config); tokens stay in Rust and are never shown here.
+// Trakt/Simkl account cards, styled like the original app. Client ids are entered locally (or come
+// from the gitignored build config); tokens stay in Rust and are never shown here.
 
 import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
@@ -17,14 +17,13 @@ export function TrackingCredentialsPanel() {
   const [device, setDevice] = useState<DeviceStart | null>(null);
   const [simklUrl, setSimklUrl] = useState<string | null>(null);
   const [callback, setCallback] = useState("");
+  const [sync, setSync] = useState("");
   const [showTrakt, setShowTrakt] = useState(false);
   const [showSimkl, setShowSimkl] = useState(false);
-  const [sync, setSync] = useState("");
 
   const reload = () => api.trackingCredentials().then(setView, (e) => setError(errorText(e)));
   useEffect(() => { reload(); }, []);
 
-  // Poll Trakt's device token endpoint while the user authorizes in the browser.
   useEffect(() => {
     if (!device) return;
     let active = true;
@@ -73,68 +72,76 @@ export function TrackingCredentialsPanel() {
 
   return (
     <>
-      {view && <section className="provider-card trakt" data-provider="trakt">
+      {view && <section className={`provider-card trakt ${device ? "authorizing" : ""}`} data-provider="trakt">
         <div className="provider-logo trakt-logo">trakt</div>
-        <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
-        {(!view.traktFromBuild || showTrakt) ? <>
+        <div className="provider-watermark" aria-hidden>✓</div>
+        {!device ? (
+          <>
+            <p className="provider-desc">{t("Sincronize sua lista, progresso, continuar assistindo, scrobbles e listas pessoais com o Trakt.")}</p>
+            {view.traktConnected ? (
+              <div className="modal-actions">
+                <button className="provider-action large" data-testid="trakt-sync" onClick={() => doSync("trakt")}>{t("Sincronizar assistidos")}</button>
+                <button className="provider-action outline" onClick={() => void api.trackingDisconnect("trakt").then(setView)}>{t("Desconectar")}</button>
+              </div>
+            ) : (
+              <button className="provider-action large" data-testid="trakt-connect" disabled={!view.traktConfigured} onClick={() => {
+                void api.traktDeviceStart().then(setDevice, (e) => setError(errorText(e)));
+              }}>{t("Conectar ao Trakt")}</button>
+            )}
+          </>
+        ) : (
+          <>
+            <h3 className="provider-heading">{t("Digite este código no Trakt")}</h3>
+            <p className="provider-desc">{t("Abra o link e digite este código para aprovar o Nuvio. Esta tela será atualizada automaticamente.")}</p>
+            <div className="device-code-box" data-testid="trakt-device">
+              <strong>{device.userCode}</strong>
+              <a href={device.verificationUrl} target="_blank" rel="noreferrer">{device.verificationUrl}</a>
+            </div>
+            <a className="provider-action large" href={device.verificationUrl} target="_blank" rel="noreferrer">{t("Abrir ativação do Trakt")}</a>
+            <button className="provider-action outline" onClick={() => setDevice(null)}>{t("Cancelar")}</button>
+            <div className="device-status">{t("Aguardando aprovação no Trakt…")}</div>
+          </>
+        )}
+        {(!view.traktFromBuild || showTrakt) && <div className="provider-credentials">
           {field("trakt:clientId", t("ID do cliente Trakt"), view.traktConfigured)}
           {field("trakt:clientSecret", t("Segredo do cliente Trakt"), view.traktConfigured)}
-        </> : <button className="link" onClick={() => setShowTrakt(true)}>{t("Alterar credenciais")}</button>}
-        <div className="modal-actions">
-          {view.traktConnected ? (
-            <>
-              <button className="chip" data-testid="trakt-sync" onClick={() => doSync("trakt")}>{t("Sincronizar assistidos")}</button>
-              <button className="ghost" onClick={() => void api.trackingDisconnect("trakt").then(setView)}>{t("Desconectar")}</button>
-            </>
-          ) : (
-            <button className="primary" data-testid="trakt-connect" disabled={!view.traktConfigured || !!device} onClick={() => {
-              void api.traktDeviceStart().then(setDevice, (e) => setError(errorText(e)));
-            }}>{t("Conectar com código")}</button>
-          )}
-        </div>
-        {device && (
-          <div className="settings-group" data-testid="trakt-device">
-            <div className="setting-title">{device.userCode}</div>
-            <a href={device.verificationUrl} target="_blank" rel="noreferrer">{device.verificationUrl}</a>
-            <div className="muted small">{t("Aguardando autorização no navegador…")}</div>
-          </div>
-        )}
+        </div>}
+        {view.traktFromBuild && !showTrakt && <button className="provider-more" onClick={() => setShowTrakt(true)}>{t("Alterar credenciais")}</button>}
       </section>}
 
-      {view && <section className="provider-card simkl" data-provider="simkl">
+      {view && <section className={`provider-card simkl ${simklUrl && !view.simklConnected ? "authorizing" : ""}`} data-provider="simkl">
         <div className="provider-logo simkl-logo">SIMKL™</div>
-        <p className="provider-desc">{t("Conecte o Simkl para sincronizar listas, histórico, progresso e scrobble.")}</p>
-        {(!view.simklFromBuild || showSimkl)
-          ? field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)
-          : <button className="link" onClick={() => setShowSimkl(true)}>{t("Alterar credenciais")}</button>}
-        <div className="modal-actions">
-          {view.simklConnected ? (
-            <>
-              <button className="chip" data-testid="simkl-sync" onClick={() => doSync("simkl")}>{t("Sincronizar assistidos")}</button>
-              <button className="ghost" onClick={() => void api.trackingDisconnect("simkl").then(setView)}>{t("Desconectar")}</button>
-            </>
-          ) : (
-            <button className="primary" data-testid="simkl-connect" disabled={!view.simklConfigured} onClick={() => {
-              void api.simklAuthorizeUrl().then((url) => { setSimklUrl(url); window.open(url, "_blank", "noopener"); }, (e) => setError(errorText(e)));
-            }}>{t("Abrir autorização")}</button>
-          )}
-        </div>
+        <div className="provider-watermark simkl-watermark" aria-hidden>S</div>
+        <p className="provider-desc">{t("Conecte o Simkl para sincronizar listas, histórico, progresso e scrobbles.")}</p>
+        {view.simklConnected ? (
+          <div className="modal-actions">
+            <button className="provider-action large" data-testid="simkl-sync" onClick={() => doSync("simkl")}>{t("Sincronizar assistidos")}</button>
+            <button className="ghost" onClick={() => void api.trackingDisconnect("simkl").then(setView)}>{t("Desconectar")}</button>
+          </div>
+        ) : (
+          <button className="provider-action large" data-testid="simkl-connect" disabled={!view.simklConfigured} onClick={() => {
+            void api.simklAuthorizeUrl().then((url) => { setSimklUrl(url); window.open(url, "_blank", "noopener"); }, (e) => setError(errorText(e)));
+          }}>{t("Conectar ao Simkl")}</button>
+        )}
         {simklUrl && !view.simklConnected && (
-          <div className="settings-group">
+          <div className="provider-credentials">
             <p className="muted small">{t("Após autorizar, cole aqui o código e o state do endereço de retorno.")}</p>
             <input aria-label={t("Código de autorização")} placeholder={t("Código")} value={callback} onChange={(e) => setCallback(e.target.value)} />
             <button className="primary" disabled={!callback.includes("code=")} onClick={() => {
               const params = new URLSearchParams(callback.split("?")[1] ?? callback);
-              const code = params.get("code") ?? "";
-              const state = params.get("state") ?? "";
-              void api.simklComplete(code, state).then(() => { setSimklUrl(null); setCallback(""); void reload(); }, (e) => setError(errorText(e)));
+              void api.simklComplete(params.get("code") ?? "", params.get("state") ?? "")
+                .then(() => { setSimklUrl(null); setCallback(""); void reload(); }, (e) => setError(errorText(e)));
             }}>{t("Concluir autorização")}</button>
           </div>
         )}
+        {(!view.simklFromBuild || showSimkl) && <div className="provider-credentials">
+          {field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)}
+        </div>}
+        {view.simklFromBuild && !showSimkl && <button className="provider-more" onClick={() => setShowSimkl(true)}>{t("Alterar credenciais")}</button>}
+        <a className="provider-link" href="https://simkl.com" target="_blank" rel="noreferrer">{t("Visitar Simkl")}</a>
       </section>}
       {sync && <p className="muted small" role="status">{sync}</p>}
       {error && <div className="row-error" role="alert">{error}</div>}
-      <p className="muted small">{t("Registre seu próprio aplicativo no Trakt/Simkl e cole os valores aqui. Eles ficam só neste computador e não aparecem mais na interface.")}</p>
     </>
   );
 }
