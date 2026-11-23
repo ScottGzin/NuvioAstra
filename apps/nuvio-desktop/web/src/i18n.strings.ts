@@ -1105,6 +1105,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Sincronize o histórico assistido e o progresso entre dispositivos.": { en: "Sync watched history and playback progress across devices.", ar: "زامن سجل المشاهدة وتقدم التشغيل بين الأجهزة." },
   "Conecte o Simkl para sincronizar listas, histórico, progresso e scrobble.": { en: "Connect Simkl to sync lists, watched history, progress and scrobbles.", ar: "اتصل بـ Simkl لمزامنة القوائم وسجل المشاهدة والتقدم." },
   "Visitar MDBList": { en: "Visit MDBList", ar: "زيارة MDBList" },
+  "Alterar credenciais": { en: "Change credentials", ar: "تغيير بيانات الاعتماد" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },

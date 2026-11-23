@@ -7,7 +7,7 @@ import { Row } from "./SettingControls";
 import { t } from "../i18n";
 
 interface DeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
-interface View { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean }
+interface View { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean }
 type Key = "trakt:clientId" | "trakt:clientSecret" | "simkl:clientId";
 
 export function TrackingCredentialsPanel() {
@@ -17,6 +17,8 @@ export function TrackingCredentialsPanel() {
   const [device, setDevice] = useState<DeviceStart | null>(null);
   const [simklUrl, setSimklUrl] = useState<string | null>(null);
   const [callback, setCallback] = useState("");
+  const [showTrakt, setShowTrakt] = useState(false);
+  const [showSimkl, setShowSimkl] = useState(false);
   const [sync, setSync] = useState("");
 
   const reload = () => api.trackingCredentials().then(setView, (e) => setError(errorText(e)));
@@ -74,8 +76,10 @@ export function TrackingCredentialsPanel() {
       {view && <section className="provider-card trakt" data-provider="trakt">
         <div className="provider-logo trakt-logo">trakt</div>
         <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
-        {field("trakt:clientId", t("ID do cliente Trakt"), view.traktConfigured)}
-        {field("trakt:clientSecret", t("Segredo do cliente Trakt"), view.traktConfigured)}
+        {(!view.traktFromBuild || showTrakt) ? <>
+          {field("trakt:clientId", t("ID do cliente Trakt"), view.traktConfigured)}
+          {field("trakt:clientSecret", t("Segredo do cliente Trakt"), view.traktConfigured)}
+        </> : <button className="link" onClick={() => setShowTrakt(true)}>{t("Alterar credenciais")}</button>}
         <div className="modal-actions">
           {view.traktConnected ? (
             <>
@@ -100,7 +104,9 @@ export function TrackingCredentialsPanel() {
       {view && <section className="provider-card simkl" data-provider="simkl">
         <div className="provider-logo simkl-logo">SIMKL™</div>
         <p className="provider-desc">{t("Conecte o Simkl para sincronizar listas, histórico, progresso e scrobble.")}</p>
-        {field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)}
+        {(!view.simklFromBuild || showSimkl)
+          ? field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)
+          : <button className="link" onClick={() => setShowSimkl(true)}>{t("Alterar credenciais")}</button>}
         <div className="modal-actions">
           {view.simklConnected ? (
             <>

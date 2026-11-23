@@ -196,7 +196,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
-export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean }
+export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean }
 export interface TraktDeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
 export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied" | "slowDown" | "noSession" | "error";
 export interface TrackingSyncResult { movies: number; episodes: number }

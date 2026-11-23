@@ -314,6 +314,8 @@ pub struct TrackingCredentialsView {
     pub simkl_configured: bool,
     pub trakt_connected: bool,
     pub simkl_connected: bool,
+    pub trakt_from_build: bool,
+    pub simkl_from_build: bool,
 }
 
 /// Build-time default from the gitignored local.properties, overridden by a value entered in Settings.
@@ -345,6 +347,8 @@ fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
         simkl_configured: tracking_value(state, "simkl:clientId").is_some(),
         trakt_connected: tracking::connected(&state.app_store, state.active_profile(), "trakt"),
         simkl_connected: tracking::connected(&state.app_store, state.active_profile(), "simkl"),
+        trakt_from_build: tracking_default("trakt:clientId").is_some() && tracking_default("trakt:clientSecret").is_some(),
+        simkl_from_build: tracking_default("simkl:clientId").is_some(),
     })
 }
 
