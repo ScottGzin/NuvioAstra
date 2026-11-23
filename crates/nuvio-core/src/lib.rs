@@ -16,6 +16,7 @@ pub mod shuffle;
 pub mod skip;
 pub mod stream;
 pub mod subtitle;
+pub mod torbox;
 pub mod url;
 pub mod youtube;
 

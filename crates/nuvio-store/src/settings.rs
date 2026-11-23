@@ -209,6 +209,8 @@ pub struct PlayerSettings {
     pub vod_cache_size_mode: String,
     /// 100–65536 MB (the original's default is 500 MB).
     pub vod_cache_size_mb: i64,
+    pub cards: CardStyle,
+    pub app_language: Option<String>,
     /// Tracking page: source that feeds the Library (`nuvio`, `trakt`, `simkl`, `mdblist`).
     #[serde(default)]
     pub library_source: String,
@@ -239,6 +241,8 @@ impl Default for PlayerSettings {
             next_episode_threshold_percent: 99.0,
             next_episode_threshold_minutes: 2.0,
             watched_percent: crate::library::COMPLETION_PERCENT,
+            cards: CardStyle::default(),
+            app_language: None,
 
             reuse_last_link_enabled: false,
             reuse_last_link_cache_hours: 24,
@@ -412,6 +416,38 @@ impl MetaScreenSettings {
     }
 }
 
+/// Interface languages Astra has (`AppLanguage` of the original).
+pub const APP_LANGUAGES: &[&str] = &["pt-BR", "en", "ar"];
+pub const CARD_WIDTHS: &[i64] = &[104, 112, 120, 126, 134, 140];
+pub const CARD_RADII: &[i64] = &[0, 4, 8, 12, 16];
+
+/// `PosterCardStyleRepository` preferences, kept with the player settings for sync.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CardStyle {
+    pub width: i64,
+    pub radius: i64,
+    pub landscape: bool,
+    pub hide_labels: bool,
+}
+impl Default for CardStyle {
+    fn default() -> Self { Self { width: 126, radius: 12, landscape: false, hide_labels: false } }
+}
+impl CardStyle {
+    fn sanitized(mut self) -> Self {
+        let nearest = |v: i64, options: &[i64]| *options.iter().min_by_key(|o| (*o - v).abs()).expect("options");
+        self.width = nearest(self.width, CARD_WIDTHS);
+        self.radius = nearest(self.radius, CARD_RADII);
+        self
+    }
+}
+
+/// TorBox switch (`enabled`: "Resolver links reproduzíveis").
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DebridSettings { pub enabled: bool }
+impl Default for DebridSettings { fn default() -> Self { Self { enabled: true } } }
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileSettings {
@@ -425,6 +461,8 @@ pub struct ProfileSettings {
     /// Discord Rich Presence (the original's `DiscordRichPresenceRepository`), off by default.
     #[serde(default)]
     pub discord_rpc_enabled: bool,
+    #[serde(default)]
+    pub debrid: DebridSettings,
 }
 
 pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
@@ -559,6 +597,8 @@ impl PlayerSettings {
         self.next_episode_threshold_percent = half(self.next_episode_threshold_percent, 97.0, 100.0);
         self.next_episode_threshold_minutes = half(self.next_episode_threshold_minutes, 0.0, 3.5);
         self.watched_percent = self.watched_percent.clamp(90, 100);
+        self.cards = self.cards.sanitized();
+        self.app_language = self.app_language.and_then(|code| APP_LANGUAGES.iter().find(|l| l.eq_ignore_ascii_case(&code)).map(|l| l.to_string()));
 
         if !REUSE_LINK_CACHE_HOURS.contains(&self.reuse_last_link_cache_hours) {
             self.reuse_last_link_cache_hours = d.reuse_last_link_cache_hours;
@@ -674,6 +714,13 @@ impl LegacyStore {
             next_episode_threshold_percent: number("next_episode_threshold_percent_v2").unwrap_or(d.next_episode_threshold_percent),
             next_episode_threshold_minutes: number("next_episode_threshold_minutes_before_end_v2").unwrap_or(d.next_episode_threshold_minutes),
             watched_percent: d.watched_percent,
+            cards: CardStyle {
+                width: int("cards_width_dp").unwrap_or(126),
+                radius: int("cards_corner_radius_dp").unwrap_or(12),
+                landscape: boolean("cards_landscape").unwrap_or(false),
+                hide_labels: boolean("cards_hide_labels").unwrap_or(false),
+            },
+            app_language: get("selected_app_language"),
 
             reuse_last_link_enabled: boolean("stream_reuse_last_link_enabled").unwrap_or(d.reuse_last_link_enabled),
             reuse_last_link_cache_hours: int("stream_reuse_last_link_cache_hours").unwrap_or(d.reuse_last_link_cache_hours),
@@ -730,6 +777,7 @@ impl LegacyStore {
             p2p: P2pSettings::default(),
             continue_watching: ContinueWatchingSettings::default(),
             meta_screen: MetaScreenSettings::default(),
+            debrid: DebridSettings::default(),
             discord_rpc_enabled: self.read_store("nuvio_discord_rich_presence")
                 .ok()
                 .and_then(|store| store.get(&format!("enabled_{profile_index}")).or_else(|| store.get("enabled")).cloned())

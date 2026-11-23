@@ -62,7 +62,12 @@ No repositório: **Settings → Secrets and variables → Actions**.
 | Nome | Valor | Para quê |
 |---|---|---|
 | `NUVIO_SUPABASE_FALLBACK_URL` | O `NUVIO_SUPABASE_FALLBACK_URL` do `local.properties`, se existir | Endereço reserva do servidor da conta |
-| `VERSION_PATCH_OFFSET` | Um número, ex.: `10` | Só se um dia precisar pular números de versão |
+| `VERSION_PATCH_OFFSET` | Um número, ex.: `2` | Só se um dia precisar pular números de versão |
+
+**Numeração das versões:** cada publicação é um passo depois da maior versão já publicada (ou da
+versão em `apps/nuvio-desktop/tauri.conf.json`, se for maior). O último número vai até 9 e depois o
+do meio avança: `0.2.8` → `0.2.9` → `0.3.0`. Para pular para uma série nova (ex.: `0.5.x`), coloque
+`0.5.0` no `tauri.conf.json`: a próxima sai `0.5.1`.
 
 A chave **pública** já está no código (`apps/nuvio-desktop/tauri.conf.json` → `plugins.updater.pubkey`)
 e não precisa ser cadastrada.
@@ -214,7 +219,7 @@ Dicas:
 | `Secret TAURI_SIGNING_PRIVATE_KEY is missing` | Passo 3 (nome exato, conteúdo completo do arquivo) |
 | `libmpv-2.dll not found in release 'deps-libmpv'` | Passo 6 (tag exatamente `deps-libmpv`) |
 | `checksum mismatch` | O arquivo enviado não é o original; envie de novo o da pasta `Nuvio-Astra-Assets-Manuais` |
-| `Tag v0.1.N already exists` | Crie a variável `VERSION_PATCH_OFFSET` com um número maior |
+| `Tag v0.x.y already exists` | Crie a variável `VERSION_PATCH_OFFSET` com um número maior |
 | Erro na etapa *Sign* | Senha errada no secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` |
 | `Resource not accessible by integration` | Passo 3, *Workflow permissions* → Read and write |
 | O aplicativo diz "Atualizações automáticas não estão configuradas" | Essa build não foi feita pelo GitHub Actions (passo 8, opção B) |

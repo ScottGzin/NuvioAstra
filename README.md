@@ -35,6 +35,13 @@
 - **Pesquisa** com resultados enquanto você digita e histórico.
 - **Descobrir** na tela de pesquisa: filtros por tipo, catálogo e gênero dos addons, com mais títulos ao rolar.
 - **Detalhes** com temporadas, episódios, elenco e trailers do YouTube.
+- **Formato dos cards:** tamanho, cantos, pôsteres em paisagem e opção de ocultar os nomes.
+
+### Fontes e downloads
+
+- **TorBox:** com a sua chave de API, torrents que já estão no cache aparecem como **TB Instant** e abrem na hora, sem P2P. Funciona também com addons de torrent configurados sem chave.
+- **Downloads** de fontes HTTP, TorBox ou torrent, pelo botão no player ou com o botão direito na fonte, para a pasta que você escolher. Usa várias conexões ao mesmo tempo e continua de onde parou.
+- **Etiquetas nas fontes:** qualidade, HDR/Dolby Vision, codec, áudio, tamanho e seeds.
 
 ### Player
 
@@ -59,6 +66,7 @@
 - **Favoritos e histórico** por perfil.
 - **Perfis** com PIN e avatares.
 - **Sincronização automática com a conta Nuvio:** perfis, addons, favoritos, progresso, ordem do Início e preferências compatíveis. As coleções são recebidas da conta.
+- **Idioma da interface:** português, inglês ou árabe (da direita para a esquerda), salvo na conta Nuvio. Tradução para inglês e árabe com base na contribuição de aelrased.
 
 ### TV ao vivo e atualizações
 

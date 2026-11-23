@@ -2568,7 +2568,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "regex",
  "reqwest",
@@ -2580,7 +2580,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "jiff",
@@ -2605,7 +2605,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-p2p"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libloading 0.9.1",
  "serde",
@@ -2613,7 +2613,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-player"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "libc",
  "libloading 0.9.1",
@@ -2625,7 +2625,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-probe"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nuvio-core",
  "nuvio-store",
@@ -2634,7 +2634,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nuvio-core",
  "serde",
@@ -2644,7 +2644,7 @@ dependencies = [
 
 [[package]]
 name = "nuvio-sync"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "getrandom 0.3.4",

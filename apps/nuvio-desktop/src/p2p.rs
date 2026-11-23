@@ -90,6 +90,9 @@ pub async fn torrent_prepare(app: AppHandle, state: State<'_, AppState>, key: St
         return Err(NEEDS_CONSENT.into());
     }
     let request = request_for(&stream)?;
+    if state.downloads.p2p_owner.lock().expect("p2p owner").is_some() {
+        return Err("Um download por torrent está usando o P2P. Pause-o em Biblioteca → Downloads para assistir outro torrent.".into());
+    }
     let config = engine_config(&state, &settings);
     let dll = engine_dll()?;
     // A new session replaces the previous one (its player keeps nothing playable).
@@ -165,6 +168,54 @@ fn start_status_events(app: AppHandle) {
 /// Called when a player session ends: its P2P session ends too (off the calling thread).
 pub fn on_player_closed(state: &AppState, session: u64) {
     if session != 0 && state.p2p_session.compare_exchange(session, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        *state.p2p_prepared.lock().expect("p2p prepared") = None;
+        // A download of this torrent goes on; it stops the engine when it ends.
+        if state.downloads.p2p_owner.lock().expect("p2p owner").is_some() {
+            return;
+        }
+        let service = state.p2p.clone();
+        std::thread::spawn(move || service.stop());
+    }
+}
+
+/// The engine's local route for a download: the torrent playing now is shared, otherwise the engine
+/// starts for the download alone (one torrent download at a time, none while another plays).
+pub async fn prepare_for_download(state: &AppState, id: &str, request: StreamRequest) -> Result<PreparedStream, String> {
+    {
+        let mut owner = state.downloads.p2p_owner.lock().expect("p2p owner");
+        if owner.as_deref().is_some_and(|o| o != id) {
+            return Err("Outro download por torrent está em andamento; este continua quando ele terminar ou for pausado.".into());
+        }
+        *owner = Some(id.to_string());
+    }
+    let playing = state.p2p_prepared.lock().expect("p2p prepared").clone();
+    if let Some((key, prepared)) = playing.filter(|_| state.p2p.is_active()) {
+        let same = state.streams.get(&key).and_then(|s| request_for(&s).ok()).is_some_and(|r| r.info_hash == request.info_hash);
+        if same {
+            return Ok(prepared);
+        }
+        release_download(state, id);
+        return Err("Feche o torrent que está tocando para baixar outro por P2P.".into());
+    }
+    let settings = state.app_store.profile_settings(state.active_profile()).map_err(|e| e.to_string())?.p2p;
+    let config = engine_config(state, &settings);
+    let dll = engine_dll()?;
+    let service = state.p2p.clone();
+    let started = tauri::async_runtime::spawn_blocking(move || service.start(&dll, &config, &request)).await.map_err(|e| e.to_string())?;
+    if started.is_err() {
+        release_download(state, id);
+    }
+    started
+}
+
+/// The download ended (done, paused, failed): the engine stops unless a player uses it.
+pub fn release_download(state: &AppState, id: &str) {
+    let mut owner = state.downloads.p2p_owner.lock().expect("p2p owner");
+    if owner.as_deref() != Some(id) {
+        return;
+    }
+    *owner = None;
+    if state.p2p_session.load(Ordering::SeqCst) == 0 {
         *state.p2p_prepared.lock().expect("p2p prepared") = None;
         let service = state.p2p.clone();
         std::thread::spawn(move || service.stop());

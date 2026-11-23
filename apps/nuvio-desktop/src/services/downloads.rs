@@ -14,6 +14,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 pub struct Manager {
     cancel: Mutex<HashMap<String, Arc<AtomicBool>>>,
     headers: Mutex<HashMap<String, Vec<(String, String)>>>,
+    /// Download id currently owning the P2P engine (one torrent download at a time).
+    pub p2p_owner: Mutex<Option<String>>,
 }
 
 impl Manager {

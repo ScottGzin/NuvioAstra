@@ -118,7 +118,7 @@ export interface PlayerSettings {
   bufferEnabled: boolean; minBufferMs: number; maxBufferMs: number; bufferForPlaybackMs: number;
   bufferForPlaybackAfterRebufferMs: number; backBufferDurationMs: number; targetBufferSizeMb: number;
   vodCacheEnabled: boolean; vodCacheSizeMode: "auto" | "manual"; vodCacheSizeMb: number;
-  librarySource: string; progressSource: string;
+  librarySource: string; progressSource: string; cards?: CardStyle; appLanguage?: string | null;
 }
 export interface HomeCatalogPreference { key: string; customTitle: string; enabled: boolean; heroSourceEnabled: boolean; order: number }
 export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[]; heroCatalogs: string[] | null }
@@ -137,7 +137,7 @@ export interface MetaScreenSettings {
   showOverallRatings: boolean; episodeRatingsVisibility: string;
 }
 export interface DiscordActivity { title: string; state?: string | null; poster?: string | null; playing: boolean; positionMs?: number | null; durationMs?: number | null }
-export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings; discordRpcEnabled: boolean }
+export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings; discordRpcEnabled: boolean; debrid?: DebridSettings }
 /** A movie/episode watched mark (Settings → Library); ids stay opaque. */
 export interface WatchedItem {
   id: string; contentType: string; name: string; poster: string | null; releaseInfo: string | null;
@@ -204,13 +204,21 @@ export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied"
 export interface TrackingSyncResult { movies: number; episodes: number }
 export interface ServerConnection { id: string; provider: string; name: string; address: string; userId: string; userName: string; enabled: boolean }
 export interface ServerLibrary { id: string; name: string; kind: string }
-export type DownloadStatus = "downloading" | "paused" | "completed" | "failed";
+export type DownloadStatus = "downloading" | "paused" | "completed" | "failed" | "queued" | "preparing" | "done";
+export interface CardStyle { width: number; radius: number; landscape: boolean; hideLabels: boolean }
+export interface DebridSettings { enabled: boolean }
+export interface DownloadsFolder { folder: string; freeBytes: number | null }
+export interface TorboxStatus { configured: boolean; enabled: boolean; account: string | null }
+export interface DownloadRequest { key: string; title: string; subtitle: string | null; poster: string | null; season: number | null; episode: number | null; playback: PlaybackItem | null }
 export interface DownloadItem {
-  id: string; contentType: string; parentMetaId: string; parentMetaType: string; videoId: string;
+  id: string; poster?: string | null; contentType: string; parentMetaId: string; parentMetaType: string; videoId: string;
   title: string; seasonNumber: number | null; episodeNumber: number | null; episodeTitle: string | null;
   streamTitle: string; streamSubtitle: string | null; providerName: string; sourceUrl: string;
   fileName: string; localFileUri: string | null; status: DownloadStatus; downloadedBytes: number;
   totalBytes: number | null; errorMessage: string | null; createdAtEpochMs: number; updatedAtEpochMs: number;
+  /** Upstream aliases used by the account's Downloads list component. */
+  kind: string; subtitle?: string | null; folder: string; downloaded: number; total: number | null;
+  speed: number; connections: number; error: string | null; createdAt: number; sourceName: string;
 }
 export interface ShuffleView { available: boolean; enabled: boolean; includeWatched: boolean }
 export interface ParentalGuide { nudity: string | null; violence: string | null; profanity: string | null; alcohol: string | null; frightening: string | null }
@@ -223,6 +231,9 @@ export interface StreamEntry {
   /** Played through the connected debrid service instead of local P2P. */
   debridPlayable: boolean;
   headerNames: string[]; notWebReady: boolean;
+  /** Upstream alias of videoSize used by the stream badge parser. */
+  size?: number | null;
+  torbox?: boolean;
   /** `externalUrl` source: safe only as a link to open in the browser. */
   externalUrl: string | null;
   /** `ytId` source: resolved in Rust by the YouTube extractor. */
