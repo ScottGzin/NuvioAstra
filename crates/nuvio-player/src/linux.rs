@@ -334,7 +334,7 @@ mod x11 {
     unsafe impl Sync for DisplayPtr {}
     static DISPLAY: OnceLock<DisplayPtr> = OnceLock::new();
 
-    fn display() -> Option<*mut Display> {
+    pub fn display() -> Option<*mut Display> {
         let p = DISPLAY.get_or_init(|| unsafe {
             let d = XOpenDisplay(ptr::null());
             DisplayPtr(if d.is_null() { XOpenDisplay(b":0\0".as_ptr().cast()) } else { d })
@@ -393,18 +393,101 @@ mod x11 {
         (attrs.width, attrs.height)
     }
 
-    /// Creates the video container as a child of the host window, lowered below the webview.
+    /// Absolute position of a window's upper-left corner on the root window.
+    fn origin(dpy: *mut Display, window: Window) -> (i32, i32) {
+        let root = unsafe { XDefaultRootWindow(dpy) };
+        let (mut x, mut y, mut child) = (0i32, 0i32, 0u64);
+        let ok = unsafe { XTranslateCoordinates(dpy, window, root, 0, 0, &mut x, &mut y, &mut child) };
+        if ok == 0 { (0, 0) } else { (x, y) }
+    }
+
+    #[link(name = "Xext")]
+    unsafe extern "C" {
+        fn XShapeCombineRectangles(
+            dpy: *mut Display, window: Window, op: i32, x: i32, y: i32,
+            rectangles: *mut XRectangle, n_rectangles: i32, shaping_kind: i32, op2: i32,
+        ) -> i32;
+    }
+
+    /// The video container is the large child of the host window that is not the WebView.
+    pub fn container_of(host: isize) -> isize {
+        let Some(dpy) = display() else { return 0 };
+        unsafe {
+            let (mut root, mut parent, mut kids, mut n) = (0, 0, std::ptr::null_mut(), 0);
+            if XQueryTree(dpy, host as Window, &mut root, &mut parent, &mut kids, &mut n) != 0 && !kids.is_null() {
+                let mut found = 0;
+                for i in 0..n as usize {
+                    let k = *kids.add(i);
+                    let (w, _) = size(dpy, k);
+                    if w > 200 { found = k as isize; }
+                }
+                XFree(kids.cast());
+                return found;
+            }
+        }
+        0
+    }
+
+    /// Makes a window (and its children) input-transparent: pointer events fall through to the
+    /// WebView below, while mpv keeps drawing the controls it receives via `overlay-add`.
+    pub fn input_transparent(window: isize) {
+        if window == 0 { return; }
+        let Some(dpy) = display() else { return };
+        unsafe {
+            const SHAPE_INPUT: i32 = 2;
+            const SHAPE_SET: i32 = 0;
+            XShapeCombineRectangles(dpy, window as Window, SHAPE_INPUT, 0, 0, std::ptr::null_mut(), 0, SHAPE_SET, 0);
+            let (mut root, mut parent, mut kids, mut n) = (0, 0, std::ptr::null_mut(), 0);
+            if XQueryTree(dpy, window as Window, &mut root, &mut parent, &mut kids, &mut n) != 0 && !kids.is_null() {
+                for i in 0..n as usize {
+                    XShapeCombineRectangles(dpy, *kids.add(i), SHAPE_INPUT, 0, 0, std::ptr::null_mut(), 0, SHAPE_SET, 0);
+                }
+                XFree(kids.cast());
+            }
+            XFlush(dpy);
+        }
+    }
+
+    /// Captures a strip of the Tauri (WebView) window as BGRA pixels. WebKit paints its content
+    /// into the main window, so XGetImage returns the HTML controls even though the video child
+    /// covers them on screen.
+    pub fn grab_strip(window: isize, y: i32, w: i32, h: i32) -> Option<(Vec<u8>, i32, i32, usize)> {
+        let dpy = display()?;
+        unsafe {
+            let image = XGetImage(dpy, window as Window, 0, y, w as u32, h as u32, !0u64, ZPixmap);
+            if image.is_null() { return None; }
+            let img = &*image;
+            let stride = img.bytes_per_line as usize;
+            let (iw, ih) = (img.width as i32, img.height as i32);
+            let data = img.data as *const u8;
+            let mut bgra = vec![0u8; stride * ih as usize];
+            for row in 0..ih as usize {
+                let src = data.add(row * stride);
+                let dst = bgra.as_mut_ptr().add(row * stride);
+                for x in 0..iw as usize {
+                    let s = src.add(x * 4);
+                    let d = dst.add(x * 4);
+                    *d = *s;
+                    *d.add(1) = *s.add(1);
+                    *d.add(2) = *s.add(2);
+                    *d.add(3) = 255;
+                }
+            }
+            XDestroyImage(image);
+            Some((bgra, iw, ih, stride))
+        }
+    }
+
+    /// Creates the video container as a child of the host, sized to the video area only so the
+    /// WebView controls below it stay visible and clickable.
     pub fn create_container(host: isize) -> Result<isize, String> {
         let dpy = display().ok_or("cannot open X display (set DISPLAY / use XWayland)")?;
         unsafe {
             let host = host as Window;
             let (w, h) = size(dpy, host);
             let window = XCreateSimpleWindow(dpy, host, 0, 0, w as u32, h as u32, 0, 0, 0);
-            if window == 0 {
-                return Err("XCreateSimpleWindow failed".into());
-            }
+            if window == 0 { return Err("XCreateSimpleWindow failed".into()); }
             XMapWindow(dpy, window);
-            // New children stack on top; the WebKit webview must stay above the video.
             XLowerWindow(dpy, window);
             XFlush(dpy);
             Ok(window as isize)
@@ -417,9 +500,8 @@ mod x11 {
         let Some(dpy) = display() else { return };
         unsafe {
             XMapWindow(dpy, window as Window);
-            // XMapWindow stacks the window on top: push it back below the transparent webview so
-            // the player controls remain visible and clickable.
             XLowerWindow(dpy, window as Window);
+            input_transparent(window as isize);
             XFlush(dpy);
         }
     }
@@ -440,6 +522,7 @@ mod x11 {
                     XMoveResizeWindow(dpy, window as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
                     XMapWindow(dpy, window as Window);
                     XLowerWindow(dpy, window as Window);
+                    input_transparent(window as isize);
                     XFlush(dpy);
                     XCloseDisplay(dpy);
                 }
@@ -483,14 +566,21 @@ mod x11 {
         Some(p)
     }
 
-    pub fn fit_to_parent(window: isize) {
+    pub fn fit_to_host(window: isize, host: isize) {
         let Some(dpy) = display() else { return };
         unsafe {
-            if let Some(p) = parent(dpy, window as Window) {
-                let (w, h) = size(dpy, p);
-                XMoveResizeWindow(dpy, window as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
-                XFlush(dpy);
-            }
+            let (w, h) = size(dpy, host as Window);
+            XMoveResizeWindow(dpy, window as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
+            XFlush(dpy);
+        }
+    }
+
+    /// Sizes the X window exactly to the video rectangle (parent-relative coords).
+    pub fn set_rect(window: isize, x: i32, y: i32, w: i32, h: i32) {
+        let Some(dpy) = display() else { return };
+        unsafe {
+            XMoveResizeWindow(dpy, window as Window, x, y, w.max(1) as u32, h.max(1) as u32);
+            XFlush(dpy);
         }
     }
 
@@ -537,6 +627,9 @@ mod x11 {
         unsafe {
             XReparentWindow(dpy, container as Window, host as Window, 0, 0);
             XDestroyWindow(dpy, pip as Window);
+            let (w, h) = size(dpy, host as Window);
+            XMoveResizeWindow(dpy, container as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
+            XLowerWindow(dpy, container as Window);
             XFlush(dpy);
         }
     }
@@ -621,10 +714,10 @@ fn startup_options(video: &VideoConfig, gpu_context: &str, hwdec: &str) -> Vec<(
     set("config", "no");
     set("terminal", "no");
     set("osc", "no");
-    set("osd-level", "0");
-    set("input-default-bindings", "no");
+    set("osd-level", "1");
+    set("input-default-bindings", "yes");
     set("input-vo-keyboard", "no");
-    set("input-cursor", "no");
+    set("input-cursor", "yes");
     set("cursor-autohide", "no");
     set("keep-open", "yes");
     set("idle", "yes");
@@ -760,6 +853,13 @@ impl Player {
                 .spawn(move || event_loop(mpv, stop, snapshot, sink))
                 .map_err(|e| PlayerError::Mpv(format!("event thread: {e}")))?
         };
+        {
+            let (mpv, stop) = (mpv.clone(), stop.clone());
+            std::thread::Builder::new()
+                .name("nuvio-overlay".into())
+                .spawn(move || overlay_loop(mpv, stop, host))
+                .ok();
+        }
         let player = Self {
             mpv: Some(mpv),
             host,
@@ -907,7 +1007,12 @@ impl Player {
     pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
         *self.video_rect.lock().expect("rect lock") = rect;
         if self.pip.lock().expect("pip lock").is_some() { return Ok(()); }
-        self.apply_margins(rect)
+        let (x, y, w, h) = rect.unwrap_or_else(|| {
+            let (w, h) = x11::client_size(self.host);
+            (0.0, 0.0, w as f64, (h - 120).max(200) as f64) // leave room for the controls bar
+        });
+        x11::set_rect(self.container, x as i32, y as i32, w as i32, h as i32);
+        self.apply_margins(None)
     }
 
     fn apply_margins(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
@@ -933,9 +1038,8 @@ impl Player {
         if self.pip.lock().expect("pip lock").is_none() {
             // Re-map in case the WM reparented the host after the container was created.
             x11::map(self.container);
-            x11::fit_to_parent(self.container);
             let rect = *self.video_rect.lock().expect("rect lock");
-            let _ = self.apply_margins(rect);
+            let _ = self.set_video_rect(rect);
         }
     }
 
@@ -1030,6 +1134,28 @@ fn error_text(code: i32) -> String {
         -16 => "video output initialization failed".into(),
         -17 => "audio output initialization failed".into(),
         other => format!("playback failed (mpv error {other})"),
+    }
+}
+
+/// Pushes the WebView controls strip into mpv as an OSD overlay (the same technique as the
+/// original Nuvio Desktop Linux bridge): the controls are then drawn by mpv itself, above video.
+fn overlay_loop(mpv: Arc<Mpv>, stop: Arc<AtomicBool>, host: isize) {
+    const STRIP: i32 = 132;
+    while !stop.load(Ordering::SeqCst) {
+        // mpv recreates its GL child on file load; keep the whole tree input-transparent.
+        x11::input_transparent(x11::container_of(host));
+        if x11::display().is_some() {
+            let (w, h) = x11::client_size(host);
+            if let Some((pixels, iw, ih, stride)) = x11::grab_strip(host, h - STRIP, w, STRIP) {
+                let addr = format!("&{}", pixels.as_ptr() as usize);
+                let sw = iw.to_string();
+                let sh = ih.to_string();
+                let st = stride.to_string();
+                let y = (h - STRIP).to_string();
+                let _ = mpv.command(&["overlay-add", "0", "0", &y, &addr, "0", "bgra", &sw, &sh, &st]);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
