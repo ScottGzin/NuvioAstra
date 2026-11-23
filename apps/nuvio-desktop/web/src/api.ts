@@ -239,6 +239,8 @@ export const api = {
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
   openUrl: (url: string) => invoke<void>("open_url", { url }),
+  /** URLs that opened this instance through `nuvio://` (Linux/Windows start a new instance). */
+  deepLinkCurrent: () => invoke<string[]>("plugin:deep-link|get_current"),
   /** Opens an `externalUrl` source in the browser. */
   streamOpenExternal: (key: string) => invoke<void>("stream_open_external", { key }),
 

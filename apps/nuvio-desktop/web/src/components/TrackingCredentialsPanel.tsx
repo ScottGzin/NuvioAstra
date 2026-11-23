@@ -20,9 +20,27 @@ export function TrackingCredentialsPanel() {
   const [sync, setSync] = useState("");
   const [showTrakt, setShowTrakt] = useState(false);
   const [showSimkl, setShowSimkl] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const reload = () => api.trackingCredentials().then(setView, (e) => setError(errorText(e)));
   useEffect(() => { reload(); }, []);
+
+  useEffect(() => {
+    const onCallback = (event: Event) => {
+      const url = (event as CustomEvent<string>).detail;
+      const params = new URLSearchParams(url.split("?")[1] ?? "");
+      const code = params.get("code") ?? "";
+      const state = params.get("state") ?? "";
+      if (!code) return;
+      void api.simklComplete(code, state).then(() => {
+        setSimklUrl(null);
+        setCallback("");
+        void reload();
+      }, (e) => setError(errorText(e)));
+    };
+    window.addEventListener("nuvio-simkl-callback", onCallback);
+    return () => window.removeEventListener("nuvio-simkl-callback", onCallback);
+  }, []);
 
   useEffect(() => {
     if (!device) return;
@@ -96,6 +114,16 @@ export function TrackingCredentialsPanel() {
             <div className="device-code-box" data-testid="trakt-device">
               <strong>{device.userCode}</strong>
               <button className="link" onClick={() => void api.openUrl(device.verificationUrl)}>{device.verificationUrl}</button>
+              <button
+                className="copy-code"
+                data-testid="trakt-copy-code"
+                onClick={() => {
+                  void navigator.clipboard.writeText(device.userCode).then(() => {
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1800);
+                  }, () => {});
+                }}
+              >{copied ? t("تم النسخ ✓") : t("نسخ الكود")}</button>
             </div>
             <button className="provider-action large" data-testid="trakt-open-activate" onClick={() => void api.openUrl(device.verificationUrl).catch((e) => setError(errorText(e)))}>{t("Abrir ativação do Trakt")}</button>
             <button className="provider-action outline" onClick={() => setDevice(null)}>{t("Cancelar")}</button>

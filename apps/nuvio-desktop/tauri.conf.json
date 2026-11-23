@@ -25,6 +25,7 @@
     ]
   },
   "plugins": {
+    "deep-link": { "desktop": { "schemes": ["nuvio"] } },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQzRDk3ODVGNTY4Njg3OTEKUldTUmg0WldYM2paUTdvWUZ1MXYwVk4xdUZnYllaemk1ZUpGcy9CWXJCckIwS20zTXl1SndCT1YK",
       "endpoints": [],

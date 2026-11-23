@@ -526,6 +526,16 @@ fn main() {
         })
         // Official Tauri 2 updater: public key from tauri.conf.json, endpoint set per build.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // `nuvio://auth/...` callbacks from Trakt/Simkl sign-in. A second instance forwards the
+        // URL to the running one instead of opening another window.
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            use tauri::Emitter;
+            let urls: Vec<String> = args.into_iter().skip(1).filter(|arg| arg.starts_with("nuvio://")).collect();
+            if !urls.is_empty() {
+                let _ = app.emit("deep-link://new-url", urls);
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             player_open,
             streams_search,
@@ -660,6 +670,9 @@ fn main() {
             uitest::uitest_break_display_sync
         ])
         .setup(move |app| {
+            // On Linux/Windows a deep link starts a new instance with the URL as its only argument.
+            app.state::<tauri_plugin_deep_link::DeepLink<tauri::Wry>>()
+                .handle_cli_arguments(std::env::args());
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Nuvio Astra")
                 .inner_size(1280.0, 760.0)

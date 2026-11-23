@@ -31,6 +31,20 @@ export function App() {
   useEffect(() => {
     api.appMode().then(setAppMode, () => setAppMode("app"));
   }, []);
+
+  // OAuth callbacks arrive through the `nuvio://` scheme; forward them to the settings panel.
+  // On Linux/Windows the scheme starts a new instance, so also read the URL that started this one.
+  useEffect(() => {
+    const forward = (urls: string[] | null) => {
+      const url = urls?.[0] ?? "";
+      if (url.startsWith("nuvio://auth/simkl")) {
+        window.dispatchEvent(new CustomEvent("nuvio-simkl-callback", { detail: url }));
+      }
+    };
+    const unlisten = listen<string[]>("deep-link://new-url", forward);
+    void api.deepLinkCurrent().then(forward, () => {});
+    return unlisten;
+  }, []);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [details, setDetails] = useState<MetaRef | null>(null);

@@ -23,6 +23,8 @@ nuvio-store = { path = "../../crates/nuvio-store" }
 nuvio-sync = { path = "../../crates/nuvio-sync" }
 nuvio-p2p = { path = "../../crates/nuvio-p2p" }
 tauri-plugin-updater = "2"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
 # Local date without Win32 (already in the workspace lock through jiff).
 jiff = "0.2"
 
