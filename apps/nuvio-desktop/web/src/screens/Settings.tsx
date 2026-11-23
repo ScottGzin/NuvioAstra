@@ -46,6 +46,22 @@ const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
 ];
 
+/** Extra words that lead to a Settings section, so the search finds more than section titles. */
+const SETTING_KEYWORDS: Partial<Record<Section, string>> = {
+  home: "início catalogo catálogo destaque continuar assistindo gênero genre hero",
+  details: "detalhes seções episódios elenco fundo pôster capítulos blur",
+  sources: "fontes streams regex automático fallback reutilizar link youtube addons",
+  addons: "addon instalar configurar manifest",
+  playback: "reprodução vídeo imagem decodificação mpv próximo episódio buffer cache velocidade",
+  p2p: "torrent p2p engine cache upload",
+  audio: "áudio idioma som volume amplificação downmix canais atraso",
+  subtitles: "legendas subtitle legenda estilo sdsh cor tamanho",
+  services: "serviços tmdb mdblist debrid torbox discord trakt simkl integrações",
+  data: "perfil dados conta sincronização conta avatares idioma",
+  updates: "atualizações versão github",
+  pending: "não disponível recursos futuros downloads",
+};
+
 type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: string } | { kind: "error"; message: string };
 
 // Languages offered by the TMDB page (the original accepts any BCP-47 tag; these are the usual ones).
@@ -77,6 +93,7 @@ export function Settings() {
   const [draft, setDraft] = useState<ProfileSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("home");
+  const [settingSearch, setSettingSearch] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Services → Integrations → TMDB (the only integration ported so far).
   const [servicePage, setServicePage] = useState<"integrations" | "tmdb" | "debrid" | "mdblist">("integrations");
@@ -310,7 +327,22 @@ export function Settings() {
             <div className="muted small">{t("Configurações deste perfil")}</div>
           </div>
         </div>
-        {SECTIONS.map((s) => (
+        <input
+          className="settings-search"
+          type="search"
+          aria-label={t("Buscar nas configurações")}
+          placeholder={t("Buscar nas configurações")}
+          data-testid="settings-search"
+          value={settingSearch}
+          onChange={(e) => setSettingSearch(e.target.value)}
+        />
+        {SECTIONS.filter((s) => {
+          const q = settingSearch.trim().toLocaleLowerCase();
+          if (!q) return true;
+          const label = t(s.label).toLocaleLowerCase();
+          const keywords = SETTING_KEYWORDS[s.id] ?? "";
+          return label.includes(q) || keywords.includes(q);
+        }).map((s) => (
           <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => setSection(s.id)}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
             <span>{t(s.label)}</span>

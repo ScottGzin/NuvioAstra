@@ -437,6 +437,7 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 
 /* ---------- Settings ---------- */
 .settings { flex: 1; min-width: 0; display: grid; grid-template-columns: 240px 1fr; background: var(--bg); }
+.settings-search { width: calc(100% - 20px); margin: 0 10px 10px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 .settings-nav { border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; background: var(--panel); overflow-y: auto; }
 .settings-nav .nav-item { color: var(--muted); padding: 8px 12px; gap: 14px; }
 .settings-nav .nav-icon, .settings-nav .nav-icon > svg { width: 28px; height: 28px; }

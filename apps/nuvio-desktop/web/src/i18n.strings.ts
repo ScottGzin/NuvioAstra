@@ -1057,6 +1057,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "— ordem aleatória dos episódios.": { en: "— random episode order.", ar: "— ترتيب الحلقات العشوائي." },
   "— Trakt e Simkl (exigem IDs de cliente próprios).": { en: "— Trakt and Simkl (require your own client IDs).", ar: "— Trakt وSimkl (يتطلبان معرّفي عميل خاصين)." },
   "Fontes no player": { en: "Sources in player", ar: "المصادر داخل المشغّل" },
+  "Buscar nas configurações": { en: "Search settings", ar: "ابحث في الإعدادات" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },
