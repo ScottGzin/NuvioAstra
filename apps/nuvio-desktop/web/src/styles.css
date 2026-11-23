@@ -134,6 +134,7 @@ body.playing .screen-fill { background: transparent; }
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
 /* Chapters over the player, and the hold-to-speed feedback on the forward button. */
+.collections-json { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
 .downloads-section { display: flex; flex-direction: column; gap: 8px; }
 .downloads-actions { align-self: flex-end; }
 .download-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }

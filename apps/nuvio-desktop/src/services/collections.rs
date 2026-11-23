@@ -89,6 +89,51 @@ struct StoredSource {
     title: Option<String>,
 }
 
+/// Validation of an edited collections document (`CollectionRepository.validateImportModel`).
+/// Unknown fields are preserved: only the fields the original validates are checked here.
+pub fn validate_edited(value: &serde_json::Value) -> Result<(), String> {
+    let collections = value.as_array().ok_or("O documento deve ser uma lista de coleções.")?;
+    let mut collection_ids = std::collections::HashSet::new();
+    for (index, collection) in collections.iter().enumerate() {
+        let object = collection.as_object().ok_or_else(|| format!("Coleção {index} inválida."))?;
+        let id = object.get("id").and_then(serde_json::Value::as_str).unwrap_or("").trim();
+        if id.is_empty() { return Err(format!("Coleção {index} sem identificador.")); }
+        if !collection_ids.insert(id.to_string()) { return Err(format!("Identificador de coleção repetido: {id}")); }
+        let title = object.get("title").and_then(serde_json::Value::as_str).unwrap_or("").trim();
+        if title.is_empty() { return Err(format!("Coleção {id} sem título.")); }
+        let mut folder_ids = std::collections::HashSet::new();
+        let folders = object.get("folders").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        for (folder_index, folder) in folders.iter().enumerate() {
+            let folder = folder.as_object().ok_or_else(|| format!("Pasta {folder_index} de {id} inválida."))?;
+            let folder_id = folder.get("id").and_then(serde_json::Value::as_str).unwrap_or("").trim();
+            if folder_id.is_empty() { return Err(format!("Pasta {folder_index} de {id} sem identificador.")); }
+            if !folder_ids.insert(folder_id.to_string()) { return Err(format!("Identificador de pasta repetido: {folder_id}")); }
+            if folder.get("title").and_then(serde_json::Value::as_str).unwrap_or("").trim().is_empty() {
+                return Err(format!("Pasta {folder_id} sem título."));
+            }
+            for source in folder.get("sources").and_then(serde_json::Value::as_array).into_iter().flatten() {
+                let provider = source.get("provider").and_then(serde_json::Value::as_str).unwrap_or("addon").to_ascii_lowercase();
+                match provider.as_str() {
+                    "trakt" => {
+                        let list = source.get("traktListId").and_then(serde_json::Value::as_i64).unwrap_or(0);
+                        if list <= 0 { return Err("Fonte Trakt sem lista válida.".into()); }
+                    }
+                    "tmdb" => {
+                        if source.get("tmdbSourceType").and_then(serde_json::Value::as_str).unwrap_or("").trim().is_empty() {
+                            return Err("Fonte TMDB sem tipo.".into());
+                        }
+                    }
+                    _ => {
+                        let has = ["addonId", "type", "catalogId"].iter().all(|key| source.get(key).and_then(serde_json::Value::as_str).unwrap_or("").trim().len() > 0);
+                        if !has { return Err("Fonte de addon incompleta (addonId, type ou catalogId faltando).".into()); }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------- what the interface gets
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -475,4 +520,20 @@ mod tests {
         assert_eq!(views[0].folders[0].sources[0].addon_name, "AIO 2");
         assert_eq!(views[0].folders[0].skipped_sources, 0);
     }
+
+    #[test]
+    fn edited_collections_are_validated_like_the_original() {
+        use serde_json::json;
+        let good = json!([{ "id": "c", "title": "C", "folders": [
+            { "id": "f", "title": "F", "sources": [{ "provider": "addon", "addonId": "a", "type": "movie", "catalogId": "x" }] }
+        ] }]);
+        assert!(validate_edited(&good).is_ok());
+        let bad = json!([{ "id": "c", "title": "", "folders": [] }]);
+        assert!(validate_edited(&bad).is_err());
+        let bad_source = json!([{ "id": "c", "title": "C", "folders": [
+            { "id": "f", "title": "F", "sources": [{ "provider": "tmdb" }] }
+        ] }]);
+        assert!(validate_edited(&bad_source).is_err());
+    }
+
 }

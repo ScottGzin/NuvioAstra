@@ -595,6 +595,8 @@ fn main() {
             api::discord_activity,
             api::shuffle_view,
             api::download_list,
+            api::collections_editor_load,
+            api::collections_editor_save,
             api::download_from_stream,
             api::download_control,
             api::download_play,

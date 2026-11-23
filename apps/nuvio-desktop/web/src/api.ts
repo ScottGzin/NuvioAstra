@@ -107,6 +107,9 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Collections editor: the raw document is validated and saved by Rust. */
+  collectionsEditorLoad: () => invoke<unknown>("collections_editor_load"),
+  collectionsEditorSave: (value: unknown) => invoke<unknown>("collections_editor_save", { value }),
   /** Direct downloads: URLs and headers stay in Rust. */
   downloadList: () => invoke<DownloadItem[]>("download_list"),
   downloadFromStream: (key: string, progress: PlaybackItem) => invoke<DownloadItem>("download_from_stream", { key, progress }),

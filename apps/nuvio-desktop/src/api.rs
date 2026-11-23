@@ -305,6 +305,24 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
     Ok(parental::fetch(&state.addons.client, &id).await)
 }
 
+// ---- Collections editor (the original's CollectionRepository validation rules) ----
+
+#[tauri::command]
+pub fn collections_editor_load(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let profile = state.active_profile();
+    Ok(collections::stored(&state.app_store, profile))
+}
+
+#[tauri::command]
+pub fn collections_editor_save(state: State<'_, AppState>, value: serde_json::Value) -> Result<serde_json::Value, String> {
+    state.ensure_unlocked()?;
+    collections::validate_edited(&value)?;
+    let profile = state.active_profile();
+    state.app_store.set_collections(profile, &value).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(value)
+}
+
 // ---- Downloads (the original's DownloadsRepository) ----
 
 #[tauri::command]

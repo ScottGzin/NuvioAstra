@@ -28,12 +28,13 @@ import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, Debr
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "details" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "account", label: "Conta", icon: <AccountIcon /> },
   { id: "home", label: "Início", icon: <HomeIcon /> },
   { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
+  { id: "collections", label: "Coleções", icon: <DetailsIcon /> },
   { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
   { id: "addons", label: "Addons", icon: <AddonsIcon /> },
   { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
@@ -374,6 +375,7 @@ export function Settings() {
         )}
 
         {section === "account" && <AccountPanel />}
+        {section === "collections" && <CollectionsEditor />}
         {section === "sources" && (
           <div className="settings-group">
             <SourceSettings value={draft.player} addons={[...new Set(view.catalogs.map((c) => c.addonName))].sort()} onChange={player} />
@@ -862,6 +864,33 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
 }
 
 // ---------- Início ----------
+
+/** Collections editor. The original stores a JSON document; this page validates and saves it. */
+function CollectionsEditor() {
+  const [raw, setRaw] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+  const reload = () => api.collectionsEditorLoad().then((value) => setRaw(JSON.stringify(value, null, 2)), (e) => setError(errorText(e)));
+  useEffect(() => { reload(); }, []);
+  const save = () => {
+    setError(null);
+    let value: unknown;
+    try { value = JSON.parse(raw); } catch (e) { setError(String(e)); return; }
+    void api.collectionsEditorSave(value).then(() => { setStatus(t("✓ Salvo")); reload(); }, (e) => setError(errorText(e)));
+  };
+  return (
+    <div className="settings-group">
+      <p className="muted small">{t("Edite as coleções, pastas e fontes. As alterações são validadas e sincronizadas com a sua conta.")}</p>
+      <textarea className="collections-json" aria-label={t("Documento de coleções")} value={raw} onChange={(e) => { setRaw(e.target.value); setStatus(""); }} spellCheck={false} rows={18} />
+      {error && <div className="row-error" role="alert">{error}</div>}
+      <div className="modal-actions">
+        <button className="primary" onClick={save}>{t("Salvar coleções")}</button>
+        <button className="ghost" onClick={reload}>{t("Recarregar")}</button>
+        {status && <span className="muted small">{status}</span>}
+      </div>
+    </div>
+  );
+}
 
 /** The original's MetaScreenSettings: which details sections appear, their order and look. */
 function DetailsSection({ settings, update }: {
