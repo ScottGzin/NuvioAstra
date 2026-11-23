@@ -824,7 +824,39 @@ pub async fn more_like_this(state: State<'_, AppState>, content_type: String, id
 /// imported a set: the sources still show each addon's own text.
 #[tauri::command]
 pub fn stream_badge_rules(state: State<'_, AppState>) -> badges::Rules {
-    badges::rules(state.active_profile())
+    let profile = state.active_profile();
+    let mut rules = badges::rules(profile);
+    let settings = state.app_store.profile_settings(profile).map(|p| p.streams).unwrap_or_default();
+    if let Some(show) = settings.show_size_badges { rules.show_file_size_badges = show; }
+    rules.placement = settings.badge_placement.clone();
+    rules
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamsSettingsView {
+    pub settings: nuvio_store::settings::StreamsSettings,
+    /// Number of imported badge rules and active filters from the original app.
+    pub imported_filters: usize,
+}
+
+#[tauri::command]
+pub fn streams_settings(state: State<'_, AppState>) -> Result<StreamsSettingsView, String> {
+    let profile = state.active_profile();
+    let settings = state.app_store.profile_settings(profile).map(|p| p.streams).map_err(|e| e.to_string())?;
+    let imported_filters = badges::rules(profile).filters.len();
+    Ok(StreamsSettingsView { settings, imported_filters })
+}
+
+#[tauri::command]
+pub fn streams_settings_set(state: State<'_, AppState>, settings: nuvio_store::settings::StreamsSettings) -> Result<StreamsSettingsView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let mut previous = state.app_store.profile_settings(profile).map_err(|e| e.to_string())?;
+    previous.streams = settings;
+    let saved = state.app_store.set_profile_settings(profile, previous).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(StreamsSettingsView { settings: saved.streams, imported_filters: badges::rules(profile).filters.len() })
 }
 
 /// Resolves one channel, on click only: just the addon that listed it is asked (no other addon,

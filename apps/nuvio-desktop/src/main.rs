@@ -568,6 +568,8 @@ fn main() {
             api::catalog_page,
             api::catalog_genres,
             api::stream_badge_rules,
+            api::streams_settings,
+            api::streams_settings_set,
             api::debrid_settings,
             api::debrid_settings_set,
             api::mdblist_settings,

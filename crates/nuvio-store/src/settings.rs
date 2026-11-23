@@ -313,7 +313,7 @@ impl Default for ContinueWatchingSettings {
     fn default() -> Self {
         Self {
             visible: true,
-            style: "card".into(),
+            style: "wide".into(),
             up_next_from_furthest_episode: true,
             use_episode_thumbnails: true,
             show_unaired_next_up: true,
@@ -448,6 +448,42 @@ impl CardStyle {
 pub struct DebridSettings { pub enabled: bool }
 impl Default for DebridSettings { fn default() -> Self { Self { enabled: true } } }
 
+/// Streams page settings (the original's StreamBadgeSettingsUiState). `show_size_badges = None`
+/// means "use the value imported from the original app".
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct StreamsSettings {
+    pub show_size_badges: Option<bool>,
+    pub show_addon_logo: bool,
+    pub show_in_player: bool,
+    pub player_badge_source: String,
+    /// `bottom` or `top`.
+    pub badge_placement: String,
+    /// `normal` or `cinematic`.
+    pub background_mode: String,
+    /// User-added Fusion badge URLs (the original keeps at most three imports).
+    pub badge_urls: Vec<String>,
+}
+
+impl Default for StreamsSettings {
+    fn default() -> Self {
+        Self {
+            show_size_badges: None, show_addon_logo: false, show_in_player: false,
+            player_badge_source: String::new(), badge_placement: "bottom".into(),
+            background_mode: "normal".into(), badge_urls: Vec::new(),
+        }
+    }
+}
+
+impl StreamsSettings {
+    pub fn sanitized(mut self) -> Self {
+        if !matches!(self.badge_placement.as_str(), "bottom" | "top") { self.badge_placement = "bottom".into(); }
+        if !matches!(self.background_mode.as_str(), "normal" | "cinematic") { self.background_mode = "normal".into(); }
+        self.badge_urls.truncate(3);
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileSettings {
@@ -463,6 +499,8 @@ pub struct ProfileSettings {
     pub discord_rpc_enabled: bool,
     #[serde(default)]
     pub debrid: DebridSettings,
+    #[serde(default)]
+    pub streams: StreamsSettings,
 }
 
 pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
@@ -647,6 +685,7 @@ impl ProfileSettings {
         self.home.items.retain(|i| !i.key.trim().is_empty() && seen.insert(i.key.clone()));
         self.continue_watching = self.continue_watching.sanitized();
         self.meta_screen = self.meta_screen.sanitized();
+        self.streams = self.streams.sanitized();
         self
     }
 }
@@ -778,6 +817,7 @@ impl LegacyStore {
             continue_watching: ContinueWatchingSettings::default(),
             meta_screen: MetaScreenSettings::default(),
             debrid: DebridSettings::default(),
+            streams: StreamsSettings::default(),
             discord_rpc_enabled: self.read_store("nuvio_discord_rich_presence")
                 .ok()
                 .and_then(|store| store.get(&format!("enabled_{profile_index}")).or_else(|| store.get("enabled")).cloned())

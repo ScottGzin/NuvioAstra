@@ -14,34 +14,42 @@ interface CardProps {
   onResume(entry: HistoryEntry): void;
   onRemove?(entry: HistoryEntry): void;
   blurred?: boolean;
+  style?: string;
 }
 
-export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove, blurred }: CardProps) {
+export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove, blurred, style }: CardProps) {
   const image = entry.background ?? entry.poster;
   const code = episodeCode(entry);
   const left = remaining(entry);
   const fresh = entry.nextUp && !entry.inProgress;
   return (
-    <div className={`cw-wrap ${blurred ? "cw-blurred" : ""}`}>
-      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? t("Próximo episódio de {title}", { title: entry.title }) : t("Continuar {title}", { title: entry.title })}>
+    <div className={`cw-wrap ${blurred ? "cw-blurred" : ""} ${style === "wide" ? "cw-wide-card" : ""}`}>
+      <button className={`cw-card ${style === "wide" ? "cw-wide-layout" : ""}`} onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? t("Próximo episódio de {title}", { title: entry.title }) : t("Continuar {title}", { title: entry.title })}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
           {entry.nextUp && <span className="cw-badge">{entry.airs ? t("Estreia em {date}", { date: airDate(entry.airs) }) : t("Próximo episódio")}</span>}
-          {!fresh && (
+          {style !== "wide" && !fresh && (
             <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(entry.fraction * 100)}>
               <div style={{ width: `${Math.max(2, entry.fraction * 100)}%` }} />
             </div>
           )}
         </div>
-        <div className="card-title">{entry.title}</div>
-        <div className="card-sub">
-          {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("")}
+        <div className="cw-text">
+          <div className="card-title">{entry.title}</div>
+          <div className="card-sub">
+            {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("") || entry.metaType}
+          </div>
+          <div className="card-sub">
+            {[entry.positionMs > 0 && t("{time} assistidos", { time: clock(entry.positionMs) }), left].filter(Boolean).join(" · ")}
+          </div>
+          <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
+          {style === "wide" && !fresh && (
+            <div className="progress cw-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(entry.fraction * 100)}>
+              <div style={{ width: `${Math.max(2, entry.fraction * 100)}%` }} />
+            </div>
+          )}
         </div>
-        <div className="card-sub">
-          {[entry.positionMs > 0 && t("{time} assistidos", { time: clock(entry.positionMs) }), left].filter(Boolean).join(" · ")}
-        </div>
-        <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>
       {onRemove && (
         <button className="fav-btn icon" aria-label={t("Remover {title} de Continuar assistindo", { title: entry.title })} title={t("Remover")} data-testid="cw-remove" onClick={() => onRemove(entry)}>
@@ -77,7 +85,7 @@ export function loadContinueWatching(show: (items: HistoryEntry[]) => void, fail
 }
 
 const DEFAULT_PREFS: ContinueWatchingSettings = {
-  visible: true, style: "card", upNextFromFurthestEpisode: true, useEpisodeThumbnails: true,
+  visible: true, style: "wide", upNextFromFurthestEpisode: true, useEpisodeThumbnails: true,
   showUnairedNextUp: true, blurNextUp: false, showResumePromptOnLaunch: true, sortMode: "default",
   clickAction: "stream",
 };
@@ -120,7 +128,7 @@ export function ContinueWatchingRow({
       </header>
       <div className="row-track">
         {shown.map((e) => (
-          <ContinueCard key={e.key} entry={e} onResume={play} onRemove={(x) => void removeHistory(x.key)} blurred={prefs.blurNextUp && e.nextUp} />
+          <ContinueCard key={e.key} entry={e} onResume={play} onRemove={(x) => void removeHistory(x.key)} blurred={prefs.blurNextUp && e.nextUp} style={prefs.style} />
         ))}
       </div>
     </section>
