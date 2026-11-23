@@ -67,11 +67,22 @@ export function HeroCarousel({ items, onOpen }: Props) {
         >
           <div className="hero-shade">
             {item.logo ? <img className="hero-logo" src={item.logo} alt={item.name} draggable={false} /> : <h1>{item.name}</h1>}
-            <div className="meta-line">
-              {[item.releaseInfo, item.imdbRating && `★ ${item.imdbRating}`, item.genres.slice(0, 3).join(" · ")].filter(Boolean).join("   ")}
+            <div className="hero-meta">
+              {[
+                item.contentType === "series" ? t("Series") : t("Movie"),
+                item.genres[0],
+                item.runtime,
+                item.releaseInfo?.trim().slice(0, 4),
+              ].filter(Boolean).map((part, n) => <span key={n}>{part}</span>)}
             </div>
+            {(item.imdbRating || item.releaseInfo) && (
+              <div className="hero-extra">
+                {item.releaseInfo && <span className="hero-pill">{item.releaseInfo}</span>}
+                {item.imdbRating && <span className="hero-imdb">IMDb {item.imdbRating}</span>}
+              </div>
+            )}
             {item.description && <p className="hero-desc">{item.description}</p>}
-            <button className="primary" tabIndex={i === index ? 0 : -1} onClick={() => onOpen(item)}>{t("Ver detalhes")}</button>
+            <button className="hero-details" tabIndex={i === index ? 0 : -1} onClick={() => onOpen(item)}>{t("Ver detalhes")}</button>
           </div>
         </div>
       ))}
