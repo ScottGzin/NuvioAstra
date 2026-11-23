@@ -4,11 +4,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { listen } from "../tauri";
-import type { PlayerSettings } from "../types";
+import type { MetaVideo, PlayerSettings } from "../types";
+import { playbackItem } from "../library";
 import { usePlayer } from "./PlayerContext";
 import { P2pStats } from "./P2pStats";
 import { EnhanceNotice } from "./EnhanceMenu";
 import { ChaptersPanel } from "./ChaptersPanel";
+import { InPlayerSources } from "./InPlayerSources";
 import { PlayerControls } from "./PlayerControls";
 import { airDate, episodeTitle, hasAired, nextEpisode } from "./episodes";
 import { NextEpisodePanel } from "./NextEpisodePanel";
@@ -30,8 +32,9 @@ export function FullPlayer() {
   const [choosingNext, setChoosingNext] = useState(false);
   const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
   // Another episode started: its panel is gone.
-  useEffect(() => { setChoosingNext(false); setChaptersOpen(false); }, [episode]);
+  useEffect(() => { setChoosingNext(false); setChaptersOpen(false); setSourcesOpen(false); }, [episode]);
 
   // Player settings are read once per session: hold-to-speed, chapters and next-episode autoplay.
   useEffect(() => {
@@ -152,6 +155,7 @@ export function FullPlayer() {
         subtitles={snapshot ? <SubtitleMenu key={`subtitles-${snapshot.session}`} snapshot={snapshot} /> : undefined}
         holdSpeed={{ enabled: playerSettings?.holdToSpeedEnabled ?? true, value: playerSettings?.holdToSpeedValue ?? 2 }}
         onChapters={snapshot && snapshot.chapters.length > 0 ? () => setChaptersOpen(true) : undefined}
+        onSources={episode ? () => setSourcesOpen(true) : undefined}
         next={
           next
             ? {
@@ -171,6 +175,28 @@ export function FullPlayer() {
           covered={choosingNext}
           chromeVisible={visible}
           onNext={openNext}
+        />
+      )}
+      {sourcesOpen && episode && (
+        <InPlayerSources
+          context={episode}
+          onClose={() => setSourcesOpen(false)}
+          onPickEpisode={(chosen: MetaVideo) => {
+            void (async () => {
+              const groups = await api.streams(episode.meta.contentType, chosen.id);
+              const stream = groups.flatMap((group) => group.streams)
+                .find((candidate) => ["direct", "torrent", "debrid", "youTube"].includes(candidate.kind));
+              if (!stream) return;
+              await player.play(() => api.playStream(stream.key, null, playbackItem(episode.meta, chosen)), {
+                title: episode.meta.name,
+                subtitle: episodeTitle(chosen),
+                view: "full",
+                returnTo: null,
+                episode: { meta: episode.meta, video: chosen },
+                torrent: stream.kind === "torrent" && !stream.debridPlayable,
+              });
+            })();
+          }}
         />
       )}
       {chaptersOpen && snapshot && snapshot.chapters.length > 0 && (

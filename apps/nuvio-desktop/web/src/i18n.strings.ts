@@ -1056,6 +1056,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "— trocar de fonte e escolher qualquer episódio sem sair do vídeo.": { en: "— switch sources and pick any episode without leaving the video.", ar: "— تبديل المصادر واختيار أي حلقة دون مغادرة الفيديو." },
   "— ordem aleatória dos episódios.": { en: "— random episode order.", ar: "— ترتيب الحلقات العشوائي." },
   "— Trakt e Simkl (exigem IDs de cliente próprios).": { en: "— Trakt and Simkl (require your own client IDs).", ar: "— Trakt وSimkl (يتطلبان معرّفي عميل خاصين)." },
+  "Fontes no player": { en: "Sources in player", ar: "المصادر داخل المشغّل" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },

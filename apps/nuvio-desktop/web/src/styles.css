@@ -134,6 +134,8 @@ body.playing .screen-fill { background: transparent; }
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
 /* Chapters over the player, and the hold-to-speed feedback on the forward button. */
+.in-player-sources-panel { width: min(820px, calc(100vw - 32px)); }
+.in-player-episodes { max-height: 180px; overflow-y: auto; margin-bottom: 10px; }
 .chapters-overlay { position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
 .chapters-panel { width: min(480px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
 .chapters-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }

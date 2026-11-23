@@ -61,9 +61,11 @@ interface Props {
   holdSpeed?: { enabled: boolean; value: number };
   /** Opens the chapters panel when the video provides chapters. */
   onChapters?(): void;
+  /** Opens the sources of the current video without leaving the player. */
+  onSources?(): void;
 }
 
-export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, holdSpeed, onChapters }: Props) {
+export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, holdSpeed, onChapters, onSources }: Props) {
   const holdTimer = useRef<number>(0);
   const holdActive = useRef(false);
   const holdSpeedBefore = useRef<number>(1);
@@ -188,6 +190,11 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
         {next && (
           <button className="pc-btn pc-next" aria-label={t("Próximo episódio")} title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
             {Icons.next}<span>{t("Próximo episódio")}</span>
+          </button>
+        )}
+        {onSources && (
+          <button className="pc-btn pc-chapters" aria-label={t("Fontes no player")} data-testid="player-sources" onClick={onSources}>
+            {t("Fontes")}
           </button>
         )}
         {onChapters && (
