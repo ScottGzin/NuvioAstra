@@ -664,6 +664,25 @@ pub async fn tracking_sync(state: State<'_, AppState>, provider: String) -> Resu
     tracking::sync_watched(&state.app_store, profile, &provider, &id).await
 }
 
+/// Opens an external link in the system browser (WebView cannot navigate to it itself).
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let url = url.trim().to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("only http(s) links can be opened".into());
+    }
+    let spawned = {
+        #[cfg(target_os = "windows")]
+        { std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn() }
+        #[cfg(target_os = "macos")]
+        { std::process::Command::new("open").arg(&url).spawn() }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        { std::process::Command::new("xdg-open").arg(&url).spawn() }
+    };
+    spawned.map_err(|e| format!("could not open the browser: {e}"))?;
+    Ok(())
+}
+
 /// Opens an `externalUrl` source in the browser, as the original does. Only http(s) links are
 /// accepted, and the UI never sees the stored stream directly, only its opaque key.
 #[tauri::command]

@@ -95,9 +95,9 @@ export function TrackingCredentialsPanel() {
             <p className="provider-desc">{t("Abra o link e digite este código para aprovar o Nuvio. Esta tela será atualizada automaticamente.")}</p>
             <div className="device-code-box" data-testid="trakt-device">
               <strong>{device.userCode}</strong>
-              <a href={device.verificationUrl} target="_blank" rel="noreferrer">{device.verificationUrl}</a>
+              <button className="link" onClick={() => void api.openUrl(device.verificationUrl)}>{device.verificationUrl}</button>
             </div>
-            <a className="provider-action large" href={device.verificationUrl} target="_blank" rel="noreferrer">{t("Abrir ativação do Trakt")}</a>
+            <button className="provider-action large" data-testid="trakt-open-activate" onClick={() => void api.openUrl(device.verificationUrl).catch((e) => setError(errorText(e)))}>{t("Abrir ativação do Trakt")}</button>
             <button className="provider-action outline" onClick={() => setDevice(null)}>{t("Cancelar")}</button>
             <div className="device-status">{t("Aguardando aprovação no Trakt…")}</div>
           </>
@@ -120,7 +120,10 @@ export function TrackingCredentialsPanel() {
           </div>
         ) : (
           <button className="provider-action large" data-testid="simkl-connect" disabled={!view.simklConfigured} onClick={() => {
-            void api.simklAuthorizeUrl().then((url) => { setSimklUrl(url); window.open(url, "_blank", "noopener"); }, (e) => setError(errorText(e)));
+            void api.simklAuthorizeUrl().then((url) => {
+              setSimklUrl(url);
+              void api.openUrl(url).catch((e) => setError(errorText(e)));
+            }, (e) => setError(errorText(e)));
           }}>{t("Conectar ao Simkl")}</button>
         )}
         {simklUrl && !view.simklConnected && (
@@ -138,7 +141,7 @@ export function TrackingCredentialsPanel() {
           {field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)}
         </div>}
         {view.simklFromBuild && !showSimkl && <button className="provider-more" onClick={() => setShowSimkl(true)}>{t("Alterar credenciais")}</button>}
-        <a className="provider-link" href="https://simkl.com" target="_blank" rel="noreferrer">{t("Visitar Simkl")}</a>
+        <button className="provider-link" onClick={() => void api.openUrl("https://simkl.com")}>{t("Visitar Simkl")}</button>
       </section>}
       {sync && <p className="muted small" role="status">{sync}</p>}
       {error && <div className="row-error" role="alert">{error}</div>}

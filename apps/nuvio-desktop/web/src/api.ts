@@ -238,6 +238,7 @@ export const api = {
   libraryToggleWatched: (item: WatchedItem) => invoke<boolean>("library_toggle_watched", { item }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   /** Opens an `externalUrl` source in the browser. */
   streamOpenExternal: (key: string) => invoke<void>("stream_open_external", { key }),
 

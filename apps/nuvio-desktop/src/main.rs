@@ -591,6 +591,7 @@ fn main() {
             api::library_title_progress,
             api::library_toggle_watched,
             api::stream_open_external,
+            api::open_url,
             api::parental_guide,
             api::discord_activity,
             api::shuffle_view,

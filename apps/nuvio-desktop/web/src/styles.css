@@ -476,6 +476,8 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 .provider-card.trakt .provider-action, .provider-card.trakt .primary { background: #fff; color: #c0264c; }
 .provider-card.simkl .provider-action, .provider-card.simkl .primary { background: #4a4a4a; color: #fff; }
 .provider-card.mdblist .provider-action { background: rgba(255,255,255,.22); }
+.provider-link { background: none; border: 0; padding: 0; cursor: pointer; font: inherit; }
+.device-code-box button.link { background: none; border: 0; padding: 0; color: inherit; font: inherit; font-size: 14px; text-decoration: underline; cursor: pointer; }
 .provider-link { font-size: 13px; font-weight: 600; color: inherit; text-decoration: underline; }
 .provider-card .setting-row, .provider-card .settings-group { background: rgba(255,255,255,.06); border-radius: 10px; }
 .provider-card .setting-title { color: inherit; }

@@ -472,7 +472,7 @@ export function Settings() {
               <div className="provider-logo mdb-logo">M</div>
               <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
               <button className="provider-action" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>{t("Avaliações externas")}</button>
-              <a className="provider-link" href="https://mdblist.com" target="_blank" rel="noreferrer">{t("Visitar MDBList")}</a>
+              <button className="provider-link" onClick={() => void api.openUrl("https://mdblist.com")}>{t("Visitar MDBList")}</button>
             </section>
             <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
               <span className="integration-icon link">▣</span>
