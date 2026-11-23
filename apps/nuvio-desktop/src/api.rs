@@ -352,7 +352,8 @@ fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
         simkl_connected: tracking::connected(&state.app_store, state.active_profile(), "simkl"),
         trakt_from_build: tracking_default("trakt:clientId").is_some() && tracking_default("trakt:clientSecret").is_some(),
         simkl_from_build: tracking_default("simkl:clientId").is_some(),
-        mdblist_connected: tracking::connected(&state.app_store, state.active_profile(), "mdblist"),
+        mdblist_connected: tracking::connected(&state.app_store, state.active_profile(), "mdblist")
+            || mdblist::view(&state.app_store, state.active_profile()).api_key_set,
         mdblist_from_build: tracking_default("mdblist:clientId").is_some(),
     })
 }
@@ -673,6 +674,9 @@ pub async fn tracking_resume(state: State<'_, AppState>, content_id: String) -> 
     let profile = state.active_profile();
     let source = state.app_store.profile_settings(profile).map(|s| s.player.progress_source).unwrap_or_else(|_| "nuvio".into());
     let key = match source.as_str() { "trakt" => "trakt:clientId", "simkl" => "simkl:clientId", "mdblist" => "mdblist:clientId", _ => return Ok(Vec::new()) };
+    if source == "mdblist" && state.app_store.tracking_token(profile, "mdblist").ok().flatten().is_none() {
+        return Ok(mdblist::playback(&state.app_store, profile, &content_id).await);
+    }
     let Some(client_id) = tracking_value(&state, key) else { return Ok(Vec::new()) };
     tracking::resume(&state.app_store, profile, &source, &content_id, &client_id).await
 }

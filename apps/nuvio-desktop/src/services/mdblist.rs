@@ -399,3 +399,39 @@ mod tests {
         assert_eq!(selected.iter().map(|r| r.source.as_str()).collect::<Vec<_>>(), ["trakt", "imdb"]);
     }
 }
+
+/// Playback progress from the user's MDBList API key (`GET /sync/playback?apikey=`), used when
+/// MDBList is selected as the Watch Progress source without an OAuth device connection.
+pub async fn playback(store: &AppStore, profile: i64, content_id: &str) -> Vec<crate::services::tracking::RemoteResume> {
+    use crate::services::tracking::RemoteResume;
+    let Some((key, _)) = key(store, profile) else { return Vec::new() };
+    let response = match http()
+        .get(format!("https://api.mdblist.com/sync/playback?apikey={}", encode(&key)))
+        .header("Accept", "application/json")
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => response,
+        _ => return Vec::new(),
+    };
+    let Ok(body) = response.text().await else { return Vec::new() };
+    let Ok(payload) = serde_json::from_str::<serde_json::Value>(&body) else { return Vec::new() };
+    let mut out = Vec::new();
+    if let Some(items) = payload.as_array() {
+        for item in items {
+            let id = item
+                .pointer("/media/ids/imdb")
+                .or_else(|| item.pointer("/ids/imdb"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if !content_id.is_empty() && !id.eq_ignore_ascii_case(content_id) { continue; }
+            out.push(RemoteResume {
+                season: item.get("season").and_then(serde_json::Value::as_i64),
+                episode: item.get("episode").and_then(serde_json::Value::as_i64),
+                progress_percent: item.get("progress").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+                paused_at: item.get("updatedAt").and_then(serde_json::Value::as_str).map(str::to_string),
+            });
+        }
+    }
+    out
+}
