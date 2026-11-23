@@ -22,6 +22,7 @@ import { HeroCatalogs } from "../components/HeroCatalogs";
 import { AudioSettings } from "../components/AudioSettings";
 import { BufferSettings } from "../components/BufferSettings";
 import { ServersPanel } from "../components/ServersPanel";
+import { PosterCardStyle } from "../components/PosterCardStyle";
 import { SourceSettings } from "../components/SourceSettings";
 import { TrackingCredentialsPanel } from "../components/TrackingCredentialsPanel";
 import { WatchingSettings } from "../components/WatchingSettings";
@@ -30,11 +31,12 @@ import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, Debr
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "account", label: "Conta", icon: <AccountIcon /> },
   { id: "home", label: "Início", icon: <HomeIcon /> },
+  { id: "layout", label: "Layout", icon: <HomeIcon /> },
   { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
   { id: "collections", label: "Coleções", icon: <DetailsIcon /> },
   { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
@@ -97,6 +99,7 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("home");
   const [settingSearch, setSettingSearch] = useState("");
+  const [layoutPage, setLayoutPage] = useState<"menu" | "poster">("menu");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Services → Integrations → TMDB (the only integration ported so far).
   const [servicePage, setServicePage] = useState<"menu" | "integrations" | "tracking" | "tmdb" | "debrid" | "mdblist" | "servers">("menu");
@@ -120,6 +123,15 @@ export function Settings() {
   const baseRef = useRef<ProfileSettings | null>(null);
   const profileRef = useRef<number | undefined>(undefined);
   const saving = useRef(false);
+
+  useEffect(() => {
+    if (!view) return;
+    const cards = view.settings.player.cards;
+    if (cards) {
+      document.documentElement.style.setProperty("--card-width", `${cards.width}px`);
+      document.documentElement.style.setProperty("--card-radius", `${cards.radius}px`);
+    }
+  }, [view]);
 
   useEffect(() => {
     api.settingsGet().then(
@@ -369,6 +381,43 @@ export function Settings() {
         {section === "home" && (
           <HomeSection settings={draft} catalogs={view.catalogs} update={update} />
         )}
+        {section === "layout" && (layoutPage === "menu" ? (
+          <div className="settings-group">
+            <button className="integration-row" data-service="poster" onClick={() => setLayoutPage("poster")}>
+              <span className="integration-icon link">▧</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Poster Card Style")}</span>
+                <span className="muted small">{t("Tune card width and corner radius.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" onClick={() => setSection("home")}>
+              <span className="integration-icon link">⌂</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Continue Watching")}</span>
+                <span className="muted small">{t("Settings for the Continue Watching section.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" onClick={() => setSection("details")}>
+              <span className="integration-icon link">▤</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Detail Page")}</span>
+                <span className="muted small">{t("Settings for the detail and episode screens.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setLayoutPage("menu")}>← {t("Layout")}</button>
+              <h2>{t("Poster Card Style")}</h2>
+            </div>
+            {draft && <PosterCardStyle value={draft.player} onChange={(change) => update((s) => ({ ...s, player: change(s.player) }))} />}
+          </>
+        ))}
+
         {section === "details" && (
           <DetailsSection
             settings={draft.metaScreen}
