@@ -14,6 +14,7 @@ import { dataEpoch, onDataEpoch } from "../api";
 import { ResultRow } from "../components/ResultRow";
 import { invoke, listen } from "../tauri";
 import type { MetaPreview, SearchSection } from "../types";
+import { t } from "../i18n";
 
 interface Props {
   onOpen(item: MetaPreview): void;
@@ -183,22 +184,22 @@ export function Search({ onOpen }: Props) {
         <input
           ref={input}
           type="search"
-          placeholder="Buscar filmes, séries…"
+          placeholder={t("Buscar filmes, séries…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addHistory(query)}
-          aria-label="Buscar"
+          aria-label={t("Buscar")}
           data-testid="search-input"
         />
-        {loading && <span className="spinner" aria-label="Buscando" />}
+        {loading && <span className="spinner" aria-label={t("Buscando")} />}
       </div>
 
       {empty && (
         history.length ? (
           <div className="search-history" data-testid="search-history">
             <div className="search-history-head">
-              <span>Pesquisas recentes</span>
-              <button className="link" onClick={clearHistory}>Limpar histórico</button>
+              <span>{t("Pesquisas recentes")}</span>
+              <button className="link" onClick={clearHistory}>{t("Limpar histórico")}</button>
             </div>
             <div className="search-history-list">
               {history.map((h) => (
@@ -213,7 +214,7 @@ export function Search({ onOpen }: Props) {
             </div>
           </div>
         ) : (
-          <div className="screen-message muted">Digite ao menos 2 letras.</div>
+          <div className="screen-message muted">{t("Digite ao menos 2 letras.")}</div>
         )
       )}
 

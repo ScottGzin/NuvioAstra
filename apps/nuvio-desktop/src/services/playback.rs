@@ -156,7 +156,9 @@ pub fn startup_commands(settings: &PlayerSettings, audio: &[String]) -> Vec<Play
     commands
 }
 
-/// Windows user locale (`Locale.getDefault().toLanguageTag()` of the original on Windows).
+/// User locale (`Locale.getDefault().toLanguageTag()` of the original on Windows; `LANG` and
+/// friends on Linux), normalised to the BCP-47 style the audio/subtitle preferences expect.
+#[cfg(windows)]
 pub fn device_languages() -> Vec<String> {
     let mut buffer = [0u16; 85];
     // SAFETY: the buffer is LOCALE_NAME_MAX_LENGTH wide, as the API requires.
@@ -165,6 +167,26 @@ pub fn device_languages() -> Vec<String> {
         return Vec::new();
     }
     vec![String::from_utf16_lossy(&buffer[..(len as usize - 1)])]
+}
+
+#[cfg(not(windows))]
+pub fn device_languages() -> Vec<String> {
+    let mut out = Vec::new();
+    for key in ["LC_ALL", "LANGUAGE", "LANG"] {
+        let Ok(value) = std::env::var(key) else { continue };
+        let value = value.trim();
+        if value.is_empty() || value == "C" || value == "POSIX" {
+            continue;
+        }
+        // "pt_PT.UTF-8" → "pt-PT"; "pt:en" → "pt", "en".
+        for part in value.split([':', ',']) {
+            let tag = part.split('.').next().unwrap_or(part).replace('_', "-");
+            if !tag.is_empty() && !out.contains(&tag) {
+                out.push(tag);
+            }
+        }
+    }
+    out
 }
 
 /// Waits (up to `timeout`) for the tracks of `session`, then selects the preferred ones once.

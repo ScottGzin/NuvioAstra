@@ -201,6 +201,11 @@ fn cstr(value: &str) -> Result<CString, PlayerError> {
 
 impl Mpv {
     pub fn create(api: Arc<MpvApi>) -> Result<Self, PlayerError> {
+        // libmpv 2.5 refuses to initialise when LC_NUMERIC is not "C" (GTK sets the user locale).
+        #[cfg(not(windows))]
+        unsafe {
+            libc::setlocale(libc::LC_NUMERIC, b"C\0".as_ptr().cast());
+        }
         // SAFETY: plain constructor; null means failure.
         let handle = unsafe { (api.create)() };
         if handle.is_null() {

@@ -19,7 +19,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 pub const NEEDS_CONSENT: &str = "P2P_CONSENT_REQUIRED";
 
 pub fn engine_dll() -> Result<PathBuf, String> {
-    nuvio_p2p::locate_engine().ok_or_else(|| "O motor P2P (nuvio_engine.dll) não está instalado com esta versão.".to_string())
+    nuvio_p2p::locate_engine().ok_or_else(|| {
+        #[cfg(windows)]
+        { "O motor P2P (nuvio_engine.dll) não está instalado com esta versão.".to_string() }
+        #[cfg(not(windows))]
+        { "O P2P ainda não está disponível no Linux (o motor libtorrent será portado na fase 3).".to_string() }
+    })
 }
 
 /// Engine folders: state with the app data, the (large) piece cache in the local, non-roaming

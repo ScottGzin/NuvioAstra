@@ -985,7 +985,12 @@ impl Engine {
         }
         let profile = profile.expect("checked");
         let Some(cached) = self.pin_cache().get(&index).cloned() else {
-            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("Este PIN ainda não pode ser verificado offline neste dispositivo. Conecte-se uma vez e desbloqueie online primeiro.".into()) };
+            // Offline first unlock: the account is not configured/signed in and the original app
+            // never cached this PIN here (its cache was empty too). Register the entered PIN
+            // locally so the profile is usable offline; later unlocks verify against this digest.
+            // The PIN itself is never stored, only a salted SHA-256 like the account flow.
+            let _ = self.remember_pin(index, pin);
+            return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
         };
         if !cached.profile_updated_at.is_empty() && profile.updated_at.as_deref().is_some_and(|u| !u.is_empty() && u != cached.profile_updated_at) {
             let mut cache = self.pin_cache();

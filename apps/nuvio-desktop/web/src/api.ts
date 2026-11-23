@@ -1,4 +1,5 @@
 import { invoke } from "./tauri";
+import { t } from "./i18n";
 import type {
   EpgView,
   UpdateInfo,
@@ -168,5 +169,7 @@ async function changed<T>(reason: "profile" | "addons", call: Promise<T>): Promi
 }
 
 export function errorText(error: unknown): string {
-  return typeof error === "string" ? error : error instanceof Error ? error.message : "erro desconhecido";
+  const raw = typeof error === "string" ? error : error instanceof Error ? error.message : "erro desconhecido";
+  // Rust commands return Portuguese messages; t() translates the known ones, leaves others intact.
+  return t(raw);
 }

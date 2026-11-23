@@ -20,6 +20,10 @@ nuvio-store = { path = "../../crates/nuvio-store" }
 nuvio-sync = { path = "../../crates/nuvio-sync" }
 nuvio-p2p = { path = "../../crates/nuvio-p2p" }
 tauri-plugin-updater = "2"
+# Local date without Win32 (already in the workspace lock through jiff).
+jiff = "0.2"
+
+[target.'cfg(windows)'.dependencies]
 webview2-com = "0.39"
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_Globalization", "Win32_System_SystemInformation", "Win32_UI_Shell", "Win32_System_Diagnostics_ToolHelp"] }
 

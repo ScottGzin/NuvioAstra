@@ -26,7 +26,15 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> StoreError + '_ {
 }
 
 pub fn default_app_dir() -> Result<PathBuf, StoreError> {
+    // Windows keeps roaming data in %APPDATA%; Linux follows the XDG base directory spec,
+    // falling back to ~/.local/share (the same layout used by the legacy store resolver).
+    #[cfg(windows)]
     let base = std::env::var_os("APPDATA").map(PathBuf::from).ok_or(StoreError::DataDirNotFound)?;
+    #[cfg(not(windows))]
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .ok_or(StoreError::DataDirNotFound)?;
     Ok(base.join("NuvioNextGen"))
 }
 

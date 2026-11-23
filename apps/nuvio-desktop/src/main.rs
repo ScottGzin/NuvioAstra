@@ -94,8 +94,12 @@ impl AppState {
         if let Some(api) = slot.as_ref() {
             return Ok(api.clone());
         }
-        let path = nuvio_player::locate_libmpv()
-            .ok_or_else(|| "libmpv-2.dll not found (next to the exe or NUVIO_LIBMPV)".to_string())?;
+        let path = nuvio_player::locate_libmpv().ok_or_else(|| {
+            #[cfg(windows)]
+            { "libmpv-2.dll not found (next to the exe or NUVIO_LIBMPV)".to_string() }
+            #[cfg(not(windows))]
+            { "A reprodução de vídeo ainda não está disponível no Linux (defina NUVIO_LIBMPV para testar)".to_string() }
+        })?;
         let api = MpvApi::load(&path).map_err(|e| e.to_string())?;
         *slot = Some(api.clone());
         Ok(api)
@@ -246,6 +250,15 @@ fn show_main_window(window: &tauri::WebviewWindow) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+    // The WM reparents the X11 host into its frame and unmaps child windows; remap the video
+    // container once the window is really visible.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.app_handle().state::<AppState>().with_player(|p| {
+            p.fit_to_host();
+            Ok(())
+        });
+    }
 }
 
 #[tauri::command]
@@ -333,6 +346,9 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
 
 /// Makes the webview background transparent so the video container below shows through
 /// (`ICoreWebView2Controller2::put_DefaultBackgroundColor`, as in player_bridge.cpp).
+/// On Linux WebKitGTK already honours the transparent window background; there is no video
+/// container yet (phase 2 of the port), so this is a no-op.
+#[cfg(windows)]
 fn make_webview_transparent(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|webview| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Controller2, COREWEBVIEW2_COLOR};
@@ -347,6 +363,7 @@ fn make_webview_transparent(window: &tauri::WebviewWindow) -> tauri::Result<()> 
 
 /// Asks WebView2 to lower its memory use (`ICoreWebView2_19::put_MemoryUsageTargetLevel`).
 /// Measured in the player self-test before being used by the app.
+#[cfg(windows)]
 pub fn set_webview_low_memory(window: &tauri::WebviewWindow, low: bool) -> tauri::Result<()> {
     window.with_webview(move |webview| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -363,6 +380,16 @@ pub fn set_webview_low_memory(window: &tauri::WebviewWindow, low: bool) -> tauri
             }
         }
     })
+}
+
+#[cfg(not(windows))]
+fn make_webview_transparent(_window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn set_webview_low_memory(_window: &tauri::WebviewWindow, _low: bool) -> tauri::Result<()> {
+    Ok(())
 }
 
 /// NextGen data store (`%APPDATA%\NuvioNextGen`), migrated once from the current app's data:
@@ -392,6 +419,13 @@ fn open_app_store() -> nuvio_store::nextgen::AppStore {
 }
 
 fn main() {
+    // The Linux player embeds libmpv into an X11 `wid`. Force the X11 GDK backend before Tauri
+    // initialises GTK, even on a Wayland session (XWayland always provides X11). Same approach as
+    // the upstream Nuvio Desktop Linux player bridge.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     let selftest = selftest::requested();
     tauri::Builder::default()
         .manage({
@@ -506,15 +540,26 @@ fn main() {
             uitest::uitest_native_libraries
         ])
         .setup(move |app| {
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Nuvio Astra")
                 .inner_size(1280.0, 760.0)
-                .min_inner_size(800.0, 480.0)
-                // Normal use: created hidden and shown maximized by `window_ready` once the interface
-                // has painted (no white/black frame while the webview starts). The automated tests
-                // keep the visible fixed-size window they measure.
+                .min_inner_size(800.0, 480.0);
+            // Transparent so the mpv child window below the webview is visible through the UI.
+            #[cfg(target_os = "linux")]
+            {
+                builder = builder.transparent(true);
+            }
+            // Normal use: created hidden and shown maximized by `window_ready` once the interface
+            // has painted (no white/black frame while the webview starts). The automated tests
+            // keep the visible fixed-size window they measure.
+            let window = builder
                 .visible(selftest.is_some() || uitest::requested().is_some())
                 .build()?;
+            #[cfg(target_os = "linux")]
+            {
+                // WebKitGTK must not paint an opaque background over the embedded video.
+                let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            }
             if selftest.is_none() && uitest::requested().is_none() {
                 // Safety net: show the window even if the interface never reports.
                 let handle = app.handle().clone();
@@ -541,8 +586,11 @@ fn main() {
             if selftest.is_none() && uitest::requested().is_none() {
                 account::start_loop(app.handle().clone());
             }
-            let hwnd = window.hwnd()?.0 as isize;
-            *app.state::<AppState>().hwnd.lock().expect("hwnd lock") = hwnd;
+            #[cfg(windows)]
+            {
+                let hwnd = window.hwnd()?.0 as isize;
+                *app.state::<AppState>().hwnd.lock().expect("hwnd lock") = hwnd;
+            }
             if uitest::requested().is_some() {
                 // Screen captures need the window in front.
                 let _ = window.set_always_on_top(true);

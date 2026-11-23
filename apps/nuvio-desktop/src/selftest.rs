@@ -195,9 +195,15 @@ fn check(report: &mut SourceReport, name: &str, passed: bool, detail: impl Into<
     report.checks.push(Check { name: name.into(), passed, detail: detail.into() });
 }
 
+#[cfg(windows)]
 fn host_mpv_windows(app: &AppHandle) -> usize {
     let window = app.get_webview_window("main").expect("main window");
     nuvio_player::win::count_mpv_windows(windows::Win32::Foundation::HWND(window.hwnd().expect("hwnd").0))
+}
+
+#[cfg(not(windows))]
+fn host_mpv_windows(_app: &AppHandle) -> usize {
+    0
 }
 
 fn run(app: &AppHandle, request: &Request) -> Report {

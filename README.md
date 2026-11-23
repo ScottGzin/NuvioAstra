@@ -59,6 +59,40 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-rele
 
 Configurações opcionais de build (servidor da conta, repositório de atualizações) estão em [`local.properties.example`](local.properties.example). Publicação e releases automáticas: [`GITHUB_PUBLISH.md`](GITHUB_PUBLISH.md). Detalhes técnicos: [`docs/`](docs/).
 
+### Linux (experimental — fase 1 do port)
+
+O mesmo código agora compila e roda no Linux com WebKitGTK (Tauri 2):
+
+```bash
+# dependências do sistema (Debian/Ubuntu)
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+    libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+cargo test --workspace
+cd apps/nuvio-desktop/web && npm ci && npm run build && cd ../../..
+cargo build --release -p nuvio-desktop
+./target/release/nuvio-desktop
+```
+
+O que já funciona: interface, catálogos, busca, detalhes, TV ao vivo, biblioteca, perfis,
+configurações e conta Nuvio. Os dados ficam em `$XDG_DATA_HOME/NuvioNextGen`
+(`~/.local/share/NuvioNextGen` por padrão) e a migração dos dados legados é feita na primeira abertura.
+
+**Player e P2P no Linux:** o player incorpora o libmpv do sistema (`libmpv.so.2`) numa janela filha
+X11 (XWayland mesmo em sessões Wayland), com `vo=gpu`, `gpu-context=x11egl` → `x11vk` e decodificação
+por VA-API — o mesmo modelo do bridge Linux do Nuvio Desktop original. O motor P2P é o
+`libnuvio_engine.so` original (libtorrent), incluído em `apps/nuvio-desktop/native/linux/engine/`;
+a ABI C foi verificada contra os 23 símbolos esperados por `nuvio-p2p`.
+
+A interface tem três idiomas (português original, inglês e árabe, com layout RTL). A escolha fica
+em **Configurações → Perfil e dados → Idioma da interface** e é lembrada entre execuções; sem
+escolha explícita, segue o idioma do sistema.
+
+A sessão da conta é protegida por AES-256-GCM com uma chave por usuário
+(`~/.local/share/NuvioAstra/.account.key`, permissão 0600) no lugar da DPAPI. Atualizações
+automáticas e pacotes AppImage/.deb vêm na fase 4. Variáveis de ajuste: `NUVIO_LIBMPV`,
+`NUVIO_MPV_GPU_CONTEXT`, `NUVIO_MPV_HWDEC`, `NUVIO_ENGINE_DLL`.
+
 ## Créditos e direitos autorais
 
 - **Nuvio Desktop**, © equipe Nuvio / [NuvioMedia](https://github.com/NuvioMedia), licenciado sob a GPL-3.0. O Nuvio Astra é um projeto derivado dele (fork). O nome, a marca e o logotipo **Nuvio** pertencem aos seus respectivos donos.

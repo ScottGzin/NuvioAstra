@@ -141,27 +141,31 @@ pub fn uitest_process_resources() -> Result<Value, String> {
     Ok(serde_json::json!({ "tcpListening": listening, "tcpEstablished": established, "tcpOther": other_tcp, "udp": udp, "threads": threads }))
 }
 
+#[cfg(not(windows))]
 fn thread_count() -> usize {
-    std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or_else(|_| {
-        // Windows: Toolhelp snapshot of this process's threads.
-        use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
-        let pid = std::process::id();
-        // SAFETY: plain Toolhelp calls with a sized entry; the handle is closed below.
-        unsafe {
-            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return 0 };
-            let mut e = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
-            let mut n = 0;
-            let mut ok = Thread32First(snap, &mut e).is_ok();
-            while ok {
-                if e.th32OwnerProcessID == pid {
-                    n += 1;
-                }
-                ok = Thread32Next(snap, &mut e).is_ok();
+    std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or(0)
+}
+
+#[cfg(windows)]
+fn thread_count() -> usize {
+    // Toolhelp snapshot of this process's threads.
+    use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
+    let pid = std::process::id();
+    // SAFETY: plain Toolhelp calls with a sized entry; the handle is closed below.
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return 0 };
+        let mut e = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
+        let mut n = 0;
+        let mut ok = Thread32First(snap, &mut e).is_ok();
+        while ok {
+            if e.th32OwnerProcessID == pid {
+                n += 1;
             }
-            let _ = windows::Win32::Foundation::CloseHandle(snap);
-            n
+            ok = Thread32Next(snap, &mut e).is_ok();
         }
-    })
+        let _ = windows::Win32::Foundation::CloseHandle(snap);
+        n
+    }
 }
 
 /// Phase `install-check`: where the app found its native libraries and whether they load —

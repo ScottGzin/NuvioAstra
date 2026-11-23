@@ -363,6 +363,24 @@ mod tests {
     use tauri::webview::InvokeRequest;
     use tauri::Manager;
 
+    /// `mock_context` ships an empty ACL; allow the commands these IPC tests exercise.
+    fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
+        let mut ctx = mock_context(noop_assets());
+        for cmd in [
+            "meta_details", "settings_set", "home_rows", "library_favorite_keys", "library_favorites",
+            "library_toggle_favorite", "library_remove_favorite", "library_continue_watching",
+            "library_history", "library_remove_history", "library_title_progress",
+        ] {
+            let authority = ctx.runtime_authority_mut();
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
+            authority.__allow_command(
+                cmd.into(),
+                tauri::utils::acl::ExecutionContext::Remote { url: "http://tauri.localhost/".parse().unwrap() },
+            );
+        }
+        ctx
+    }
+
     const MOVIE: &str = r#"{"meta":{"id":"tt0100","type":"movie","name":"Filme Teste","releaseInfo":"2021","runtime":"1h 40min",
         "genres":["Drama"],"director":["D"],"cast":["A"],"poster":"p.jpg","background":"b.jpg"}}"#;
     const SERIES: &str = r#"{"meta":{"id":"tt0200","type":"series","name":"Série Teste","videos":[
@@ -446,7 +464,7 @@ mod tests {
                 library_remove_history,
                 library_title_progress
             ])
-            .build(mock_context(noop_assets()))
+            .build(mock_ctx())
             .unwrap();
         let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
         (app, window, dir)
@@ -555,6 +573,8 @@ mod tests {
             .unwrap();
             state.progress.start(session, 1, item);
             state.progress.finish(Some(&nuvio_player::PlayerSnapshot { session, loaded: true, time_pos: pos, duration: 2400.0, ..Default::default() }));
+            // History sorts by millisecond timestamp: keep the two finishes distinct.
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
         let cw = call(&window, "library_continue_watching", json!({})).unwrap();
         assert_eq!(cw.as_array().unwrap().len(), 1, "one entry per series");

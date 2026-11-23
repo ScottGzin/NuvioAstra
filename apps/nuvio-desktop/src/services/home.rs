@@ -23,10 +23,16 @@ pub struct HomeRow {
 }
 
 /// Local date `YYYY-MM-DD` (`CurrentDateProvider.todayIsoDate`).
+#[cfg(windows)]
 pub fn today_iso() -> String {
     // SAFETY: plain Win32 call without arguments.
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     format!("{:04}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay)
+}
+
+#[cfg(not(windows))]
+pub fn today_iso() -> String {
+    jiff::Zoned::now().strftime("%Y-%m-%d").to_string()
 }
 
 /// `YYYY-MM-DD` at the start of an ISO date/time, if any.

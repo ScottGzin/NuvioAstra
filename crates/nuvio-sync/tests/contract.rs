@@ -473,3 +473,20 @@ fn first_sync_waits_for_the_reviewed_preview_which_is_read_only_and_exact() {
         assert!(log.contains("\"preview\"") && log.contains("\"backup\"") && log.contains("\"sync\""));
     });
 }
+
+#[test]
+fn offline_first_unlock_registers_a_local_pin() {
+    let d = dir("offline-pin");
+    // A profile imported from the legacy app has PIN enabled but no local cache.
+    let store = AppStore::open(&d).unwrap();
+    store.create_profile("Protegido", "#112233", false).unwrap().unwrap();
+    store.set_profile_pin_state(2, true).unwrap();
+    let e = engine("http://127.0.0.1:1", &d, None);
+    let rt = rt();
+    let first = rt.block_on(e.verify_pin(2, "6969"));
+    assert!(first.unlocked, "first offline unlock registers the entered PIN");
+    assert!(!rt.block_on(e.verify_pin(2, "0000")).unlocked, "wrong PIN is rejected afterwards");
+    assert!(rt.block_on(e.verify_pin(2, "6969")).unlocked, "the registered PIN keeps working");
+    let cache = std::fs::read_to_string(d.join("pin-cache.json")).unwrap();
+    assert!(!cache.contains("6969"), "PIN never stored in clear");
+}

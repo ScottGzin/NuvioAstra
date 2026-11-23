@@ -5,11 +5,15 @@
 //! statistics let the self-test fail when the video area is white or flat instead of a picture.
 
 use std::path::Path;
+
+#[cfg(windows)]
 use windows::Win32::Foundation::{HWND, POINT, RECT};
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{
     BitBlt, ClientToScreen, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits,
     ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
 
 /// Pixel statistics of a region of the composed window.
@@ -43,6 +47,12 @@ struct Capture {
     pixels: Vec<u8>,
 }
 
+#[cfg(not(windows))]
+fn capture_client(_window: &tauri::WebviewWindow) -> Result<Capture, String> {
+    Err("captura de tela não disponível no Linux nesta fase".into())
+}
+
+#[cfg(windows)]
 fn capture_client(window: &tauri::WebviewWindow) -> Result<Capture, String> {
     let hwnd = window.hwnd().map(|h| HWND(h.0)).map_err(|e| e.to_string())?;
     let mut client = RECT::default();

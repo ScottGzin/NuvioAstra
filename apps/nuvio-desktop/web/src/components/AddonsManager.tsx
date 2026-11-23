@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import type { AddonPreview, AddonView, AddonsView } from "../types";
 import { typeLabel } from "./PosterCard";
+import { t } from "../i18n";
 
 type Feedback = { kind: "ok" | "error" | "busy"; text: string } | null;
 
@@ -22,10 +23,10 @@ function Badges({ addon }: { addon: AddonView }) {
   return (
     <div className="chips addon-badges">
       {addon.status === "ok" && <span className="chip badge-ok">Ativo</span>}
-      {addon.status === "disabled" && <span className="chip">Desativado</span>}
-      {addon.status === "error" && <span className="chip badge-error">Indisponível</span>}
-      {addon.configurable && <span className="chip">Configurável</span>}
-      {addon.tracking && <span className="chip">Rastreamento</span>}
+      {addon.status === "disabled" && <span className="chip">{t("Desativado")}</span>}
+      {addon.status === "error" && <span className="chip badge-error">{t("Indisponível")}</span>}
+      {addon.configurable && <span className="chip">{t("Configurável")}</span>}
+      {addon.tracking && <span className="chip">{t("Rastreamento")}</span>}
       {addon.types.slice(0, 6).map((t) => <span key={t} className="chip muted">{typeLabel(t)}</span>)}
     </div>
   );
@@ -37,13 +38,13 @@ function Catalogs({ addon }: { addon: AddonView }) {
   return (
     <div className="addon-catalogs">
       <button className="link" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {addon.catalogCount} catálogo(s) {open ? "▴" : "▾"}
+        {t("{count} catálogo(s)", { count: addon.catalogCount })} {open ? "▴" : "▾"}
       </button>
       {open && (
         addon.catalogs.length ? (
           <ul>{addon.catalogs.map((c, i) => <li key={`${c.contentType}-${c.name}-${i}`}>{c.name} <span className="muted small">· {typeLabel(c.contentType)}</span></li>)}</ul>
         ) : (
-          <div className="muted small">Ative o addon para ver a lista de catálogos.</div>
+          <div className="muted small">{t("Ative o addon para ver a lista de catálogos.")}</div>
         )
       )}
     </div>
@@ -90,7 +91,7 @@ export function AddonsManager() {
       setPreview(p);
       setFeedback(null);
     } catch (e) {
-      setFeedback({ kind: "error", text: `Falha na instalação: ${errorText(e)}` });
+      setFeedback({ kind: "error", text: t("Falha na instalação: {error}", { error: errorText(e) }) });
     } finally {
       setChecking(false);
     }
@@ -99,27 +100,27 @@ export function AddonsManager() {
   const install = async () => {
     if (!preview) return;
     const name = preview.addon.name;
-    if (await run(null, "Instalando…", () => api.addonInstall(preview.key, consent), `${name} foi validado e adicionado com sucesso.`)) {
+    if (await run(null, t("Instalando…"), () => api.addonInstall(preview.key, consent), t("{name} foi validado e adicionado com sucesso.", { name }))) {
       setPreview(null);
       setAddress("");
     }
   };
 
   const remove = (a: AddonView) => {
-    if (!window.confirm(`Excluir addon?\n\n“${a.name}” será removido deste perfil. Favoritos, histórico e progresso de títulos vindos dele não são apagados.`)) return;
-    void run(a.key, "Removendo…", () => api.addonRemove(a.key), `${a.name} removido.`);
+    if (!window.confirm(t("Excluir addon?\n\n“{name}” será removido deste perfil. Favoritos, histórico e progresso de títulos vindos dele não são apagados.", { name: a.name }))) return;
+    void run(a.key, "Removendo…", () => api.addonRemove(a.key), t("{name} removido.", { name: a.name }));
   };
 
   const configure = async (a: AddonView) => {
     try {
       await api.addonConfigure(a.key);
-      setFeedback({ kind: "ok", text: `Página de configuração de ${a.name} aberta no navegador. Ao terminar, instale o novo endereço que ela fornecer.` });
+      setFeedback({ kind: "ok", text: t("Página de configuração de {name} aberta no navegador. Ao terminar, instale o novo endereço que ela fornecer.", { name: a.name }) });
     } catch (e) {
       setFeedback({ kind: "error", text: errorText(e) });
     }
   };
 
-  if (error) return <div className="row-error">Não foi possível ler os addons: {error}</div>;
+  if (error) return <div className="row-error">{t("Não foi possível ler os addons: {error}", { error })}</div>;
   if (!view) return <div className="muted">Carregando addons…</div>;
   const active = view.addons.filter((a) => a.status === "ok").length;
   const catalogs = view.addons.filter((a) => a.enabled).reduce((n, a) => n + a.catalogCount, 0);
@@ -133,18 +134,18 @@ export function AddonsManager() {
         <div><b>{catalogs}</b><span className="muted small">Catálogos</span></div>
       </div>
 
-      {ro && <div className="banner">Este perfil usa os addons do perfil principal. Para gerenciá-los, entre no perfil principal ou desative “Usar addons do perfil principal” na edição do perfil.</div>}
+      {ro && <div className="banner">{t("Este perfil usa os addons do perfil principal. Para gerenciá-los, entre no perfil principal ou desative “Usar addons do perfil principal” na edição do perfil.")}</div>}
 
       {!ro && (
         <section className="addon-install">
-          <h2 className="settings-subtitle">Adicionar addon</h2>
+          <h2 className="settings-subtitle">{t("Adicionar addon")}</h2>
           <form className="addon-install-row" noValidate onSubmit={(e) => { e.preventDefault(); void check(); }}>
             <input
               // Text, not `url`: the browser would block addresses without scheme, which the
               // original accepts (https:// is added by Rust, like `normalizeManifestUrl`).
               type="text"
               inputMode="url"
-              placeholder="URL do addon (manifest.json)"
+              placeholder={t("URL do addon (manifest.json)")}
               aria-label="URL do addon"
               data-testid="addon-url"
               value={address}
@@ -153,19 +154,19 @@ export function AddonsManager() {
               autoComplete="off"
             />
             <button className="primary" type="submit" disabled={checking || !address.trim()} data-testid="addon-check">
-              {checking ? "Verificando…" : "Verificar"}
+              {checking ? t("Verificando…") : t("Verificar")}
             </button>
           </form>
           {preview && (
             <div className="addon-card preview" data-testid="addon-preview">
               <AddonLogo addon={preview.addon} />
               <div className="addon-main">
-                <div className="addon-title">{preview.addon.name} <span className="muted small">Versão {preview.addon.version}</span></div>
+                <div className="addon-title">{preview.addon.name} <span className="muted small">{t("Versão {version}", { version: preview.addon.version })}</span></div>
                 <div className="muted small">{preview.addon.host}{preview.addon.configured && " · configurado"}</div>
                 {preview.addon.description && <p className="addon-desc">{preview.addon.description}</p>}
                 <Badges addon={preview.addon} />
                 <Catalogs addon={preview.addon} />
-                {preview.addon.configurationRequired && <div className="muted small">Este addon pede configuração: depois de instalar, use “Configurar”.</div>}
+                {preview.addon.configurationRequired && <div className="muted small">{t("Este addon pede configuração: depois de instalar, use “Configurar”.")}</div>}
                 {preview.tracking && (
                   <label className="addon-consent">
                     <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} data-testid="addon-consent" />
@@ -176,8 +177,8 @@ export function AddonsManager() {
                   </label>
                 )}
                 <div className="addon-actions">
-                  <button className="primary" onClick={() => void install()} disabled={preview.tracking && !consent} data-testid="addon-install">Instalar addon</button>
-                  <button className="chip" onClick={() => setPreview(null)}>Cancelar</button>
+                  <button className="primary" onClick={() => void install()} disabled={preview.tracking && !consent} data-testid="addon-install">{t("Instalar addon")}</button>
+                  <button className="chip" onClick={() => setPreview(null)}>{t("Cancelar")}</button>
                 </div>
               </div>
             </div>
@@ -189,9 +190,9 @@ export function AddonsManager() {
         <div className={`addon-feedback ${feedback.kind}`} role="status" data-testid="addon-feedback">{feedback.text}</div>
       )}
 
-      <h2 className="settings-subtitle">Addons instalados</h2>
+      <h2 className="settings-subtitle">{t("Addons instalados")}</h2>
       {view.addons.length === 0 ? (
-        <div className="muted" data-testid="addons-empty">Nenhum addon instalado ainda. Adicione uma URL de manifesto para carregar catálogos, metadados e fontes.</div>
+        <div className="muted" data-testid="addons-empty">{t("Nenhum addon instalado ainda. Adicione uma URL de manifesto para carregar catálogos, metadados e fontes.")}</div>
       ) : (
         <ul className="addon-list">
           {view.addons.map((a, i) => (
@@ -199,7 +200,7 @@ export function AddonsManager() {
               <AddonLogo addon={a} />
               <div className="addon-main">
                 <div className="addon-title">
-                  {a.name} {a.version && <span className="muted small">Versão {a.version}</span>}
+                  {a.name} {a.version && <span className="muted small">{t("Versão {version}", { version: a.version })}</span>}
                 </div>
                 <div className="muted small">{a.host}{a.configured && " · configurado"}</div>
                 {a.description && <p className="addon-desc">{a.description}</p>}
@@ -211,7 +212,7 @@ export function AddonsManager() {
                 <button
                   role="switch"
                   aria-checked={a.enabled}
-                  aria-label={`${a.enabled ? "Desativar" : "Ativar"} ${a.name}`}
+                  aria-label={`${a.enabled ? t("Desativar") : t("Ativar")} ${a.name}`}
                   className={`switch ${a.enabled ? "on" : ""}`}
                   disabled={ro || busyKey === a.key}
                   data-testid="addon-toggle"
@@ -220,8 +221,8 @@ export function AddonsManager() {
                   <span className="knob" />
                 </button>
                 <div className="addon-buttons">
-                  <button className="icon-btn" aria-label={`Mover ${a.name} para cima`} title="Mover para cima" disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, -1), "Ordem salva.")}>↑</button>
-                  <button className="icon-btn" aria-label={`Mover ${a.name} para baixo`} title="Mover para baixo" disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, 1), "Ordem salva.")}>↓</button>
+                  <button className="icon-btn" aria-label={`Mover ${a.name} para cima`} title="Mover para cima" disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, -1), t("Ordem salva."))}>↑</button>
+                  <button className="icon-btn" aria-label={`Mover ${a.name} para baixo`} title="Mover para baixo" disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, 1), t("Ordem salva."))}>↓</button>
                   <button
                     className="icon-btn"
                     aria-label={`Atualizar ${a.name}`}

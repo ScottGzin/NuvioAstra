@@ -1,11 +1,12 @@
-// Live TV: choose which channel addons are listed. From "Todos", clicking an addon keeps only that
-// one; after that each click adds or removes that addon. "Todos" is checked whenever every addon
+// Live TV: choose which channel addons are listed. From t("Todos"), clicking an addon keeps only that
+// one; after that each click adds or removes that addon. t("Todos") is checked whenever every addon
 // is, and clicking it checks them all (or clears them all when they already were). The options are the addons that actually provided channels (addons without TV
 // channels, such as metadata-only catalogs, never appear).
 //
 // `selected`: `null` = every addon (also the ones that appear later), otherwise the chosen names.
 
 import { useEffect, useRef, useState } from "react";
+import { t } from "../i18n";
 
 interface Props {
   /** Addon name → number of channels it provides. */
@@ -37,11 +38,11 @@ export function AddonPicker({ options, selected, onChange }: Props) {
   const all = names.length > 0 && checked.length === names.length;
   const none = checked.length === 0;
 
-  const label = all ? "Todos os addons" : none ? "Nenhum addon" : checked.length === 1 ? checked[0] : `${checked.length} addons`;
+  const label = all ? t("Todos os addons") : none ? t("Nenhum addon") : checked.length === 1 ? checked[0] : `${checked.length} addons`;
 
   const toggleAll = () => onChange(all ? [] : null);
   const toggle = (name: string) => {
-    // From "all", picking an addon means "only this one"; otherwise the box toggles that addon.
+    // From "all", picking an addon means t("only this one"); otherwise the box toggles that addon.
     const next = all ? [name] : checked.includes(name) ? checked.filter((n) => n !== name) : [...checked, name];
     // Every addon checked: "all" (so addons that appear later are included too).
     onChange(next.length === names.length ? null : next);
@@ -66,7 +67,7 @@ export function AddonPicker({ options, selected, onChange }: Props) {
           <label className={`addon-picker-option ${all ? "on" : ""}`}>
             <input type="checkbox" checked={all} onChange={toggleAll} />
             <span className="addon-check" aria-hidden />
-            <span className="addon-picker-name">Todos</span>
+            <span className="addon-picker-name">{t("Todos")}</span>
             <span className="count">{options.reduce((n, [, c]) => n + c, 0)}</span>
           </label>
           {options.map(([name, count]) => {

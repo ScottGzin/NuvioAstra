@@ -403,6 +403,25 @@ mod ipc_tests {
     use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
     use tauri::webview::InvokeRequest;
 
+    /// `mock_context` ships an empty ACL; allow the commands these IPC tests exercise.
+    fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
+        let mut ctx = mock_context(noop_assets());
+        for cmd in [
+            "addons_list", "addon_preview", "addon_install", "addon_set_enabled", "addon_remove",
+            "addon_move", "addon_refresh", "profiles_list", "profile_switch", "profile_create",
+            "profile_update", "profile_delete", "library_toggle_favorite", "library_favorite_keys",
+            "profile_unlock",
+        ] {
+            let authority = ctx.runtime_authority_mut();
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
+            authority.__allow_command(
+                cmd.into(),
+                tauri::utils::acl::ExecutionContext::Remote { url: "http://tauri.localhost/".parse().unwrap() },
+            );
+        }
+        ctx
+    }
+
     const GOOD: &str = r#"{"id":"test.addon","name":"Addon Bom","version":"1.2.0","description":"Catálogos de teste",
         "resources":["catalog","meta","stream"],"types":["movie","series"],"catalogs":[{"type":"movie","id":"top","name":"Populares"}],
         "behaviorHints":{"configurable":true}}"#;
@@ -507,7 +526,7 @@ mod ipc_tests {
                 crate::api::library_favorite_keys,
                 crate::account::profile_unlock
             ])
-            .build(mock_context(noop_assets()))
+            .build(mock_ctx())
             .unwrap();
         let w = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
 
@@ -565,13 +584,10 @@ mod ipc_tests {
             app.state::<AppState>().app_store.set_profile_pin_state(2, true).unwrap();
         }
         assert_eq!(call(&w, "profile_switch", json!({ "index": 2 })).unwrap_err(), "Este perfil é protegido por PIN.");
+        // Offline first unlock registers the entered PIN locally (no account needed); afterwards
+        // the same PIN verifies against the local salted digest.
         let unlock = call(&w, "profile_unlock", json!({ "index": 2, "pin": "1234" })).unwrap();
-        assert_eq!(unlock["unlocked"], false, "no account and no verified PIN on this computer");
-        assert!(unlock["message"].as_str().unwrap().contains("offline"));
-        {
-            use tauri::Manager;
-            app.state::<AppState>().app_store.set_profile_pin_state(2, false).unwrap();
-        }
+        assert_eq!(unlock["unlocked"], true, "offline first unlock registers the local PIN");
         let p = call(&w, "profile_switch", json!({ "index": 2 })).unwrap();
         assert_eq!(p["active"], 2);
         assert_eq!(call(&w, "addons_list", json!({})).unwrap()["addons"], json!([]), "profile 2 has its own (empty) list");

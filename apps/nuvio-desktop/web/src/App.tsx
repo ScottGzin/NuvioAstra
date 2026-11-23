@@ -17,6 +17,7 @@ import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
 import { Settings } from "./screens/Settings";
 import { metaRef, type Bootstrap, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { t } from "./i18n";
 
 
 export function App() {
@@ -70,6 +71,8 @@ export function App() {
   const switchProfile = useCallback(
     async (index: number, pinChecked = false) => {
       setMenu(false);
+      // A pending PIN prompt belongs to the previous attempt; never let it block another profile.
+      setPinFor(null);
       if (!pinChecked && profiles?.profiles.find((p) => p.index === index)?.pinEnabled) {
         setPinFor(index);
         return;
@@ -80,7 +83,7 @@ export function App() {
         if (player.session) await player.close();
         setProfiles(await api.profileSwitch(index));
       } catch (e) {
-        setOpenError(`Não foi possível trocar de perfil: ${errorText(e)}`);
+        setOpenError(t("Não foi possível trocar de perfil: {error}", { error: errorText(e) }));
       } finally {
         setSwitching(null);
       }
@@ -103,7 +106,7 @@ export function App() {
   const open = useCallback((item: MetaPreview) => {
     const ref = metaRef(item);
     if (typeof ref === "string") {
-      setOpenError(`Não foi possível abrir “${item.name}”: ${ref}.`);
+      setOpenError(t("Não foi possível abrir “{name}”: {reason}.", { name: item.name, reason: ref }));
       return;
     }
     setOpenError(null);
@@ -147,14 +150,14 @@ export function App() {
         )}
         {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
         {switching !== null && (
-          <div className="switching" role="status" data-testid="profile-switching">Trocando para {switching || "outro perfil"}…</div>
+          <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para {name}…", { name: switching || t("outro perfil") })}</div>
         )}
         <main className="content">
           <UpdateBanner automatic={appMode === "app"} />
-          {bootError && <div className="banner error">Não foi possível ler os dados do Nuvio Astra: {bootError}</div>}
+          {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra: {error}", { error: bootError })}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
           {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{boot.addonsFailed} de {boot.addonsEnabled} addon(s) não responderam; os demais estão disponíveis.</div>
+            <div className="banner">{t("{failed} de {enabled} addon(s) não responderam; os demais estão disponíveis.", { failed: boot.addonsFailed, enabled: boot.addonsEnabled })}</div>
           )}
           <div className="screen" hidden={details !== null || tab !== "home"}><Home key={dataKey} onOpen={open} onResume={resume} /></div>
           {tab === "search" && <div className="screen" hidden={details !== null}><Search key={dataKey} onOpen={open} /></div>}

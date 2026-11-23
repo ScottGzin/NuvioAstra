@@ -5,8 +5,20 @@
 //! Usage: NUVIO_LIBMPV=<dll> cargo run --release -p nuvio-player --example header_check -- <url> [no-headers]
 
 use nuvio_player::mpv::*;
+#[cfg(windows)]
 use nuvio_player::player::http_header_lines;
 use std::time::{Duration, Instant};
+
+#[cfg(not(windows))]
+fn http_header_lines(headers: &[(String, String)]) -> Vec<String> {
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let (name, value) = (name.trim(), value.trim());
+            (!name.is_empty() && !value.is_empty()).then(|| format!("{name}: {value}"))
+        })
+        .collect()
+}
 
 fn main() {
     let mut args = std::env::args().skip(1);

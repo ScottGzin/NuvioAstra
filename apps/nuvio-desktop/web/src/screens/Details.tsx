@@ -9,6 +9,7 @@ import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
 import type { Details as DetailsData, HistoryEntry, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
+import { t } from "../i18n";
 
 interface Props {
   /** Type and id exactly as the catalog item gave them (validated by `metaRef`); `resume` when
@@ -124,11 +125,11 @@ export function Details({ item, onBack }: Props) {
   if (error) {
     return (
       <div className="screen-message">
-        <button className="back" onClick={onBack}>←</button> Não foi possível abrir os detalhes: {error}
+        <button className="back" onClick={onBack}>←</button> {t("Não foi possível abrir os detalhes: {error}", { error })}
       </div>
     );
   }
-  if (!data) return <div className="screen-message">Carregando detalhes…</div>;
+  if (!data) return <div className="screen-message">{t("Carregando detalhes…")}</div>;
   const m = data.meta;
   const movieEntry = entryFor("movie");
   const resumeVideo = progress?.resume ? m.videos.find((v) => v.season === progress.resume!.season && v.episode === progress.resume!.episode) : undefined;
@@ -137,7 +138,7 @@ export function Details({ item, onBack }: Props) {
     <div className="details" data-id={m.id} data-content-type={m.contentType}>
       <div className="details-backdrop" style={m.background ? { backgroundImage: `url("${m.background}")` } : undefined} />
       <div className="details-body">
-        <button className="back" onClick={onBack} aria-label="Voltar">←</button>
+        <button className="back" onClick={onBack} aria-label={t("Voltar")}>←</button>
         <div className={`details-layout ${selected ? "with-sources" : ""}`}>
         <div className="details-main">
         <div className="details-head">
@@ -149,44 +150,44 @@ export function Details({ item, onBack }: Props) {
             </div>
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
             {m.description && <p className="details-desc">{m.description}</p>}
-            {m.director.length > 0 && <div className="muted">Direção: {m.director.join(", ")}</div>}
+            {m.director.length > 0 && <div className="muted">{t("Direção: {director}", { director: m.director.join(", ") })}</div>}
             <div className="details-actions">
               {!isSeries && (movieEntry?.inProgress ? (
                 <>
-                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ Continuar de {clock(movieEntry.positionMs)}</button>
-                  <button className="chip" data-testid="watch-from-start" onClick={() => choose("movie", true)}>Assistir do início</button>
+                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>{t("▶ Continuar de {time}", { time: clock(movieEntry.positionMs) })}</button>
+                  <button className="chip" data-testid="watch-from-start" onClick={() => choose("movie", true)}>{t("Assistir do início")}</button>
                 </>
               ) : (
-                <button className="primary" data-testid="watch" onClick={() => choose("movie", true)}>▶ Assistir</button>
+                <button className="primary" data-testid="watch" onClick={() => choose("movie", true)}>{t("▶ Assistir")}</button>
               ))}
               {isSeries && resumeVideo && progress?.resume && (
                 <button className="primary" data-testid="resume-episode" onClick={() => { setSeason(resumeVideo.season); choose(resumeVideo); }}>
-                  ▶ Continuar {episodeCode(progress.resume)} · {clock(progress.resume.positionMs)}
+                  {t("▶ Continuar {episode} · {time}", { episode: episodeCode(progress.resume), time: clock(progress.resume.positionMs) })}
                 </button>
               )}
               {data.trailer && (
                 <button className="chip" data-testid="watch-trailer" disabled={trailerBusy} onClick={() => void playTrailer()}>
-                  {trailerBusy ? "Carregando trailer…" : "▶ Assistir trailer"}
+                  {trailerBusy ? t("Carregando trailer…") : t("▶ Assistir trailer")}
                 </button>
               )}
               <FavoriteButton item={libraryItemFromDetails(m)} variant="pill" />
             </div>
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
-                {movieEntry.completed ? "✓ Assistido" : [`${clock(movieEntry.positionMs)} assistidos`, remaining(movieEntry)].filter(Boolean).join(" · ")}
+                {movieEntry.completed ? t("✓ Assistido") : [`${clock(movieEntry.positionMs)} assistidos`, remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
-            <div className="muted small">Detalhes por {data.addonName}</div>
+            <div className="muted small">{t("Detalhes por {addon}", { addon: data.addonName })}</div>
             <dl className="facts">
               {(
                 [
-                  ["Classificação", m.ageRating],
-                  ["Situação", m.status],
-                  ["Roteiro", m.writer.join(", ")],
-                  ["País", m.country],
-                  ["Idioma", m.language],
-                  ["Prêmios", m.awards],
-                  ["Site", m.website],
+                  [t("Classificação"), m.ageRating],
+                  [t("Situação"), m.status],
+                  [t("Roteiro"), m.writer.join(", ")],
+                  [t("País"), m.country],
+                  [t("Idioma"), m.language],
+                  [t("Prêmios"), m.awards],
+                  [t("Site"), m.website],
                 ] as const
               )
                 .filter(([, v]) => v)
@@ -204,7 +205,7 @@ export function Details({ item, onBack }: Props) {
             <div className="season-tabs" role="tablist">
               {data.seasons.map((s) => (
                 <button key={s} role="tab" aria-selected={season === s} className={`chip ${season === s ? "active" : ""}`} onClick={() => setSeason(s)}>
-                  {s === 0 ? "Especiais" : `Temporada ${s}`}
+                  {s === 0 ? t("Especiais") : `Temporada ${s}`}
                 </button>
               ))}
             </div>
@@ -222,7 +223,7 @@ export function Details({ item, onBack }: Props) {
                       {v.released && <div className="muted small">{v.released.slice(0, 10)}</div>}
                       {e && (
                         <div className="small episode-progress" data-testid="episode-progress">
-                          {e.completed ? "✓ Assistido" : `${clock(e.positionMs)} assistidos${remaining(e) ? ` · ${remaining(e)}` : ""}`}
+                          {e.completed ? t("✓ Assistido") : `${clock(e.positionMs)} assistidos${remaining(e) ? ` · ${remaining(e)}` : ""}`}
                         </div>
                       )}
                       {v.overview && <div className="episode-overview">{v.overview}</div>}
@@ -236,7 +237,7 @@ export function Details({ item, onBack }: Props) {
 
         {m.cast.length > 0 && (
           <section className="details-section">
-            <h2>Elenco</h2>
+            <h2>{t("Elenco")}</h2>
             <div className="cast">
               {m.cast.slice(0, 30).map((p) => (
                 <div key={`${p.name}-${p.role ?? ""}`} className="person">
@@ -251,13 +252,13 @@ export function Details({ item, onBack }: Props) {
         </div>
 
         {selected && (
-          <aside className="sources-panel" ref={sources} aria-label="Fontes" data-testid="sources-panel">
+          <aside className="sources-panel" ref={sources} aria-label={t("Fontes")} data-testid="sources-panel">
             <header className="sources-header">
               <div>
-                <h2>Fontes</h2>
+                <h2>{t("Fontes")}</h2>
                 <div className="muted small">
                   {selected === "movie" ? m.name : `${episodeLabel(selected)} · ${selected.title}`}
-                  {resumeAt !== null && <span data-testid="resume-note"> · continua de {clock(resumeAt)}</span>}
+                  {resumeAt !== null && <span data-testid="resume-note">{t("· continua de {time}", { time: clock(resumeAt) })}</span>}
                 </div>
               </div>
               <button className="icon-btn" aria-label="Fechar fontes" onClick={() => setSelected(null)}>✕</button>

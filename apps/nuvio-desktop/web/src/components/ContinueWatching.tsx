@@ -6,6 +6,7 @@ import { memo, useEffect, useState } from "react";
 import { api } from "../api";
 import { clock, episodeCode, lastWatched, remaining, removeHistory, useLibraryVersion } from "../library";
 import type { HistoryEntry } from "../types";
+import { t } from "../i18n";
 
 interface CardProps {
   entry: HistoryEntry;
@@ -37,7 +38,7 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
         <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>
       {onRemove && (
-        <button className="fav-btn icon" aria-label={`Remover ${entry.title} de Continuar assistindo`} title="Remover" data-testid="cw-remove" onClick={() => onRemove(entry)}>
+        <button className="fav-btn icon" aria-label={t("Remover {title} de Continuar assistindo", { title: entry.title })} title={t("Remover")} data-testid="cw-remove" onClick={() => onRemove(entry)}>
           ✕
         </button>
       )}
@@ -60,7 +61,7 @@ export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry
   return (
     <section className="row-section" data-testid="home-continue">
       <header className="row-header">
-        <h2>Continuar assistindo</h2>
+        <h2>{t("Continuar assistindo")}</h2>
       </header>
       <div className="row-track">
         {items.map((e) => (

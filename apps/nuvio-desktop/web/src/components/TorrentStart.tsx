@@ -1,15 +1,16 @@
 // Starting a torrent source (as the original's player does before playback): the P2P notice the
 // first time (P2P is off until accepted, per profile), then the engine's phases with peers and
-// speed until the selected file can be read; "Cancelar" ends the P2P session. The video itself
+// speed until the selected file can be read; t("Cancelar") ends the P2P session. The video itself
 // opens in the normal player.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { listen } from "../tauri";
 import type { P2pStatus, StreamEntry, TorrentPrepared } from "../types";
+import { t } from "../i18n";
 
 export const P2P_CONSENT_TEXT = [
-  "Esta stream utiliza tecnologia ponto a ponto (P2P). Ao ativar o P2P, você reconhece e concorda que:",
+  t("Esta stream utiliza tecnologia ponto a ponto (P2P). Ao ativar o P2P, você reconhece e concorda que:"),
   "• Seu endereço IP ficará visível para outros peers na rede",
   "• Você é o único responsável pelo conteúdo que acessa",
   "• Você confirma que tem o direito legal de transmitir este conteúdo em sua jurisdição",
@@ -19,9 +20,9 @@ export const P2P_CONSENT_TEXT = [
 ];
 
 const PHASES: Record<string, string> = {
-  engine: "Iniciando o motor P2P…",
-  metadata: "Procurando peers e baixando as informações do torrent…",
-  preparing: "Preparando o arquivo de vídeo…",
+  engine: t("Iniciando o motor P2P…"),
+  metadata: t("Procurando peers e baixando as informações do torrent…"),
+  preparing: t("Preparando o arquivo de vídeo…"),
 };
 
 export function speed(bytes: number): string {
@@ -94,33 +95,33 @@ export function TorrentStart({ stream, onReady, onCancel }: Props) {
       <div className="modal torrent-start">
         {consent ? (
           <>
-            <h2 id="torrent-title">Streaming P2P</h2>
+            <h2 id="torrent-title">{t("Streaming P2P")}</h2>
             <div className="p2p-consent">{P2P_CONSENT_TEXT.map((l, i) => <p key={i}>{l}</p>)}</div>
             <div className="account-actions">
-              <button className="primary" onClick={() => void accept()} data-testid="p2p-accept">Ativar P2P</button>
-              <button className="ghost" onClick={onCancel}>Cancelar</button>
+              <button className="primary" onClick={() => void accept()} data-testid="p2p-accept">{t("Ativar P2P")}</button>
+              <button className="ghost" onClick={onCancel}>{t("Cancelar")}</button>
             </div>
           </>
         ) : (
           <>
             <h2 id="torrent-title">{stream.name || "Torrent"}</h2>
             {error ? (
-              <div className="row-error" data-testid="torrent-error">Não foi possível iniciar o torrent: {error}</div>
+              <div className="row-error" data-testid="torrent-error">{t("Não foi possível iniciar o torrent: {error}", { error })}</div>
             ) : (
               <>
                 <div className="torrent-phase" data-testid="torrent-phase">
-                  <span className="spinner" aria-hidden /> {PHASES[status?.phase || "engine"] ?? "Conectando…"}
+                  <span className="spinner" aria-hidden /> {PHASES[status?.phase || "engine"] ?? t("Conectando…")}
                 </div>
                 <dl className="facts account-facts">
                   <div className="fact"><dt>Peers</dt><dd>{status?.peers ?? 0} ({status?.seeds ?? 0} seeds)</dd></div>
-                  <div className="fact"><dt>Velocidade</dt><dd>{speed(status?.downloadSpeed ?? 0)}</dd></div>
+                  <div className="fact"><dt>{t("Velocidade")}</dt><dd>{speed(status?.downloadSpeed ?? 0)}</dd></div>
                 </dl>
-                <p className="muted small">A reprodução começa assim que o início do arquivo estiver disponível; o restante é baixado enquanto você assiste.</p>
+                <p className="muted small">{t("A reprodução começa assim que o início do arquivo estiver disponível; o restante é baixado enquanto você assiste.")}</p>
               </>
             )}
             <div className="account-actions">
-              {error && <button className="primary" onClick={() => setAttempt((a) => a + 1)}>Tentar novamente</button>}
-              <button className="ghost" onClick={cancel} data-testid="torrent-cancel">Cancelar</button>
+              {error && <button className="primary" onClick={() => setAttempt((a) => a + 1)}>{t("Tentar novamente")}</button>}
+              <button className="ghost" onClick={cancel} data-testid="torrent-cancel">{t("Cancelar")}</button>
             </div>
           </>
         )}

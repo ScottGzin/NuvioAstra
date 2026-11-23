@@ -7,6 +7,7 @@ import { PlayerProvider } from "./player/PlayerContext";
 import { SelftestView } from "./player/SelftestView";
 import { runUiTest } from "./uitest/driver";
 import { installDesktopFeel } from "./desktopFeel";
+import { useLang } from "./i18n";
 import "./styles.css";
 
 // The automated player tests get only the video overlay: no catalogs are loaded, so their
@@ -31,10 +32,16 @@ function Root() {
   );
 }
 
+// Re-mount the tree when the language changes so every `t()` call is re-evaluated.
+function LangRoot() {
+  const lang = useLang();
+  return <Root key={lang} />;
+}
+
 installDesktopFeel();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Root />
+    <LangRoot />
   </StrictMode>,
 );
