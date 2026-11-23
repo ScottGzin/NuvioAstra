@@ -11,7 +11,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ShuffleView, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ServerConnection, ServerLibrary, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -107,6 +107,13 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Media servers (the user's own Jellyfin/Emby credentials stay on that server). */
+  serverList: () => invoke<ServerConnection[]>("server_list"),
+  serverAdd: (provider: string, address: string, username: string, password: string) =>
+    invoke<ServerConnection>("server_add", { provider, address, username, password }),
+  serverRemove: (id: string) => invoke<ServerConnection[]>("server_remove", { id }),
+  serverLibraries: (id: string) => invoke<ServerLibrary[]>("server_libraries", { id }),
+  serverCatalog: (id: string, libraryId: string, skip: number) => invoke<CatalogPage>("server_catalog", { id, libraryId, skip }),
   /** Collections editor: the raw document is validated and saved by Rust. */
   collectionsEditorLoad: () => invoke<unknown>("collections_editor_load"),
   collectionsEditorSave: (value: unknown) => invoke<unknown>("collections_editor_save", { value }),

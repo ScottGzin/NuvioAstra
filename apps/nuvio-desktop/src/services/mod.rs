@@ -21,6 +21,7 @@ pub mod parental;
 pub mod playback;
 pub mod progress;
 pub mod search;
+pub mod servers;
 pub mod segments;
 pub mod subtitles;
 pub mod tmdb;

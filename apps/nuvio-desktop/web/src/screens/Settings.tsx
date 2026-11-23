@@ -21,6 +21,7 @@ import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
 import { AudioSettings } from "../components/AudioSettings";
 import { BufferSettings } from "../components/BufferSettings";
+import { ServersPanel } from "../components/ServersPanel";
 import { SourceSettings } from "../components/SourceSettings";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
@@ -97,7 +98,7 @@ export function Settings() {
   const [settingSearch, setSettingSearch] = useState("");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Services → Integrations → TMDB (the only integration ported so far).
-  const [servicePage, setServicePage] = useState<"integrations" | "tmdb" | "debrid" | "mdblist">("integrations");
+  const [servicePage, setServicePage] = useState<"integrations" | "tmdb" | "debrid" | "mdblist" | "servers">("integrations");
   const [tmdb, setTmdb] = useState<TmdbSettingsView | null>(null);
   const [tmdbError, setTmdbError] = useState<string | null>(null);
   const [tmdbStatus, setTmdbStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -474,6 +475,14 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
+            <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
+              <span className="integration-icon link">▣</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Servidores de mídia")}</span>
+                <span className="muted small">{t("Jellyfin e Emby")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
             <button className="integration-row" onClick={() => setServicePage("debrid")} data-service="debrid">
               <span className="integration-icon link">↔</span>
               <span className="integration-text">
@@ -493,6 +502,14 @@ export function Settings() {
             />
           </Row>
           </div>
+        ) : servicePage === "servers" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <h2>{t("Servidores de mídia")}</h2>
+            </div>
+            <ServersPanel />
+          </>
         ) : servicePage === "mdblist" ? (
           <>
             <div className="settings-subhead">

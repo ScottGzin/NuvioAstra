@@ -196,6 +196,8 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
+export interface ServerConnection { id: string; provider: string; name: string; address: string; userId: string; userName: string; enabled: boolean }
+export interface ServerLibrary { id: string; name: string; kind: string }
 export type DownloadStatus = "downloading" | "paused" | "completed" | "failed";
 export interface DownloadItem {
   id: string; contentType: string; parentMetaId: string; parentMetaType: string; videoId: string;

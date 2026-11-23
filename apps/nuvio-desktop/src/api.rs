@@ -1,7 +1,7 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, tmdb};
+use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, servers, tmdb};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
@@ -303,6 +303,50 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
         return Ok(None);
     }
     Ok(parental::fetch(&state.addons.client, &id).await)
+}
+
+// ---- Media servers (Jellyfin / Emby) ----
+
+#[tauri::command]
+pub fn server_list(state: State<'_, AppState>) -> Result<Vec<servers::Connection>, String> {
+    servers::connections(&state.app_store, state.active_profile())
+}
+
+#[tauri::command]
+pub async fn server_add(
+    state: State<'_, AppState>,
+    provider: String,
+    address: String,
+    username: String,
+    password: String,
+) -> Result<servers::Connection, String> {
+    state.ensure_unlocked()?;
+    let connection = servers::add(&state.app_store, state.active_profile(), &provider, &address, &username, &password).await?;
+    state.request_sync();
+    Ok(connection)
+}
+
+#[tauri::command]
+pub fn server_remove(state: State<'_, AppState>, id: String) -> Result<Vec<servers::Connection>, String> {
+    state.ensure_unlocked()?;
+    let items = servers::remove(&state.app_store, state.active_profile(), &id)?;
+    state.request_sync();
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn server_libraries(state: State<'_, AppState>, id: String) -> Result<Vec<servers::Library>, String> {
+    servers::libraries(&state.app_store, state.active_profile(), &id).await
+}
+
+#[tauri::command]
+pub async fn server_catalog(
+    state: State<'_, AppState>,
+    id: String,
+    library_id: String,
+    skip: u32,
+) -> Result<CatalogPage, String> {
+    servers::catalog(&state.app_store, state.active_profile(), &id, &library_id, skip).await
 }
 
 // ---- Collections editor (the original's CollectionRepository validation rules) ----
