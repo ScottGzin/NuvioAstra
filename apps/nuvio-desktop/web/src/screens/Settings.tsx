@@ -468,14 +468,12 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
-            <button className="integration-row" onClick={() => setServicePage("mdblist")} data-service="mdblist">
-              <span className="integration-icon mdb">M</span>
-              <span className="integration-text">
-                <span className="setting-title">{t("MDBList Ratings")}</span>
-                <span className="muted small">{t("Avaliações externas")}</span>
-              </span>
-              <span className="integration-arrow" aria-hidden>›</span>
-            </button>
+            <section className="provider-card mdblist" data-provider="mdblist">
+              <div className="provider-logo mdb-logo">M</div>
+              <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
+              <button className="provider-action" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>{t("Avaliações externas")}</button>
+              <a className="provider-link" href="https://mdblist.com" target="_blank" rel="noreferrer">{t("Visitar MDBList")}</a>
+            </section>
             <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
               <span className="integration-icon link">▣</span>
               <span className="integration-text">

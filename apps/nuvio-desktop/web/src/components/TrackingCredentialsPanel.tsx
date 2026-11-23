@@ -71,8 +71,9 @@ export function TrackingCredentialsPanel() {
 
   return (
     <>
-      <h3 className="settings-subhead">Trakt</h3>
-      {view && <>
+      {view && <section className="provider-card trakt" data-provider="trakt">
+        <div className="provider-logo trakt-logo">trakt</div>
+        <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
         {field("trakt:clientId", t("ID do cliente Trakt"), view.traktConfigured)}
         {field("trakt:clientSecret", t("Segredo do cliente Trakt"), view.traktConfigured)}
         <div className="modal-actions">
@@ -94,10 +95,11 @@ export function TrackingCredentialsPanel() {
             <div className="muted small">{t("Aguardando autorização no navegador…")}</div>
           </div>
         )}
-      </>}
+      </section>}
 
-      <h3 className="settings-subhead">Simkl</h3>
-      {view && <>
+      {view && <section className="provider-card simkl" data-provider="simkl">
+        <div className="provider-logo simkl-logo">SIMKL™</div>
+        <p className="provider-desc">{t("Conecte o Simkl para sincronizar listas, histórico, progresso e scrobble.")}</p>
         {field("simkl:clientId", t("ID do cliente Simkl"), view.simklConfigured)}
         <div className="modal-actions">
           {view.simklConnected ? (
@@ -123,7 +125,7 @@ export function TrackingCredentialsPanel() {
             }}>{t("Concluir autorização")}</button>
           </div>
         )}
-      </>}
+      </section>}
       {sync && <p className="muted small" role="status">{sync}</p>}
       {error && <div className="row-error" role="alert">{error}</div>}
       <p className="muted small">{t("Registre seu próprio aplicativo no Trakt/Simkl e cole os valores aqui. Eles ficam só neste computador e não aparecem mais na interface.")}</p>

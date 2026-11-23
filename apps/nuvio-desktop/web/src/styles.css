@@ -449,6 +449,23 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 
 /* ---------- Settings ---------- */
 .settings { flex: 1; min-width: 0; display: grid; grid-template-columns: 240px 1fr; background: var(--bg); }
+.provider-card { border-radius: 16px; padding: 18px 20px; margin-bottom: 14px; border: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+.provider-card.trakt { background: linear-gradient(115deg, #7b1e6a, #e2314e); color: #fff; border-color: transparent; }
+.provider-card.simkl { background: #141414; }
+.provider-card.mdblist { background: linear-gradient(115deg, #244b78, #173b63); color: #fff; border-color: transparent; }
+.provider-logo { font-size: 30px; font-weight: 800; letter-spacing: -.04em; }
+.trakt-logo { font-family: Arial, sans-serif; }
+.simkl-logo { font-size: 22px; letter-spacing: .04em; }
+.mdb-logo { width: 34px; height: 34px; display: grid; place-items: center; background: #3b82f6; border-radius: 8px; font-size: 18px; }
+.provider-desc { margin: 0; opacity: .9; font-size: 14px; }
+.provider-action { border: 0; border-radius: 999px; padding: 12px 18px; font: inherit; font-weight: 600; cursor: pointer; background: rgba(255,255,255,.16); color: inherit; width: 100%; }
+.provider-card.trakt .provider-action, .provider-card.trakt .primary { background: #fff; color: #c0264c; }
+.provider-card.simkl .provider-action, .provider-card.simkl .primary { background: #4a4a4a; color: #fff; }
+.provider-card.mdblist .provider-action { background: rgba(255,255,255,.22); }
+.provider-link { font-size: 13px; font-weight: 600; color: inherit; text-decoration: underline; }
+.provider-card .setting-row, .provider-card .settings-group { background: rgba(255,255,255,.06); border-radius: 10px; }
+.provider-card .setting-title { color: inherit; }
+.provider-card .muted { color: inherit; opacity: .8; }
 .settings-search { width: calc(100% - 20px); margin: 0 10px 10px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 .settings-nav { border-right: 1px solid var(--line); padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; background: var(--panel); overflow-y: auto; }
 .settings-nav .nav-item { color: var(--muted); padding: 8px 12px; gap: 14px; }
