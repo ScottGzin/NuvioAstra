@@ -149,13 +149,13 @@ body.playing .screen-fill { background: transparent; }
 .server-row > div:first-child { flex: 1; }
 .collections-manager { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
 .collections-manager .collections-search, .collections-manager > .primary { width: 100%; box-sizing: border-box; }
-.collection-row { padding: 8px 12px; }
-.collection-row .chip { padding: 4px 8px; min-width: 30px; }
+.collections-manager .collection-row { padding: 8px 12px; }
+.collections-manager .collection-row .chip { padding: 4px 8px; min-width: 30px; }
 .collections-search { padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 .collections-list { display: flex; flex-direction: column; gap: 6px; }
-.collection-row, .collection-folder-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface); border-radius: 10px; }
-.collection-info { flex: 1; min-width: 0; }
-.collection-folder-row input { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
+.collections-manager .collection-row, .collections-manager .collection-folder-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface); border-radius: 10px; }
+.collections-manager .collection-info { flex: 1; min-width: 0; }
+.collections-manager .collection-folder-row input { flex: 1; padding: 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; }
 .collections-json { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px; resize: vertical; }
 .downloads-section { display: flex; flex-direction: column; gap: 8px; }
 .downloads-actions { align-self: flex-end; }
