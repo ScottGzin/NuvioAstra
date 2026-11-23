@@ -1009,7 +1009,7 @@ impl Player {
         if self.pip.lock().expect("pip lock").is_some() { return Ok(()); }
         let (x, y, w, h) = rect.unwrap_or_else(|| {
             let (w, h) = x11::client_size(self.host);
-            (0.0, 0.0, w as f64, (h - 120).max(200) as f64) // leave room for the controls bar
+            (0.0, 0.0, w as f64, h as f64)
         });
         x11::set_rect(self.container, x as i32, y as i32, w as i32, h as i32);
         self.apply_margins(None)
