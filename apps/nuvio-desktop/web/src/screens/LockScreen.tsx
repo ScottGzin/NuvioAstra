@@ -54,12 +54,15 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
     [account?.signedIn, onOpen, view.active],
   );
 
+  // Only the PIN gate looks for a lock removed in Nuvio; the chooser waits for the user to say who
+  // is watching (checking there reopened the last profile by itself).
   useEffect(() => {
+    if (mode !== "pin") return;
     void check(false);
     const onFocus = () => void check(false);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [check]);
+  }, [check, mode]);
 
   const openAccount = async () => {
     setNote(null);
