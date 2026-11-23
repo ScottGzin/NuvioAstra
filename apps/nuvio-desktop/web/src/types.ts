@@ -109,7 +109,13 @@ export interface ContinueWatchingSettings {
   showUnairedNextUp: boolean; blurNextUp: boolean; showResumePromptOnLaunch: boolean;
   sortMode: string; clickAction: string;
 }
-export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings }
+export interface MetaSectionSetting { key: string; enabled: boolean; order: number }
+export interface MetaScreenSettings {
+  sections: MetaSectionSetting[]; backgroundMode: string; heroTrailerPlayback: boolean; tabLayout: boolean;
+  episodeCardStyle: string; blurUnwatchedEpisodes: boolean; posterTransitionEnabled: boolean;
+  showOverallRatings: boolean; episodeRatingsVisibility: string;
+}
+export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings }
 /** A movie/episode watched mark (Settings → Library); ids stay opaque. */
 export interface WatchedItem {
   id: string; contentType: string; name: string; poster: string | null; releaseInfo: string | null;

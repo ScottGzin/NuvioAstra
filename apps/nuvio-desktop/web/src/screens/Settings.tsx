@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon,
+  AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon, TvLine as DetailsIcon,
   PendingLine as PendingIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
   ServicesLine as ServicesIcon,
 } from "../components/SidebarIcons";
@@ -21,15 +21,16 @@ import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
-import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
+import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, MetaScreenSettings, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "details" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "account", label: "Conta", icon: <AccountIcon /> },
   { id: "home", label: "Início", icon: <HomeIcon /> },
+  { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
   { id: "addons", label: "Addons", icon: <AddonsIcon /> },
   { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
   { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
@@ -328,6 +329,12 @@ export function Settings() {
 
         {section === "home" && (
           <HomeSection settings={draft} catalogs={view.catalogs} update={update} />
+        )}
+        {section === "details" && (
+          <DetailsSection
+            settings={draft.metaScreen}
+            update={(change) => update((s) => ({ ...s, metaScreen: change(s.metaScreen) }), t("A tela de detalhes é atualizada."))}
+          />
         )}
 
         {section === "account" && <AccountPanel />}
@@ -674,7 +681,7 @@ export function Settings() {
             <p className="muted small">{t("Já disponíveis: Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
               <li><b>{t("Início e catálogos")}</b>{t("— prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
-              <li><b>{t("Tela de detalhes")}</b>{t("— escolher as seções exibidas, comentários e desfocar episódios não assistidos.")}</li>
+              <li><b>{t("Tela de detalhes")}</b>{t("— comentários.")}</li>
               <li><b>{t("Continuar assistindo")}</b>{t("— aviso de retomada ao abrir o app.")}</li>
               <li><b>{t("Fontes")}</b>{t("— seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.")}</li>
               <li><b>{t("Player")}</b>{t("— trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.")}</li>
@@ -805,6 +812,77 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
 }
 
 // ---------- Início ----------
+
+/** The original's MetaScreenSettings: which details sections appear, their order and look. */
+function DetailsSection({ settings, update }: {
+  settings: MetaScreenSettings;
+  update(change: (s: MetaScreenSettings) => MetaScreenSettings): void;
+}) {
+  const sections = [...settings.sections].sort((a, b) => a.order - b.order);
+  const patch = (change: Partial<MetaScreenSettings>) => update((s) => ({ ...s, ...change }));
+  const setSection = (key: string, enabled: boolean) =>
+    patch({ sections: settings.sections.map((s) => (s.key === key ? { ...s, enabled } : s)) });
+  const move = (index: number, dir: -1 | 1) => {
+    const next = [...sections];
+    const [item] = next.splice(index, 1);
+    next.splice(index + dir, 0, item);
+    patch({ sections: next.map((s, i) => ({ ...s, order: i })) });
+  };
+  return (
+    <>
+      <div className="settings-group">
+        <Row title={t("Seções exibidas")} description={t("Escolha e ordene as seções da tela de detalhes.")}>
+          <span className="muted small">{t("A tela de detalhes é atualizada.")}</span>
+        </Row>
+        {sections.map((s, i) => (
+          <div className="setting-row meta-section-row" key={s.key}>
+            <div className="setting-text">
+              <div className="setting-title">{t(metaSectionLabel(s.key))}</div>
+            </div>
+            <div className="setting-control meta-section-controls">
+              <Toggle label={t(metaSectionLabel(s.key))} checked={s.enabled} onChange={(v) => setSection(s.key, v)} />
+              <button className="icon-btn" aria-label={t("Subir")} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+              <button className="icon-btn" aria-label={t("Descer")} disabled={i === sections.length - 1} onClick={() => move(i, 1)}>↓</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="settings-group">
+        <Row title={t("Fundo da tela de detalhes")}>
+          <select aria-label={t("Fundo da tela de detalhes")} value={settings.backgroundMode} onChange={(e) => patch({ backgroundMode: e.target.value })}>
+            <option value="normal">{t("Normal")}</option>
+            <option value="cinematic">{t("Cinematográfico")}</option>
+            <option value="dominant_color">{t("Cor dominante")}</option>
+          </select>
+        </Row>
+        <Row title={t("Cartões de episódio")}>
+          <select aria-label={t("Cartões de episódio")} value={settings.episodeCardStyle} onChange={(e) => patch({ episodeCardStyle: e.target.value })}>
+            <option value="horizontal">{t("Horizontal")}</option>
+            <option value="list">{t("Lista")}</option>
+          </select>
+        </Row>
+        <Row title={t("Desfocar episódios não assistidos")}>
+          <Toggle label={t("Desfocar episódios não assistidos")} checked={settings.blurUnwatchedEpisodes} onChange={(v) => patch({ blurUnwatchedEpisodes: v })} />
+        </Row>
+        <Row title={t("Mostrar avaliações gerais")}>
+          <Toggle label={t("Mostrar avaliações gerais")} checked={settings.showOverallRatings} onChange={(v) => patch({ showOverallRatings: v })} />
+        </Row>
+        <Row title={t("Reproduzir trailer no destaque")}>
+          <Toggle label={t("Reproduzir trailer no destaque")} checked={settings.heroTrailerPlayback} onChange={(v) => patch({ heroTrailerPlayback: v })} />
+        </Row>
+        <Row title={t("Layout em abas")} description={t("Agrupa as seções em abas na tela de detalhes.")}>
+          <Toggle label={t("Layout em abas")} checked={settings.tabLayout} onChange={(v) => patch({ tabLayout: v })} />
+        </Row>
+      </div>
+    </>
+  );
+}
+
+const META_SECTION_LABELS: Record<string, string> = {
+  actions: "Ações", overview: "Sinopse", episodes: "Episódios", cast: "Elenco", details: "Detalhes",
+  production: "Produção", trailers: "Trailers", comments: "Comentários", collection: "Coleção", moreLikeThis: "Títulos semelhantes",
+};
+function metaSectionLabel(key: string): string { return META_SECTION_LABELS[key] ?? key; }
 
 function HomeSection({ settings, catalogs, update }: {
   settings: ProfileSettings;

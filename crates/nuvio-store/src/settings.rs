@@ -229,6 +229,82 @@ impl ContinueWatchingSettings {
     }
 }
 
+/// One section of the details screen (`MetaScreenSectionItem` in the original). All sections are
+/// enabled by default, in the order declared by `MetaScreenSettingsRepository.definitions`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MetaSectionSetting {
+    pub key: String,
+    pub enabled: bool,
+    pub order: i32,
+}
+
+/// `MetaScreenSettingsUiState` of the original (`features/details`). Sections Astra does not
+/// render yet (comments, collection, trailers as a section) are still stored for account parity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MetaScreenSettings {
+    pub sections: Vec<MetaSectionSetting>,
+    /// `normal`, `cinematic` or `dominant_color` (the original's default).
+    pub background_mode: String,
+    pub hero_trailer_playback: bool,
+    pub tab_layout: bool,
+    /// `horizontal` or `list`.
+    pub episode_card_style: String,
+    pub blur_unwatched_episodes: bool,
+    pub poster_transition_enabled: bool,
+    pub show_overall_ratings: bool,
+    /// `SHOW_ALL`, `HIDE_WATCHED` or `HIDE_ALL`.
+    pub episode_ratings_visibility: String,
+}
+
+impl Default for MetaScreenSettings {
+    fn default() -> Self {
+        let keys = [
+            "actions", "overview", "episodes", "cast", "details", "production", "trailers",
+            "comments", "collection", "moreLikeThis",
+        ];
+        Self {
+            sections: keys
+                .iter()
+                .enumerate()
+                .map(|(order, key)| MetaSectionSetting { key: (*key).into(), enabled: true, order: order as i32 })
+                .collect(),
+            background_mode: "dominant_color".into(),
+            hero_trailer_playback: false,
+            tab_layout: false,
+            episode_card_style: "horizontal".into(),
+            blur_unwatched_episodes: false,
+            poster_transition_enabled: false,
+            show_overall_ratings: true,
+            episode_ratings_visibility: "SHOW_ALL".into(),
+        }
+    }
+}
+
+impl MetaScreenSettings {
+    pub fn sanitized(mut self) -> Self {
+        if !["normal", "cinematic", "dominant_color"].contains(&self.background_mode.as_str()) {
+            self.background_mode = "dominant_color".into();
+        }
+        if !["horizontal", "list"].contains(&self.episode_card_style.as_str()) {
+            self.episode_card_style = "horizontal".into();
+        }
+        if !["SHOW_ALL", "HIDE_WATCHED", "HIDE_ALL"].contains(&self.episode_ratings_visibility.as_str()) {
+            self.episode_ratings_visibility = "SHOW_ALL".into();
+        }
+        if self.sections.is_empty() {
+            self.sections = Self::default().sections;
+        }
+        self
+    }
+
+    /// Whether a section is enabled, by its key. Unknown keys are enabled (new original sections).
+    pub fn section_enabled(&self, key: &str) -> bool {
+        self.sections.iter().find(|s| s.key == key).map_or(true, |s| s.enabled)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileSettings {
@@ -237,6 +313,8 @@ pub struct ProfileSettings {
     pub p2p: P2pSettings,
     #[serde(default)]
     pub continue_watching: ContinueWatchingSettings,
+    #[serde(default)]
+    pub meta_screen: MetaScreenSettings,
 }
 
 pub const MOTION_SMOOTHING: &[&str] = &["off", "steady", "fluid"];
@@ -376,6 +454,7 @@ impl ProfileSettings {
         let mut seen = std::collections::HashSet::new();
         self.home.items.retain(|i| !i.key.trim().is_empty() && seen.insert(i.key.clone()));
         self.continue_watching = self.continue_watching.sanitized();
+        self.meta_screen = self.meta_screen.sanitized();
         self
     }
 }
@@ -447,6 +526,7 @@ impl LegacyStore {
             // P2P starts off in Astra: the notice is accepted again here.
             p2p: P2pSettings::default(),
             continue_watching: ContinueWatchingSettings::default(),
+            meta_screen: MetaScreenSettings::default(),
         }
         .sanitized())
     }
@@ -465,6 +545,25 @@ mod tests {
         let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();
         assert_eq!((bad.style.as_str(), bad.sort_mode.as_str(), bad.click_action.as_str()), ("card", "default", "stream"));
         assert_eq!(ProfileSettings::default().continue_watching, ContinueWatchingSettings::default());
+    }
+
+    #[test]
+    fn meta_screen_defaults_and_section_lookup() {
+        let meta = MetaScreenSettings::default();
+        assert_eq!(meta.sections.len(), 10);
+        assert!(meta.sections.iter().all(|s| s.enabled));
+        assert_eq!(meta.sections[0].key, "actions");
+        assert_eq!(meta.background_mode, "dominant_color");
+        assert_eq!(meta.episode_card_style, "horizontal");
+        assert!(meta.show_overall_ratings);
+        assert!(meta.section_enabled("overview"));
+        assert!(meta.section_enabled("aSectionTheOriginalAddsLater"));
+        let off = MetaSectionSetting { key: "cast".into(), enabled: false, order: 3 };
+        let meta = MetaScreenSettings { sections: vec![off], background_mode: "bad".into(), episode_card_style: "bad".into(), episode_ratings_visibility: "bad".into(), ..Default::default() }.sanitized();
+        assert!(!meta.section_enabled("cast"));
+        assert_eq!(meta.background_mode, "dominant_color");
+        assert_eq!(meta.episode_card_style, "horizontal");
+        assert_eq!(meta.episode_ratings_visibility, "SHOW_ALL");
     }
     use super::*;
 

@@ -9,7 +9,7 @@ import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -65,6 +65,7 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [trailerBusy, setTrailerBusy] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
   const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
+  const [metaSettings, setMetaSettings] = useState<MetaScreenSettings | null>(null);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -79,6 +80,12 @@ export function Details({ item, onBack, onOpen }: Props) {
   }, [id, version]);
 
   useEffect(() => setWatchedKeys(data?.watchedKeys ?? []), [data?.watchedKeys]);
+
+  // Details screen settings (the original's MetaScreenSettingsRepository).
+  useEffect(() => {
+    api.settingsGet().then((v) => setMetaSettings(v.settings.metaScreen), () => {});
+  }, [version]);
+  const sectionOn = (key: string) => metaSettings?.sections.find((s) => s.key === key)?.enabled ?? true;
 
   const watchedKey = (contentType: string, id: string, season: number | null, episode: number | null) => {
     const raw = contentType.trim().toLowerCase();
@@ -230,7 +237,7 @@ export function Details({ item, onBack, onOpen }: Props) {
             <div className="meta-line">
               {[m.releaseInfo, m.runtime, m.imdbRating && `★ ${m.imdbRating}`, m.ageRating].filter(Boolean).join("   ")}
             </div>
-            {data.ratings.length > 0 && (
+            {metaSettings?.showOverallRatings !== false && data.ratings.length > 0 && (
               <div className="external-ratings" aria-label={t("Avaliações externas")}>
                 {data.ratings.map((rating) => (
                   <span key={rating.source} className={`rating-chip ${rating.certified ? "certified" : ""}`} title={rating.source}>
@@ -241,9 +248,9 @@ export function Details({ item, onBack, onOpen }: Props) {
               </div>
             )}
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
-            {m.description && <p className="details-desc">{m.description}</p>}
+            {sectionOn("overview") && m.description && <p className="details-desc">{m.description}</p>}
             {m.director.length > 0 && <div className="muted">{t("Direção:")} {m.director.join(", ")}</div>}
-            <div className="details-actions">
+            {sectionOn("actions") && <div className="details-actions">
               {!isSeries && (movieEntry?.inProgress ? (
                 <>
                   <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ {t("Continuar de {time}", { time: clock(movieEntry.positionMs) })}</button>
@@ -257,7 +264,7 @@ export function Details({ item, onBack, onOpen }: Props) {
                   {t("▶ Continuar")} {episodeCode(progress.resume)} · {clock(progress.resume.positionMs)}
                 </button>
               )}
-              {data.trailer && (
+              {sectionOn("trailers") && data.trailer && (
                 <button className="chip" data-testid="watch-trailer" disabled={trailerBusy} onClick={() => void playTrailer()}>
                   {trailerBusy ? t("Carregando trailer…") : t("▶ Assistir trailer")}
                 </button>
@@ -273,14 +280,14 @@ export function Details({ item, onBack, onOpen }: Props) {
                   {watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? t("✓ Assistido") : t("Marcar como assistido")}
                 </button>
               )}
-            </div>
+            </div>}
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
                 {movieEntry.completed ? t("✓ Assistido") : [t("{time} assistidos", { time: clock(movieEntry.positionMs) }), remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
-            <div className="muted small">{t("Detalhes por")} {addonLabel(data.addonName)}</div>
-            <dl className="facts">
+            {sectionOn("production") && <div className="muted small">{t("Detalhes por")} {addonLabel(data.addonName)}</div>}
+            {sectionOn("details") && <dl className="facts">
               {(
                 [
                   [t("Classificação"), m.ageRating],
@@ -296,14 +303,14 @@ export function Details({ item, onBack, onOpen }: Props) {
                 .map(([k, v]) => (
                   <div key={k} className="fact"><dt>{k}</dt><dd>{v}</dd></div>
                 ))}
-            </dl>
+            </dl>}
           </div>
         </div>
 
         {player.error && <div className="row-error">{t("Falha ao reproduzir:")} {player.error}</div>}
 
-        {isSeries && (
-          <section className="details-section">
+        {isSeries && sectionOn("episodes") && (
+          <section className={`details-section ${metaSettings?.episodeCardStyle === "list" ? "episode-list" : ""}`}>
             <div className="season-tabs" role="tablist">
               {data.seasons.map((s) => (
                 <button key={s} role="tab" aria-selected={season === s} className={`chip ${season === s ? "active" : ""}`} onClick={() => setSeason(s)}>
@@ -316,7 +323,7 @@ export function Details({ item, onBack, onOpen }: Props) {
                 const e = entryFor(v);
                 const epKey = watchedKey(m.contentType, m.id, v.season ?? null, v.episode ?? null);
                 return (
-                  <div key={v.id} className="episode-wrap">
+                  <div key={v.id} className={`episode-wrap ${metaSettings?.blurUnwatchedEpisodes && !e?.completed ? "episode-blurred" : ""}`}>
                     <button className={`episode ${selected !== "movie" && selected?.id === v.id ? "active" : ""}`} onClick={() => choose(v)} data-episode={`${v.season}:${v.episode}`}>
                     <div className="episode-thumb">
                       {v.thumbnail && <img src={v.thumbnail} alt="" loading="lazy" decoding="async" />}
@@ -347,7 +354,7 @@ export function Details({ item, onBack, onOpen }: Props) {
           </section>
         )}
 
-        {m.cast.length > 0 && (
+        {m.cast.length > 0 && sectionOn("cast") && (
           <section className="details-section">
             <h2>{t("Elenco")}</h2>
             <div className="cast">
@@ -362,7 +369,7 @@ export function Details({ item, onBack, onOpen }: Props) {
           </section>
         )}
 
-        {moreLikeThis.length > 0 && (
+        {moreLikeThis.length > 0 && sectionOn("moreLikeThis") && (
           <section className="details-section more-like-this" data-testid="more-like-this">
             <ResultRow title={t("Mais como este")} addonName="" items={moreLikeThis} onOpen={onOpen} />
             <div className="muted small tmdb-credit">{t("Powered by TMDB")}</div>

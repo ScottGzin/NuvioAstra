@@ -133,6 +133,8 @@ body.playing .screen-fill { background: transparent; }
 
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
+.meta-section-controls { display: flex; align-items: center; gap: 6px; }
+.meta-section-controls .icon-btn { padding: 4px 8px; }
 .see-all-btn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; padding: 4px 8px; }
 .see-all-btn:hover { color: var(--accent); }
 .modal.see-all { width: min(1180px, calc(100vw - 32px)); height: min(860px, calc(100vh - 48px)); }
@@ -207,6 +209,10 @@ button.chip:hover { background: var(--surface-hover); }
 .season-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 .episodes { display: flex; flex-direction: column; gap: 8px; }
 .episode-wrap { position: relative; }
+.episode-blurred .episode-thumb img { filter: blur(8px) brightness(.5); }
+.episode-list .episodes { display: flex; flex-direction: column; gap: 8px; }
+.episode-list .episode-wrap { width: 100%; }
+.episode-list .episode { display: grid; grid-template-columns: 120px 1fr; align-items: center; }
 .watched-toggle {
   position: absolute; right: 16px; top: 16px; width: 28px; height: 28px; border-radius: 50%;
   border: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 14px;
