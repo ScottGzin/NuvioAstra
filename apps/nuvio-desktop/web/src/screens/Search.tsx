@@ -8,13 +8,20 @@
 // - answers of this session are kept in memory: going back to a query is instant;
 // - typing is debounced lightly (220 ms); an outdated answer never replaces a newer one.
 // Recent searches are remembered (last 12) and shown when the field is empty.
+//
+// Discover (empty field) is the original's type / catalog / genre browser: the listable catalogs
+// of the enabled addons (`supportsDiscover`), the genre options of each catalog's `genre` extra,
+// the catalog remembered per profile, endless paging with the original's duplicate-page guard, and
+// the Home "hide unreleased" filter (applied by Rust). See `services::discover`.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, dataEpoch, onDataEpoch } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, dataEpoch, errorText, onDataEpoch, onRemoteSettingsChanged } from "../api";
+import { PosterCard } from "../components/PosterCard";
 import { ResultRow } from "../components/ResultRow";
+import { useWhenVisible } from "../components/useInView";
 import { invoke, listen } from "../tauri";
-import type { CatalogChoice, MetaPreview, SearchSection } from "../types";
-import { addonLabel, localizeCatalogTitle, t } from "../i18n";
+import type { DiscoverSource, DiscoverView, MetaPreview, SearchSection } from "../types";
+import { addonLabel, localizeCatalogTitle, mediaTypeLabel, t } from "../i18n";
 
 interface Props {
   onOpen(item: MetaPreview): void;
@@ -70,6 +77,22 @@ function saveHistory(list: string[]) {
   } catch {
     /* kept for this session only */
   }
+}
+
+const itemKey = (item: MetaPreview) => `${item.contentType}:${item.id}`;
+
+/** Appends `incoming` to `existing`, dropping items already shown (same `type:id`). */
+function mergeDiscover(existing: MetaPreview[], incoming: MetaPreview[]): MetaPreview[] {
+  const seen = new Set(existing.map(itemKey));
+  return [...existing, ...incoming.filter((item) => !seen.has(itemKey(item)))];
+}
+
+/** Genre the picker should use with this catalog (`resolveGenreSelection`): the requested option
+ *  when the catalog offers it, else the required genre's first option, else all genres. */
+function resolveGenre(source: DiscoverSource, requested: string): string {
+  if (!source.genreOptions.length) return "";
+  if (requested && source.genreOptions.includes(requested)) return requested;
+  return source.defaultGenre ?? "";
 }
 
 export function Search({ onOpen }: Props) {
@@ -178,45 +201,144 @@ export function Search({ onOpen }: Props) {
   };
   const empty = useMemo(() => query.trim().length < 2, [query]);
 
-  // Discover: the original's "Movies / TMDB Popular / All Genres" filters, backed by the addons'
-  // listable catalogs (catalog_page already accepts an optional genre).
-  const [catalogs, setCatalogs] = useState<CatalogChoice[]>([]);
-  const [discoverType, setDiscoverType] = useState("movie");
-  const [discoverCatalog, setDiscoverCatalog] = useState("");
+  // ---- Discover: the original's "Movies / TMDB Popular / All Genres" filters, backed by every
+  // listable catalog of the enabled addons (a catalog's `genre` extra provides its genres). ----
+  const [discover, setDiscover] = useState<DiscoverView | null>(null);
+  const [discoverType, setDiscoverType] = useState("");
+  const [discoverSourceKey, setDiscoverSourceKey] = useState("");
   const [discoverGenre, setDiscoverGenre] = useState("");
-  const [discoverItems, setDiscoverItems] = useState<MetaPreview[] | null>(null);
+  const [discoverItems, setDiscoverItems] = useState<MetaPreview[]>([]);
+  const [discoverNext, setDiscoverNext] = useState<number | null>(null);
+  const [discoverDuplicates, setDiscoverDuplicates] = useState(0);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverStarted, setDiscoverStarted] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverReload, setDiscoverReload] = useState(0);
+  const discoverRequest = useRef(0);
+  const discoverBusy = useRef(false);
+  const discoverItemsRef = useRef<MetaPreview[]>([]);
+  discoverItemsRef.current = discoverItems;
+  const discoverNextRef = useRef<number | null>(null);
+  discoverNextRef.current = discoverNext;
+  const discoverDuplicatesRef = useRef(0);
+  discoverDuplicatesRef.current = discoverDuplicates;
 
+  const discoverSource = discover?.sources.find((s) => s.key === discoverSourceKey) ?? null;
+  const catalogOptions = discover?.sources.filter((s) => s.contentType === discoverType) ?? [];
+  const discoverSourceRef = useRef<DiscoverSource | null>(null);
+  discoverSourceRef.current = discoverSource;
+  const discoverGenreRef = useRef("");
+  discoverGenreRef.current = discoverGenre;
+
+  // Catalogs of the enabled addons + the catalog remembered for this profile.
   useEffect(() => {
-    if (!empty) return;
     let cancelled = false;
-    api.settingsGet().then(
-      (v) => { if (!cancelled) setCatalogs(v.catalogs); },
-      () => {},
+    api.discoverSources().then(
+      (view) => {
+        if (cancelled) return;
+        setDiscover(view);
+        // `resolveDiscoverCatalog`: the saved catalog when it still exists, else the first.
+        const first = view.sources.find((s) => s.key === view.selectedKey) ?? view.sources[0];
+        if (first) {
+          setDiscoverType(first.contentType);
+          setDiscoverSourceKey(first.key);
+          setDiscoverGenre(first.defaultGenre ?? "");
+        }
+      },
+      (e) => {
+        if (!cancelled) setDiscoverError(errorText(e));
+      },
     );
-    return () => { cancelled = true; };
-  }, [empty]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const typeCatalogs = catalogs.filter((c) => c.contentType === discoverType);
+  // Home settings changed (this app or the account): refetch, keeping a genre the catalog still
+  // offers (`hideUnreleasedContent` changes what the page shows).
   useEffect(() => {
-    if (typeCatalogs.length && !typeCatalogs.some((c) => c.key === discoverCatalog)) {
-      const preferred = typeCatalogs.find((c) => /popular|popular/i.test(c.defaultTitle)) ?? typeCatalogs[0];
-      setDiscoverCatalog(preferred.key);
-    }
-  }, [catalogs, discoverType]); // eslint-disable-line react-hooks/exhaustive-deps
+    const refresh = () => {
+      const source = discoverSourceRef.current;
+      if (source) {
+        const genre = resolveGenre(source, discoverGenreRef.current);
+        if (genre !== discoverGenreRef.current) setDiscoverGenre(genre);
+      }
+      setDiscoverReload((n) => n + 1);
+    };
+    const offHome = api.onHomeSettingsChanged(refresh);
+    const offRemote = onRemoteSettingsChanged(refresh);
+    return () => {
+      offHome();
+      offRemote();
+    };
+  }, []);
 
+  const loadDiscover = useCallback(
+    async (reset: boolean) => {
+      const source = discover?.sources.find((s) => s.key === discoverSourceKey);
+      if (!source) return;
+      const skip = reset ? 0 : discoverNextRef.current;
+      if (skip === null) return;
+      // A new catalog/genre supersedes a page in flight; another "load more" waits for it.
+      if (!reset && discoverBusy.current) return;
+      discoverBusy.current = true;
+      const id = ++discoverRequest.current;
+      setDiscoverLoading(true);
+      setDiscoverError(null);
+      if (reset) {
+        setDiscoverItems([]);
+        setDiscoverNext(null);
+        setDiscoverDuplicates(0);
+      }
+      try {
+        const existing = reset ? [] : discoverItemsRef.current.map(itemKey);
+        const page = await api.discoverPage(
+          source.key,
+          skip,
+          reset,
+          existing,
+          reset ? 0 : discoverDuplicatesRef.current,
+          discoverGenre || null,
+        );
+        if (id !== discoverRequest.current) return;
+        setDiscoverItems((prev) => (reset ? page.items : mergeDiscover(prev, page.items)));
+        setDiscoverNext(page.nextSkip);
+        setDiscoverDuplicates(page.duplicatePages);
+      } catch (e) {
+        if (id !== discoverRequest.current) return;
+        setDiscoverError(errorText(e));
+        setDiscoverNext(null);
+      } finally {
+        if (id === discoverRequest.current) {
+          setDiscoverLoading(false);
+          setDiscoverStarted(true);
+          discoverBusy.current = false;
+        }
+      }
+    },
+    [discover, discoverSourceKey, discoverGenre],
+  );
+
+  // A new catalog/genre loads its first page; a Home settings change reloads it.
   useEffect(() => {
-    if (!empty || !discoverCatalog) { setDiscoverItems(null); return; }
-    let cancelled = false;
-    api.catalogPage(discoverCatalog, 0, discoverGenre || null).then(
-      (page) => { if (!cancelled) setDiscoverItems(page.items); },
-      () => { if (!cancelled) setDiscoverItems([]); },
-    );
-    return () => { cancelled = true; };
-  }, [empty, discoverCatalog, discoverGenre]);
+    if (!discoverSource) return;
+    void loadDiscover(true);
+  }, [discoverSource, discoverReload, loadDiscover]);
 
-  const selectedCatalog = catalogs.find((c) => c.key === discoverCatalog);
-  const GENRES = ["Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family",
-    "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "Thriller", "War", "Western"];
+  const discoverSentinel = useWhenVisible<HTMLDivElement>(() => {
+    if (discoverNextRef.current !== null && !discoverBusy.current) void loadDiscover(false);
+  }, [discoverNext, discoverLoading, discoverItems.length, discoverSourceKey, discoverGenre]);
+
+  const selectDiscoverSource = (source: DiscoverSource) => {
+    setDiscoverSourceKey(source.key);
+    setDiscoverGenre(resolveGenre(source, ""));
+    void api.discoverSelect(source.key).catch(() => {});
+  };
+  const selectDiscoverType = (type: string) => {
+    setDiscoverType(type);
+    const first = discover?.sources.find((s) => s.contentType === type);
+    if (first) selectDiscoverSource(first);
+  };
 
   return (
     <div className="search">
@@ -237,31 +359,69 @@ export function Search({ onOpen }: Props) {
       {empty && (
         <div className="discover">
           <h1 className="discover-title">{t("Discover")}</h1>
-          <div className="discover-filters">
-            <select aria-label={t("Discover")} value={discoverType} onChange={(e) => { setDiscoverType(e.target.value); setDiscoverCatalog(""); setDiscoverGenre(""); }}>
-              <option value="movie">{t("Filme")}</option>
-              <option value="series">{t("Série")}</option>
-            </select>
-            <select aria-label={t("Fontes")} value={discoverCatalog} onChange={(e) => setDiscoverCatalog(e.target.value)}>
-              {typeCatalogs.map((c) => <option key={c.key} value={c.key}>{localizeCatalogTitle(c.defaultTitle)}</option>)}
-            </select>
-            <select aria-label={t("Gêneros")} value={discoverGenre} onChange={(e) => setDiscoverGenre(e.target.value)}>
-              <option value="">{t("All Genres")}</option>
-              {GENRES.map((g) => <option key={g} value={g}>{t(g)}</option>)}
-            </select>
-          </div>
-          {selectedCatalog && (
-            <div className="discover-context muted small">{addonLabel(selectedCatalog.addonName)} · {localizeCatalogTitle(selectedCatalog.defaultTitle)}{discoverGenre ? ` · ${t(discoverGenre)}` : ""}</div>
+          {discover && discover.sources.length > 0 && (
+            <>
+              <div className="discover-filters">
+                <select aria-label={t("Tipo")} value={discoverType} onChange={(e) => selectDiscoverType(e.target.value)}>
+                  {discover.typeOptions.map((type) => (
+                    <option key={type} value={type}>{mediaTypeLabel(type)}</option>
+                  ))}
+                </select>
+                <select aria-label={t("Fontes")} value={discoverSourceKey} onChange={(e) => {
+                  const source = discover.sources.find((s) => s.key === e.target.value);
+                  if (source) selectDiscoverSource(source);
+                }}>
+                  {catalogOptions.map((s) => (
+                    <option key={s.key} value={s.key}>{localizeCatalogTitle(s.catalogName)}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label={t("Gêneros")}
+                  value={discoverGenre}
+                  disabled={!discoverSource || (discoverSource.genreOptions.length === 0 && !discoverSource.genreRequired)}
+                  onChange={(e) => setDiscoverGenre(e.target.value)}
+                >
+                  {(!discoverSource || !discoverSource.genreRequired) && <option value="">{t("All Genres")}</option>}
+                  {(discoverSource?.genreOptions ?? []).map((genre) => (
+                    <option key={genre} value={genre}>{genre}</option>
+                  ))}
+                </select>
+              </div>
+              {discoverSource && (
+                <div className="discover-context muted small">
+                  {addonLabel(discoverSource.addonName)} · {localizeCatalogTitle(discoverSource.catalogName)}
+                  {discoverGenre ? ` · ${discoverGenre}` : ""}
+                </div>
+              )}
+              {discoverError && (
+                <div className="discover-error" role="alert">
+                  {t("Não foi possível carregar este catálogo ({error}).", { error: discoverError })}
+                </div>
+              )}
+              {discoverItems.length > 0 && (
+                <div className="grid discover-grid">
+                  {discoverItems.map((item) => (
+                    <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={open} />
+                  ))}
+                </div>
+              )}
+              {discoverLoading && discoverItems.length === 0 && !discoverError && (
+                <div className="grid discover-grid">
+                  {Array.from({ length: 12 }, (_, i) => <div key={i} className="card skeleton" />)}
+                </div>
+              )}
+              {!discoverLoading && !discoverError && discoverStarted && discoverItems.length === 0 && (
+                <div className="discover-empty muted">{t("Nenhum título neste catálogo.")}</div>
+              )}
+              {discoverLoading && discoverItems.length > 0 && <div className="discover-more muted small">{t("Carregando…")}</div>}
+              <div ref={discoverSentinel} className="grid-sentinel" />
+            </>
           )}
-          {discoverItems && discoverItems.length > 0 && (
-            <ResultRow
-              title={discoverGenre ? t(discoverGenre) : selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover")}
-              addonName={selectedCatalog?.addonName ?? ""}
-              items={discoverItems}
-              onOpen={open}
-            />
+          {discover && discover.sources.length === 0 && (
+            <div className="screen-message">{t("Nenhum addon instalado tem catálogo para descobrir.")}</div>
           )}
-          {discoverItems && discoverItems.length === 0 && <div className="screen-message muted">{t("Nada encontrado para “{query}”.", { query: selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover") })}</div>}
+          {!discover && !discoverError && <div className="discover-empty muted">{t("Carregando…")}</div>}
+          {!discover && discoverError && <div className="discover-error" role="alert">{discoverError}</div>}
         </div>
       )}
 

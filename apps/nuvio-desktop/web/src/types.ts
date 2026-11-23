@@ -44,7 +44,11 @@ export interface HomeRow {
 
 // ---- Collections (services::collections) ----
 export interface FolderSource {
+  /** `addon` (a catalog of an installed addon) or `tmdb` (a discover query resolved in Rust). */
+  provider: string;
   key: string; genre: string | null; label: string; addonName: string; contentType: string; supportsPagination: boolean;
+  /** Stored source id of a TMDB source. */
+  sourceId?: string | null;
 }
 export interface FolderView {
   id: string; title: string;
@@ -117,6 +121,16 @@ export interface SettingsView {
 
 export interface SearchSection { key: string; title: string; addonName: string; items: MetaPreview[] }
 
+// ---- Discover (services::discover) ----
+export interface DiscoverSource {
+  key: string; addonName: string; contentType: string; catalogId: string; catalogName: string;
+  genreOptions: string[]; genreRequired: boolean; defaultGenre: string | null; supportsPagination: boolean;
+}
+export interface DiscoverView { sources: DiscoverSource[]; typeOptions: string[]; selectedKey: string | null }
+export interface DiscoverPage {
+  items: MetaPreview[]; nextSkip: number | null; duplicatePages: number; supportsPagination: boolean;
+}
+
 export interface MetaPerson { name: string; role: string | null; photo: string | null }
 export interface MetaVideo {
   id: string; title: string; released: string | null; available: boolean; thumbnail: string | null;
@@ -142,14 +156,59 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   if (!contentType) return t("o addon não informou o tipo deste título (filme/série)");
   return { contentType, id, name: item.name };
 }
-export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null }
+export interface ExternalRating { source: string; value: number; certified: boolean }
+export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[] }
 
 export type StreamKind = "direct" | "torrent" | "debrid" | "external" | "youTube";
 export interface StreamEntry {
-  key: string; name: string | null; description: string | null; kind: StreamKind;
+  key: string; name: string | null; title: string | null; description: string | null;
+  filename: string | null; videoSize: number | null; kind: StreamKind;
+  /** Played through the connected debrid service instead of local P2P. */
+  debridPlayable: boolean;
   headerNames: string[]; notWebReady: boolean;
 }
 export interface StreamGroup { addonName: string; streams: StreamEntry[]; error: string | null }
+
+/** Badge rules imported in the original app (read only); matched by regex on the stream text. */
+export interface StreamBadgeFilter {
+  name: string; pattern: string; imageUrl: string; tagColor: string; tagStyle: string;
+  textColor: string; borderColor: string; groupId: string;
+}
+export interface StreamBadgeRules { filters: StreamBadgeFilter[]; showFileSizeBadges: boolean; placement: string }
+
+/** Settings → Services → MDBList Ratings. */
+export interface MdblistSettingsView {
+  enabled: boolean; apiKeySet: boolean; apiKeyFromAccount: boolean; apiKeyFromOriginal: boolean;
+  useImdb: boolean; useTmdb: boolean; useTomatoes: boolean; useMetacritic: boolean;
+  useTrakt: boolean; useLetterboxd: boolean; useAudience: boolean; useMal: boolean;
+}
+export interface MdblistSettingsInput {
+  enabled: boolean; apiKey?: string | null;
+  useImdb: boolean; useTmdb: boolean; useTomatoes: boolean; useMetacritic: boolean;
+  useTrakt: boolean; useLetterboxd: boolean; useAudience: boolean; useMal: boolean;
+}
+
+/** Settings → Services → Connected Services (debrid; TorBox for now). Keys are never returned. */
+export interface DebridSettingsView {
+  enabled: boolean; torboxConnected: boolean; torboxFromAccount: boolean; torboxFromOriginal: boolean;
+  account: string | null;
+}
+export interface DebridSettingsInput { enabled: boolean; torboxApiKey?: string | null }
+
+/** Settings → Services → TMDB (the key never leaves Rust). */
+export interface TmdbSettingsView {
+  enabled: boolean; language: string; useMoreLikeThis: boolean; useCollections: boolean;
+  useArtwork: boolean; useBasicInfo: boolean; useDetails: boolean; useCredits: boolean;
+  useEpisodes: boolean; useTrailers: boolean;
+  apiKeySet: boolean; apiKeyFromAccount: boolean; apiKeyFromOriginal: boolean;
+}
+export interface TmdbSettingsInput {
+  enabled: boolean; language: string; useMoreLikeThis: boolean; useCollections: boolean;
+  useArtwork: boolean; useBasicInfo: boolean; useDetails: boolean; useCredits: boolean;
+  useEpisodes: boolean; useTrailers: boolean;
+  /** null keeps the current key; "" clears Astra's key (the original's is used again). */
+  apiKey?: string | null;
+}
 
 export interface Channel {
   key: string; metaId: string; contentType: string; name: string; logo: string | null;

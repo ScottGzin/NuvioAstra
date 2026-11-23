@@ -187,6 +187,41 @@ impl AppStore {
         self.write("livetv-favorites", &all)
     }
 
+    /// Catalog chosen in Discover, per profile (`DiscoverSelectionStorage` in the original: key
+    /// `<manifestId>:<type>:<catalogId>`, an empty map until something is chosen).
+    pub fn discover_selection(&self) -> Result<BTreeMap<i64, String>, StoreError> {
+        Ok(self.read("discover-selection")?.unwrap_or_default())
+    }
+
+    pub fn set_discover_selection(&self, profile: i64, key: String) -> Result<(), StoreError> {
+        let mut all = self.discover_selection()?;
+        all.insert(profile, key);
+        self.write("discover-selection", &all)
+    }
+
+    /// Provider credentials the Nuvio account holds for each profile (`tmdb`, `mdblist`,
+    /// `debrid:torbox`, `debrid:premiumize`, `debrid:realdebrid`, ...). `ProviderCredentialSync` in
+    /// the original keeps them apart from the settings blob; Astra stores them here.
+    pub fn provider_credentials(&self) -> Result<BTreeMap<i64, BTreeMap<String, String>>, StoreError> {
+        Ok(self.read("provider-credentials")?.unwrap_or_default())
+    }
+
+    /// Replaces one profile's credentials (the account's copy after a sync).
+    pub fn set_provider_credentials(&self, profile: i64, credentials: BTreeMap<String, String>) -> Result<(), StoreError> {
+        let mut all = self.provider_credentials()?;
+        if credentials.is_empty() {
+            all.remove(&profile);
+        } else {
+            all.insert(profile, credentials);
+        }
+        self.write("provider-credentials", &all)
+    }
+
+    /// One provider key of a profile, if the account sent it.
+    pub fn provider_key(&self, profile: i64, provider: &str) -> Option<String> {
+        self.provider_credentials().ok()?.remove(&profile)?.remove(provider).filter(|key| !key.trim().is_empty())
+    }
+
     /// Settings of every profile that has its own (`settings.json`).
     pub fn all_settings(&self) -> Result<BTreeMap<i64, ProfileSettings>, StoreError> {
         Ok(self.read("settings")?.unwrap_or_default())
@@ -563,6 +598,38 @@ mod tests {
         fs::write(store.dir().join("livetv-favorites.json"), b"{broken").unwrap();
         // Falls back to the .bak written before the last successful write.
         assert_eq!(store.live_tv_favorites().unwrap().get(&1), Some(&vec!["a".to_string()]));
+    }
+
+    #[test]
+    fn provider_credentials_are_per_profile_and_replace_whole() {
+        let store = AppStore::open(temp("providers")).unwrap();
+        let mut one = std::collections::BTreeMap::new();
+        one.insert("tmdb".to_string(), "a".to_string());
+        one.insert("debrid:torbox".to_string(), "b".to_string());
+        store.set_provider_credentials(1, one).unwrap();
+        assert_eq!(store.provider_key(1, "tmdb").as_deref(), Some("a"));
+        assert_eq!(store.provider_key(1, "debrid:torbox").as_deref(), Some("b"));
+        assert!(store.provider_key(2, "tmdb").is_none());
+        // A sync replaces the whole profile (a credential removed on the account disappears).
+        let mut two = std::collections::BTreeMap::new();
+        two.insert("tmdb".to_string(), "c".to_string());
+        store.set_provider_credentials(1, two).unwrap();
+        assert_eq!(store.provider_key(1, "tmdb").as_deref(), Some("c"));
+        assert!(store.provider_key(1, "debrid:torbox").is_none());
+        store.set_provider_credentials(1, std::collections::BTreeMap::new()).unwrap();
+        assert!(store.provider_key(1, "tmdb").is_none());
+    }
+
+    #[test]
+    fn discover_selection_is_per_profile_and_keeps_the_last_choice() {
+        let store = AppStore::open(temp("discover")).unwrap();
+        assert!(store.discover_selection().unwrap().is_empty(), "nothing chosen yet");
+        store.set_discover_selection(1, "a:movie:top".into()).unwrap();
+        store.set_discover_selection(2, "b:series:popular".into()).unwrap();
+        store.set_discover_selection(1, "a:movie:new".into()).unwrap();
+        let all = store.discover_selection().unwrap();
+        assert_eq!(all[&1], "a:movie:new");
+        assert_eq!(all[&2], "b:series:popular");
     }
 
     #[test]

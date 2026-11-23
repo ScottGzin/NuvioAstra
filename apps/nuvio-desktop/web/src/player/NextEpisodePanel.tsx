@@ -47,7 +47,7 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
 
   const play = async (stream: StreamEntry, prepared = false) => {
     if (starting) return;
-    if (stream.kind === "torrent" && !prepared) {
+    if (stream.kind === "torrent" && !prepared && !stream.debridPlayable) {
       void api.playerCommand({ type: "setPaused", paused: true });
       setTorrent(stream);
       return;

@@ -227,6 +227,31 @@ button.chip:hover { background: var(--surface-hover); }
 .stream-name { font-weight: 600; white-space: pre-line; }
 .stream-desc { color: var(--muted); white-space: pre-line; font-size: 13px; }
 .stream-pending { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-style: italic; }
+/* Addon chips above the sources, and the badges of the rules imported in the original app. */
+.source-filters {
+  display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 2px 0 10px;
+  position: sticky; top: -12px; z-index: 2; background: rgba(10, 17, 32, .95);
+}
+.chip.refresh { padding: 6px 10px; font-size: 15px; line-height: 1; }
+.chip.spinning { animation: spin .9s linear infinite; }
+.stream-addon-error { padding: 2px 2px 8px; }
+.stream-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.badge {
+  height: 20px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px;
+  border: 1px solid transparent; border-radius: 6px; font-size: 11px; font-weight: 700; line-height: 1;
+  white-space: nowrap; flex: none; overflow: hidden;
+}
+.badge img { height: 16px; max-width: 92px; object-fit: contain; display: block; }
+.badge-size { background: var(--surface-hover); border-color: var(--line); color: var(--text); }
+/* MDBList external ratings on the details header. */
+.external-ratings { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.rating-chip {
+  display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 6px;
+  background: var(--surface); border: 1px solid var(--line); font-size: 12px; color: var(--muted);
+}
+.rating-chip b { color: var(--text); font-weight: 700; }
+.rating-chip.certified { border-color: #e8b23a; }
+.more-like-this .tmdb-credit { text-align: right; padding: 4px 32px 0 0; }
 
 /* ---------- Video hole ---------- */
 .hole { position: relative; }
@@ -385,6 +410,30 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 button.ghost { border: 1px solid var(--line); background: transparent; border-radius: 10px; padding: 7px 14px; cursor: pointer; }
 button.ghost:hover { background: var(--surface); }
 .settings-group { display: flex; flex-direction: column; gap: 2px; max-width: 860px; }
+/* Settings → Services → Integrations */
+.settings-subhead { display: flex; align-items: center; gap: 14px; margin: 0 0 12px; }
+.settings-subhead h2 { margin: 0; font-size: 20px; }
+.settings-subhead .save-status { margin-left: auto; }
+.integration-row {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 12px 14px; text-align: left;
+  background: var(--panel); border: 0; border-radius: 10px; color: inherit;
+}
+button.integration-row { cursor: pointer; }
+button.integration-row:hover { background: var(--surface-hover); }
+.integration-row.disabled { opacity: .62; }
+.integration-icon {
+  flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center;
+  font-weight: 800; font-size: 12px; letter-spacing: -.02em;
+}
+.integration-icon.tmdb { background: #01b4e4; color: #06202b; }
+.integration-icon.mdb { background: #1f6feb; color: #fff; font-size: 18px; }
+.integration-icon.link { background: var(--surface-hover); color: var(--muted); font-size: 18px; }
+.integration-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.integration-arrow { margin-left: auto; color: var(--muted); font-size: 20px; }
+.integration-tag { margin-left: auto; font-size: 12px; color: var(--muted); }
+.tmdb-key { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tmdb-key input { width: 220px; }
+.settings-note { margin: 10px 2px 0; }
 .setting-row { display: flex; align-items: center; gap: 20px; padding: 14px 16px; background: var(--panel); border-radius: 10px; }
 .setting-text { flex: 1; min-width: 0; }
 .setting-title { font-weight: 600; }
@@ -393,6 +442,7 @@ button.ghost:hover { background: var(--surface); }
   background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font: inherit; max-width: 320px;
 }
 .switch { width: 44px; height: 24px; border-radius: 12px; border: 0; background: var(--line); position: relative; cursor: pointer; transition: background .2s var(--ease); flex: none; }
+.switch:disabled { opacity: .45; cursor: default; }
 .switch .knob { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s var(--ease); }
 .switch.on { background: var(--accent); }
 .switch.on .knob { transform: translateX(20px); }
@@ -667,7 +717,7 @@ img { -webkit-user-drag: none; }
 .details-layout { display: flex; gap: 28px; align-items: flex-start; }
 .details-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .sources-panel {
-  flex: 0 0 min(440px, 38%); position: sticky; top: 16px; align-self: flex-start;
+  flex: 0 0 min(520px, 44%); position: sticky; top: 16px; align-self: flex-start;
   max-height: calc(100vh - 140px); display: flex; flex-direction: column;
   background: rgba(10, 17, 32, .82); border: 1px solid rgba(76, 157, 230, .35); border-radius: 16px;
   box-shadow: 0 18px 50px rgba(0, 0, 0, .45), 0 0 18px rgba(47, 143, 214, .12); backdrop-filter: blur(10px);
@@ -675,7 +725,20 @@ img { -webkit-user-drag: none; }
 }
 .sources-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid rgba(76, 157, 230, .2); }
 .sources-header h2 { margin: 0 0 2px; font-size: 20px; }
-.sources-body { overflow-y: auto; padding: 12px 14px 16px; min-height: 120px; }
+.sources-body { flex: 1; min-height: 120px; overflow-y: auto; padding: 12px 14px 16px; }
+/* Sources are a modal page over the details, as in the original: wide panel, dimmed backdrop. */
+.sources-overlay {
+  position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center;
+  padding: 40px clamp(16px, 4vw, 64px); background: rgba(4, 7, 12, .55); backdrop-filter: blur(3px);
+  animation: fade-in .18s var(--ease);
+}
+.sources-overlay .sources-panel {
+  position: relative; top: auto; align-self: auto; flex: 1 1 auto;
+  width: min(1080px, 100%); max-width: 1080px; max-height: 100%; height: min(880px, 100%);
+  outline: none;
+}
+.sources-overlay .sources-body { padding: 12px 18px 18px; }
+.sources-overlay .stream { padding: 14px 18px; }
 .sources-panel .stream { grid-template-columns: 1fr; gap: 6px; }
 .sources-panel .stream-group-title { position: sticky; top: -12px; z-index: 1; padding: 6px 4px; background: rgba(10, 17, 32, .95); }
 
@@ -1163,6 +1226,10 @@ html[dir="rtl"] .chip-viewport::before { left: auto; right: 0; transform: scaleX
   border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer;
 }
 .discover-context { padding: 4px 0 10px; }
+.discover-grid { padding: 4px 32px 14px; }
+.discover-error { color: var(--danger); padding: 8px 32px 12px; }
+.discover-empty { padding: 28px 32px; }
+.discover-more { padding: 8px 32px 14px; }
 
 /* Player chrome and timeline always read left-to-right, even in the Arabic UI. */
 html[dir="rtl"] .full-player,

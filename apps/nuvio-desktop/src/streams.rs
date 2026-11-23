@@ -51,8 +51,16 @@ pub fn kind_of(stream: &StreamItem) -> StreamKind {
 pub struct StreamEntry {
     pub key: String,
     pub name: Option<String>,
+    pub title: Option<String>,
     pub description: Option<String>,
+    /// Torrent/file name (`behaviorHints.filename`), used by the badge rules.
+    pub filename: Option<String>,
+    /// `behaviorHints.videoSize` in bytes (the "SIZE" chip).
+    pub video_size: Option<i64>,
     pub kind: StreamKind,
+    /// A debrid service is connected: this source is played through it (no local P2P), even when
+    /// the addon only left a magnet (`DirectDebridPlaybackResolver` in the original).
+    pub debrid_playable: bool,
     /// Header names only (values may be secrets).
     pub header_names: Vec<String>,
     pub not_web_ready: bool,
@@ -142,7 +150,7 @@ pub async fn search(
     profile: Option<i64>,
 ) -> Result<Vec<StreamGroup>, String> {
     let manifests: Vec<AddonManifest> = load_manifests(client, profile).await?.into_iter().filter_map(Result::ok).collect();
-    Ok(search_in(client, cache, &manifests, content_type, id).await)
+    Ok(search_in(client, cache, &manifests, content_type, id, false, false).await)
 }
 
 /// Searches streams for one title in the given addons (those that serve `stream` for it), in order.
@@ -153,6 +161,8 @@ pub async fn search_in(
     manifests: &[AddonManifest],
     content_type: &str,
     id: &str,
+    force: bool,
+    debrid_available: bool,
 ) -> Vec<StreamGroup> {
     let targets: Vec<&AddonManifest> = manifests.iter().filter(|m| m.supports_resource("stream", content_type, id)).collect();
     let requests = targets.iter().map(|manifest| {
@@ -165,7 +175,7 @@ pub async fn search_in(
         );
         async move {
             let result = client
-                .get_text(&url, false)
+                .get_text(&url, force)
                 .await
                 .map_err(|e| e.to_string())
                 .and_then(|payload| parse_streams(&payload, &name, &addon_id, logo.as_deref()).map_err(|e| e.to_string()));
@@ -193,11 +203,16 @@ pub async fn search_in(
                     .enumerate()
                     .map(|(i, stream)| {
                         let key = format!("{search}:{group_index}:{i}");
+                        let kind = kind_of(&stream);
                         let entry = StreamEntry {
                             key: key.clone(),
                             name: stream.name.clone(),
+                            title: stream.title.clone(),
                             description: stream.description.clone(),
-                            kind: kind_of(&stream),
+                            filename: stream.behavior_hints.filename.clone(),
+                            video_size: stream.behavior_hints.video_size,
+                            kind,
+                            debrid_playable: debrid_available && matches!(kind, StreamKind::Torrent | StreamKind::Debrid),
                             header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
                             not_web_ready: stream.behavior_hints.not_web_ready,
                         };

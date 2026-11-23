@@ -597,6 +597,7 @@ impl Engine {
             self.pull_collections(st, profile, report, &alive).await?;
             self.sync_home(st, profile, &account, report, &alive).await?;
             self.sync_player_settings(st, profile, &account, report, &alive).await?;
+            self.sync_provider_credentials(st, profile, report, &alive).await?;
             // What changed here, and what the merge above queued.
             self.push_profile(st, profile, report).await?;
         }
@@ -761,6 +762,45 @@ impl Engine {
         let params = self.with_origin(json!({ "p_profile_id": profile, "p_platform": crate::home::PLATFORM, "p_settings_json": crate::home::payload(remote, &merged) }));
         if self.step(report, "ordem do Início", self.call("sync_push_home_catalog_settings", params)).await?.is_some() {
             st.set_sync_base("home", profile, account, &merged)?;
+            report.sent += 1;
+        }
+        Ok(())
+    }
+
+    /// `ProviderCredentialSync`: the account keeps API keys per profile apart from the settings
+    /// blob — `tmdb`, `mdblist`, `debrid:torbox`, `debrid:premiumize`, `debrid:realdebrid`,
+    /// `animeskip`, `introdb`. The account's values win; a key entered here that the account does
+    /// not have yet is sent, so the next device receives it.
+    async fn sync_provider_credentials(&self, st: &AppStore, profile: i64, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
+        let params = json!({ "p_profile_id": profile });
+        let Some(rows) = self.step(report, "credenciais", self.call("sync_pull_provider_credentials", params)).await? else { return Ok(()) };
+        if !alive() {
+            return Ok(());
+        }
+        let remote = credentials_of(&rows);
+        let mut local = st.provider_credentials()?.remove(&profile).unwrap_or_default();
+        let mut changed = false;
+        for (provider, key) in &remote {
+            if local.get(provider) != Some(key) {
+                local.insert(provider.clone(), key.clone());
+                changed = true;
+            }
+        }
+        st.set_provider_credentials(profile, local.clone())?;
+        if changed {
+            report.received += 1;
+            mark_changed(report, "credentials");
+        }
+        let missing: Vec<Value> = local
+            .iter()
+            .filter(|(provider, _)| !remote.contains_key(*provider))
+            .map(|(provider, key)| json!({ "provider": provider, "credential_json": { "api_key": key } }))
+            .collect();
+        if missing.is_empty() || !alive() {
+            return Ok(());
+        }
+        let params = self.with_origin(json!({ "p_profile_id": profile, "p_credentials": missing }));
+        if self.step(report, "credenciais", self.call("sync_push_provider_credentials", params)).await?.is_some() {
             report.sent += 1;
         }
         Ok(())
@@ -1302,6 +1342,28 @@ fn mark_changed(report: &mut Report, kind: &str) {
     }
 }
 
+/// Rows of `sync_pull_provider_credentials`: `provider` → the credential's `api_key` (or
+/// `client_id` for `animeskip`). Empty values are dropped, as the original does.
+fn credentials_of(rows: &Value) -> BTreeMap<String, String> {
+    rows.as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|row| {
+                    let provider = row.get("provider").and_then(Value::as_str)?.trim();
+                    let credential = row.get("credential_json")?;
+                    let value = ["api_key", "client_id"]
+                        .iter()
+                        .find_map(|field| credential.get(*field).and_then(Value::as_str))
+                        .map(str::trim)
+                        .filter(|v| !v.is_empty())?;
+                    (!provider.is_empty()).then(|| (provider.to_string(), value.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// `settings_json` of a `sync_pull_*settings*` answer.
 fn blob_of(rows: &Value) -> Option<&Value> {
     rows.as_array()?.first()?.get("settings_json").filter(|v| v.is_object())
@@ -1446,6 +1508,25 @@ fn watched_push(w: &WatchedItem) -> Value {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_credentials_keep_the_account_values_and_drop_empty_ones() {
+        let rows = json!([
+            {"provider":"tmdb","credential_json":{"api_key":"tmdb-key"}},
+            {"provider":"debrid:torbox","credential_json":{"api_key":"  tb-key  "}},
+            {"provider":"mdblist","credential_json":{"api_key":""}},
+            {"provider":"animeskip","credential_json":{"client_id":"client"}},
+            {"provider":"","credential_json":{"api_key":"x"}}
+        ]);
+        let credentials = credentials_of(&rows);
+        assert_eq!(credentials.get("tmdb").map(String::as_str), Some("tmdb-key"));
+        assert_eq!(credentials.get("debrid:torbox").map(String::as_str), Some("tb-key"));
+        assert_eq!(credentials.get("animeskip").map(String::as_str), Some("client"));
+        assert!(!credentials.contains_key("mdblist"));
+        assert_eq!(credentials.len(), 3);
+        assert!(credentials_of(&json!([])).is_empty());
+    }
     use super::*;
 
     #[test]

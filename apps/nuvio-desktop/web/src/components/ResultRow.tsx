@@ -20,7 +20,7 @@ export function ResultRow({ title, addonName, items, onOpen }: Props) {
     <section className="row-section">
       <header className="row-header">
         <h2>{localizeCatalogTitle(title)}</h2>
-        <span className="muted small">{addonLabel(addonName)}</span>
+        {addonName && <span className="muted small">{addonLabel(addonName)}</span>}
         <span className="spacer" />
         <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>
         <button className="icon-btn" aria-label={t("Próximo")} onClick={() => scrollBy(1)}>›</button>

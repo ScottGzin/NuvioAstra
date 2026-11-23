@@ -14,9 +14,11 @@ interface Props {
   onLoaded?(row: HomeRow, items: MetaPreview[]): void;
   /** Genre filter (catalogs of a collection folder). */
   genre?: string | null;
+  /** Set for a TMDB source of a collection folder (its page comes from Rust, not the addon). */
+  tmdb?: { collectionId: string; folderId: string; sourceId: string };
 }
 
-export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
+export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb }: Props) {
   const [ref, inView] = useInView<HTMLElement>();
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,10 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
       if (loading.current) return;
       loading.current = true;
       try {
-        const page = await api.catalogPage(row.key, skip, genre);
+        // TMDB folder sources use a 1-based page number instead of a skip.
+        const page = tmdb
+          ? await api.tmdbSourcePage(tmdb.collectionId, tmdb.folderId, tmdb.sourceId, skip ?? 1)
+          : await api.catalogPage(row.key, skip, genre);
         setItems((prev) => {
           const seen = new Set((prev ?? []).map((i) => i.id));
           return [...(prev ?? []), ...page.items.filter((i) => !seen.has(i.id))];
@@ -42,7 +47,7 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
         loading.current = false;
       }
     },
-    [row, onLoaded, genre],
+    [row, onLoaded, genre, tmdb?.collectionId, tmdb?.folderId, tmdb?.sourceId],
   );
 
   useEffect(() => {

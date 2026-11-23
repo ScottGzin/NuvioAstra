@@ -1,10 +1,10 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, collections, fonts, home, livetv, meta, playback, search};
+use crate::services::{addons, badges, collections, debrid, discover, fonts, home, livetv, mdblist, meta, playback, search, tmdb};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
-use nuvio_core::catalog::CatalogPage;
+use nuvio_core::catalog::{CatalogPage, MetaPreview};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
 use nuvio_store::settings::ProfileSettings;
@@ -44,7 +44,8 @@ pub struct HomeView {
 pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
     let loaded = state.addons.loaded().await?;
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type);
+    let tmdb_available = tmdb::collections_enabled(&state.app_store, loaded.profile);
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type, tmdb_available);
     Ok(HomeView {
         hero_enabled: settings.hero_enabled,
         hero_sources: home::hero_sources(&loaded.manifests, &settings),
@@ -59,11 +60,14 @@ pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<
     let loaded = state.addons.loaded().await?;
     let mut parts = key.splitn(3, ':');
     let (manifest_id, content_type, catalog_id) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let manifest = loaded.manifests.iter().find(|m| m.id == manifest_id).ok_or("addon not enabled")?;
+    // Several installed addons can share a manifest id: take the declared one when it has this
+    // catalog, else any enabled addon that does (`resolveCatalog` in the original).
+    let (manifest, catalog) = collections::resolve_catalog(&loaded.manifests, manifest_id, content_type, catalog_id)
+        .ok_or("catalog not found")?;
     let mut page = state
         .addons
         .client
-        .fetch_catalog_page(manifest, content_type, catalog_id, genre.as_deref().filter(|g| !g.trim().is_empty()), skip)
+        .fetch_catalog_page(manifest, &catalog.content_type, &catalog.id, genre.as_deref().filter(|g| !g.trim().is_empty()), skip)
         .await
         .map_err(|e| e.to_string())?;
     // `hideUnreleasedContent` (Settings → Início); paging still follows the raw page size.
@@ -78,6 +82,72 @@ pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<
 pub async fn search_all(state: State<'_, AppState>, query: String) -> Result<Vec<search::SearchSection>, String> {
     let loaded = state.addons.loaded().await?;
     Ok(search::search(&state.addons.client, &loaded.manifests, &query).await)
+}
+
+/// One page of a TMDB collection source (`TmdbCollectionSourceResolver`). The source's kind,
+/// media type, sort and filters are read from the account's copy of the collections, never taken
+/// from the UI; `page` is 1-based, as the original's `skip` for these sources.
+#[tauri::command]
+pub async fn tmdb_source_page(
+    state: State<'_, AppState>,
+    collection_id: String,
+    folder_id: String,
+    source_id: String,
+    page: u32,
+) -> Result<CatalogPage, String> {
+    let loaded = state.addons.loaded().await?;
+    let access = tmdb::access(&state.app_store, loaded.profile).ok_or("Chave da API do TMDB não configurada.")?;
+    let stored = collections::stored(&state.app_store, loaded.profile);
+    let source = collections::tmdb_source(&stored, &collection_id, &folder_id, &source_id).ok_or("Fonte do TMDB não encontrada.")?;
+    tmdb::page(&state.addons.client, &access, &source, page).await
+}
+
+/// Discover picker of the active profile: the addons' listable catalogs, the type options and the
+/// catalog remembered from the last visit (`services::discover`).
+#[tauri::command]
+pub async fn discover_sources(state: State<'_, AppState>) -> Result<discover::View, String> {
+    let loaded = state.addons.loaded().await?;
+    let sources = discover::sources(&loaded.manifests);
+    let saved = state.app_store.discover_selection().map_err(|e| e.to_string())?.remove(&loaded.profile);
+    let selected_key = discover::resolve_catalog(&sources, saved.as_deref(), None).map(|s| s.key.clone());
+    Ok(discover::View { type_options: discover::type_options(&sources), sources, selected_key })
+}
+
+/// Remembers the catalog chosen in Discover for the active profile (`DiscoverSelectionStorage`).
+#[tauri::command]
+pub fn discover_select(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let profile = state.active_profile();
+    state.app_store.set_discover_selection(profile, key).map_err(|e| e.to_string())
+}
+
+/// One Discover page of the catalog `key`, with the original's paging rules: a page that brought
+/// nothing new advances the skip by the raw page size (at most three times in a row), and a full
+/// page paginates even without a `skip` extra. `existing_keys` are the `type:id` of the items
+/// already on screen; `reset` starts a new catalog/genre.
+#[tauri::command]
+pub async fn discover_page(
+    state: State<'_, AppState>,
+    key: String,
+    genre: Option<String>,
+    skip: u32,
+    reset: bool,
+    existing_keys: Vec<String>,
+    duplicate_pages: u32,
+) -> Result<discover::Page, String> {
+    let loaded = state.addons.loaded().await?;
+    let (manifest, catalog) = discover::catalog(&loaded.manifests, &key).ok_or("catalog not found")?;
+    let mut page = state
+        .addons
+        .client
+        .fetch_catalog_page(manifest, &catalog.content_type, &catalog.id, genre.as_deref().filter(|g| !g.trim().is_empty()), Some(skip).filter(|s| *s > 0))
+        .await
+        .map_err(|e| e.to_string())?;
+    // `hideUnreleasedContent`, as on Home; paging still follows the raw page size.
+    if state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home.hide_unreleased_content {
+        let today = home::today_iso();
+        page.items.retain(|item| !home::is_unreleased(item, &today));
+    }
+    Ok(discover::page(catalog.supports_pagination(), skip, reset, &existing_keys, duplicate_pages, page))
 }
 
 /// Search with results as they arrive: `search-part` events (one per catalog with results), then
@@ -98,7 +168,27 @@ pub async fn search_stream(app: tauri::AppHandle, state: State<'_, AppState>, qu
 #[tauri::command]
 pub async fn meta_details(state: State<'_, AppState>, content_type: String, id: String) -> Result<meta::Details, String> {
     let loaded = state.addons.loaded().await?;
-    meta::details(&state.addons.client, &loaded.manifests, &content_type, &id).await
+    let mut details = meta::details(&state.addons.client, &loaded.manifests, &content_type, &id).await?;
+    // Settings → Services → TMDB: fills what the modules are switched on for (the addon's data is
+    // kept where TMDB has nothing). Nothing is fetched when TMDB is off or has no key.
+    let settings = tmdb::settings(&state.app_store, loaded.profile);
+    if let Some(access) = tmdb::access(&state.app_store, loaded.profile) {
+        // A slow TMDB must not hold the details page: after 6 s the addon's data is shown as is.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), tmdb::enrich(&state.addons.client, &access, &settings, &mut details.meta, &id)).await;
+        details.seasons = details.meta.seasons();
+        details.trailer = nuvio_core::meta::select_trailer(&details.meta.trailers).cloned();
+    }
+    // MDBList ratings (the key comes from the Nuvio account); never holds the page for long.
+    let imdb_id = if details.meta.id.starts_with("tt") { details.meta.id.clone() } else { id.clone() };
+    let series = content_type == "series" || details.meta.content_type == "series";
+    details.ratings = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mdblist::ratings(&state.app_store, loaded.profile, &imdb_id, series),
+    )
+    .await
+    .ok()
+    .unwrap_or_default();
+    Ok(details)
 }
 
 #[tauri::command]
@@ -150,9 +240,81 @@ pub async fn livetv_toggle_favorite(state: State<'_, AppState>, key: String) -> 
 
 /// Sources of one title from the enabled addons (cached manifests), asked when the user opens them.
 #[tauri::command]
-pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String) -> Result<Vec<StreamGroup>, String> {
+pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String, refresh: Option<bool>) -> Result<Vec<StreamGroup>, String> {
     let loaded = state.addons.loaded().await?;
-    Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id).await)
+    let debrid = debrid::access(&state.app_store, loaded.profile).is_some();
+    Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), debrid).await)
+}
+
+/// MDBList Ratings settings of the active profile (key never returned).
+#[tauri::command]
+pub fn mdblist_settings(state: State<'_, AppState>) -> mdblist::View {
+    mdblist::view(&state.app_store, state.active_profile())
+}
+
+#[tauri::command]
+pub fn mdblist_settings_set(state: State<'_, AppState>, settings: mdblist::SettingsInput) -> Result<mdblist::View, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let view = mdblist::update(&state.app_store, profile, settings)?;
+    state.request_sync();
+    Ok(view)
+}
+
+/// Connected Services (debrid) of the active profile; the key itself never leaves Rust.
+#[tauri::command]
+pub async fn debrid_settings(state: State<'_, AppState>) -> Result<debrid::View, String> {
+    Ok(debrid::view(&state.app_store, state.active_profile()).await)
+}
+
+/// Saves the Connected Services page (and sends a key entered here with the account's credentials
+/// on the next sync).
+#[tauri::command]
+pub async fn debrid_settings_set(state: State<'_, AppState>, settings: debrid::SettingsInput) -> Result<debrid::View, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let view = debrid::update(&state.app_store, profile, settings).await?;
+    state.request_sync();
+    Ok(view)
+}
+
+/// TMDB settings of the active profile (the key itself never leaves Rust; `apiKeyFromOriginal`
+/// says the original app's key is the one in use).
+#[tauri::command]
+pub fn tmdb_settings(state: State<'_, AppState>) -> tmdb::SettingsView {
+    tmdb::view(&state.app_store, state.active_profile())
+}
+
+/// Saves the TMDB page: the key only when the field was edited (`apiKey` null keeps it, "" clears
+/// Astra's own key so the original app's is used again).
+#[tauri::command]
+pub fn tmdb_settings_set(state: State<'_, AppState>, settings: tmdb::SettingsInput) -> Result<tmdb::SettingsView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    tmdb::update(&state.app_store, profile, settings)
+}
+
+/// "More Like This" of a title: TMDB recommendations (`/movie|tv/{id}/recommendations`), resolved
+/// from the title's `tmdb:<id>`, numeric or IMDb id. Empty when no TMDB key is configured or the
+/// title is unknown to TMDB; unreleased titles are dropped (as the original).
+#[tauri::command]
+pub async fn more_like_this(state: State<'_, AppState>, content_type: String, id: String) -> Result<Vec<MetaPreview>, String> {
+    let loaded = state.addons.loaded().await?;
+    if !tmdb::more_like_this_enabled(&state.app_store, loaded.profile) {
+        return Ok(Vec::new());
+    }
+    let Some(access) = tmdb::access(&state.app_store, loaded.profile) else { return Ok(Vec::new()) };
+    let mut items = tmdb::more_like_this(&state.addons.client, &access, &content_type, &id).await;
+    let today = home::today_iso();
+    items.retain(|item| !home::is_unreleased(item, &today));
+    Ok(items)
+}
+
+/// Badge rules imported in the original app for the active profile (read only). Empty when it never
+/// imported a set: the sources still show each addon's own text.
+#[tauri::command]
+pub fn stream_badge_rules(state: State<'_, AppState>) -> badges::Rules {
+    badges::rules(state.active_profile())
 }
 
 /// Resolves one channel, on click only: just the addon that listed it is asked (no other addon,
@@ -165,7 +327,8 @@ pub async fn livetv_resolve(state: State<'_, AppState>, key: String) -> Result<V
     if owner.is_empty() {
         return Err("the addon of this channel is not enabled".into());
     }
-    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id).await)
+    let debrid = debrid::access(&state.app_store, loaded.profile).is_some();
+    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id, false, debrid).await)
 }
 
 /// Program guide of one channel (see `services::epg`): asked only for the channel the user picked,
@@ -223,7 +386,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
             pin_enabled: false,
         });
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type);
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type, false);
     let catalogs = home::catalog_choices(&loaded.manifests, &settings.home, &collections);
     Ok(SettingsView {
         profile,
@@ -253,7 +416,7 @@ pub async fn settings_set(state: State<'_, AppState>, settings: ProfileSettings,
         // "Restaurar padrões" of Início: the default order is written out (`resetToDefaults`
         // normalizes it), or the account would keep the old one.
         if let Ok(loaded) = state.addons.loaded().await {
-            let views = collections::views(&collections::stored(&state.app_store, profile), &loaded.manifests, before.home.show_catalog_type);
+            let views = collections::views(&collections::stored(&state.app_store, profile), &loaded.manifests, before.home.show_catalog_type, false);
             settings.home.items = home::catalog_choices(&loaded.manifests, &settings.home, &views)
                 .into_iter()
                 .zip(0..)
@@ -469,6 +632,7 @@ mod tests {
             "meta_details", "settings_set", "home_rows", "library_favorite_keys", "library_favorites",
             "library_toggle_favorite", "library_remove_favorite", "library_continue_watching",
             "library_history", "library_remove_history", "library_title_progress",
+            "discover_sources", "discover_select", "discover_page",
         ] {
             let authority = ctx.runtime_authority_mut();
             authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
@@ -486,8 +650,11 @@ mod tests {
         {"id":"tt0200:1:1","title":"Piloto","season":1,"episode":1},
         {"id":"tt0200:1:2","title":"Dois","season":1,"episode":2},
         {"id":"tt0200:2:1","title":"Volta","season":2,"episode":1}]}}"#;
+    const CATALOG: &str = r#"{"metas":[{"id":"tt0100","type":"movie","name":"Filme Teste","releaseInfo":"2021"},
+        {"id":"tt0300","type":"movie","name":"Outro Filme"}]}"#;
 
-    /// Minimal addon over HTTP on 127.0.0.1: serves the two metas, 404 otherwise.
+    /// Minimal addon over HTTP on 127.0.0.1: serves the two metas and the Discover catalog pages
+    /// (the same page again for `skip=2`, for the duplicate-page rule), 404 otherwise.
     fn addon_server() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -506,6 +673,8 @@ mod tests {
                 let (status, body) = match path {
                     "/meta/movie/tt0100.json" => ("200 OK", MOVIE),
                     "/meta/series/tt0200.json" => ("200 OK", SERIES),
+                    "/catalog/movie/top.json" | "/catalog/movie/top/skip=2.json" => ("200 OK", CATALOG),
+                    "/catalog/movie/genres/genre=Action.json" => ("200 OK", CATALOG),
                     _ => ("404 Not Found", "{}"),
                 };
                 let mut out = stream;
@@ -519,7 +688,10 @@ mod tests {
         let manifest_url = addon_server();
         let manifest = nuvio_core::manifest::parse_manifest(
             &manifest_url,
-            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[]}"#,
+            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[
+                {"type":"movie","id":"top","name":"Populares","extra":[{"name":"skip"}]},
+                {"type":"movie","id":"genres","name":"Por gênero","extra":[{"name":"genre","isRequired":true,"options":["Action","Drama"]}]},
+                {"type":"movie","id":"search","name":"Busca","extra":[{"name":"search","isRequired":true}]}]}"#,
         )
         .unwrap();
         let client = AddonClient::new().unwrap();
@@ -566,7 +738,10 @@ mod tests {
                 library_continue_watching,
                 library_history,
                 library_remove_history,
-                library_title_progress
+                library_title_progress,
+                discover_sources,
+                discover_select,
+                discover_page
             ])
             .build(mock_ctx())
             .unwrap();
@@ -695,5 +870,69 @@ mod tests {
         assert_eq!(call(&window, "library_remove_history", json!({ "key": "tt0200_s1e2" })).unwrap(), true);
         assert_eq!(call(&window, "library_continue_watching", json!({}))
             .unwrap()[0]["key"], "tt0200_s1e1");
+    }
+
+    /// Discover commands with the JSON the UI sends (`web/src/screens/Search.tsx`): the listable
+    /// catalogs of the enabled addons, the catalog remembered per profile, and a page with the
+    /// original's duplicate-page rule.
+    #[test]
+    fn discover_commands_contract() {
+        let (_app, window, dir) = app("discover");
+
+        let view = call(&window, "discover_sources", json!({})).expect("discover sources");
+        let sources = view["sources"].as_array().unwrap();
+        let keys: Vec<String> = sources.iter().map(|s| s["key"].as_str().unwrap().to_string()).collect();
+        assert_eq!(keys.len(), 2, "catalogs with a required search are not listed");
+        assert_eq!(sources[0]["catalogId"], "top");
+        assert!(keys[0].ends_with(":movie:top"), "{keys:?}");
+        assert_eq!(sources[1]["catalogId"], "genres");
+        assert_eq!(view["typeOptions"], json!(["movie"]));
+        assert_eq!(view["selectedKey"], json!(keys[0]));
+        assert_eq!(view["sources"][1]["genreOptions"], json!(["Action", "Drama"]));
+        assert_eq!(view["sources"][1]["defaultGenre"], "Action");
+        assert!(!view.to_string().contains("/manifest.json"), "no addon URL reaches the UI: {view}");
+
+        // The chosen catalog is remembered per profile.
+        call(&window, "discover_select", json!({ "key": keys[1] })).expect("select");
+        let store = nuvio_store::nextgen::AppStore::open(&dir).unwrap();
+        assert_eq!(store.discover_selection().unwrap()[&1], keys[1]);
+        assert_eq!(call(&window, "discover_sources", json!({})).unwrap()["selectedKey"], json!(keys[1]));
+
+        // First page: two items, the catalog paginates (skip extra), next skip is the raw page size.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[0], "genre": Value::Null, "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .expect("first page");
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["nextSkip"], 2);
+        assert_eq!(page["duplicatePages"], 0);
+        assert_eq!(page["supportsPagination"], true);
+
+        // The addon answered the same page again: it advances the skip and counts one duplicate.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[0], "genre": Value::Null, "skip": 2, "reset": false,
+            "existingKeys": ["movie:tt0100", "movie:tt0300"], "duplicatePages": 0
+        }))
+        .unwrap();
+        assert_eq!(page["duplicatePages"], 1);
+        assert_eq!(page["nextSkip"], 4, "duplicate page advanced by the raw page size");
+
+        // A genre-filtered catalog is asked with the genre in the URL.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[1], "genre": "Action", "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .expect("genre page");
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["nextSkip"], Value::Null, "no skip extra and a short page: nothing more");
+
+        // A catalog that is no longer installed is refused.
+        let gone = call(&window, "discover_page", json!({
+            "key": "0000000000000000:movie:gone", "genre": Value::Null, "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .unwrap_err();
+        assert!(gone.as_str().unwrap().contains("catalog not found"), "{gone}");
     }
 }

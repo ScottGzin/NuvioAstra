@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import {
   AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon,
   PendingLine as PendingIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
+  ServicesLine as ServicesIcon,
 } from "../components/SidebarIcons";
 import { api, errorText, onRemoteSettingsChanged } from "../api";
 import { AccountPanel } from "../components/AccountPanel";
@@ -20,11 +21,11 @@ import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
-import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
+import type { CatalogChoice, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "account", label: "Conta", icon: <AccountIcon /> },
@@ -34,12 +35,20 @@ const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
   { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
   { id: "audio", label: "Áudio", icon: <AudioIcon /> },
   { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
+  { id: "services", label: "Serviços", icon: <ServicesIcon /> },
   { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
   { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
   { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
 ];
 
 type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: string } | { kind: "error"; message: string };
+
+// Languages offered by the TMDB page (the original accepts any BCP-47 tag; these are the usual ones).
+const TMDB_LANGUAGES: [string, string][] = [
+  ["en", "English"], ["en-US", "English (US)"], ["pt-BR", "Português (Brasil)"], ["ar", "العربية"],
+  ["es-ES", "Español"], ["fr-FR", "Français"], ["de-DE", "Deutsch"], ["tr-TR", "Türkçe"],
+  ["hi-IN", "हिन्दी"], ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["zh-CN", "中文"],
+];
 
 // ---------- small controls ----------
 
@@ -64,6 +73,20 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("home");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  // Services → Integrations → TMDB (the only integration ported so far).
+  const [servicePage, setServicePage] = useState<"integrations" | "tmdb" | "debrid" | "mdblist">("integrations");
+  const [tmdb, setTmdb] = useState<TmdbSettingsView | null>(null);
+  const [tmdbError, setTmdbError] = useState<string | null>(null);
+  const [tmdbStatus, setTmdbStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [debrid, setDebrid] = useState<DebridSettingsView | null>(null);
+  const [debridError, setDebridError] = useState<string | null>(null);
+  const [debridStatus, setDebridStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [torboxDraft, setTorboxDraft] = useState("");
+  const [mdblist, setMdblist] = useState<MdblistSettingsView | null>(null);
+  const [mdblistError, setMdblistError] = useState<string | null>(null);
+  const [mdblistStatus, setMdblistStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [mdblistKeyDraft, setMdblistKeyDraft] = useState("");
   const timer = useRef<number>(0);
   const pending = useRef<{ next: ProfileSettings; note?: string } | null>(null);
   /** Latest settings, including changes not rendered yet (several quick changes in a row). */
@@ -85,6 +108,96 @@ export function Settings() {
       (e) => setError(errorText(e)),
     );
   }, []);
+
+  // TMDB settings of the profile, loaded with the Services page.
+  useEffect(() => {
+    if (section !== "services") return;
+    let cancelled = false;
+    setTmdbError(null);
+    api.tmdbSettings().then(
+      (value) => !cancelled && setTmdb(value),
+      (e) => !cancelled && setTmdbError(errorText(e)),
+    );
+    api.debridSettings().then(
+      (value) => !cancelled && setDebrid(value),
+      (e) => !cancelled && setDebridError(errorText(e)),
+    );
+    api.mdblistSettings().then(
+      (value) => !cancelled && setMdblist(value),
+      (e) => !cancelled && setMdblistError(errorText(e)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [section, view?.profile.index]);
+
+  const saveTmdb = useCallback(async (change: Partial<TmdbSettingsInput>) => {
+    if (!tmdb) return;
+    setTmdbStatus("saving");
+    try {
+      const saved = await api.tmdbSettingsSet({
+        enabled: tmdb.enabled,
+        language: tmdb.language,
+        useMoreLikeThis: tmdb.useMoreLikeThis,
+        useCollections: tmdb.useCollections,
+        useArtwork: tmdb.useArtwork,
+        useBasicInfo: tmdb.useBasicInfo,
+        useDetails: tmdb.useDetails,
+        useCredits: tmdb.useCredits,
+        useEpisodes: tmdb.useEpisodes,
+        useTrailers: tmdb.useTrailers,
+        ...change,
+      });
+      setTmdb(saved);
+      setTmdbError(null);
+      setTmdbStatus("saved");
+      window.setTimeout(() => setTmdbStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setTmdbStatus("error");
+      setTmdbError(errorText(e));
+    }
+  }, [tmdb]);
+
+  const saveDebrid = useCallback(async (change: Partial<DebridSettingsInput>) => {
+    if (!debrid) return;
+    setDebridStatus("saving");
+    try {
+      const saved = await api.debridSettingsSet({ enabled: debrid.enabled, ...change });
+      setDebrid(saved);
+      setDebridError(null);
+      setDebridStatus("saved");
+      window.setTimeout(() => setDebridStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setDebridStatus("error");
+      setDebridError(errorText(e));
+    }
+  }, [debrid]);
+
+  const saveMdblist = useCallback(async (change: Partial<MdblistSettingsInput>) => {
+    if (!mdblist) return;
+    setMdblistStatus("saving");
+    try {
+      const saved = await api.mdblistSettingsSet({
+        enabled: mdblist.enabled,
+        useImdb: mdblist.useImdb,
+        useTmdb: mdblist.useTmdb,
+        useTomatoes: mdblist.useTomatoes,
+        useMetacritic: mdblist.useMetacritic,
+        useTrakt: mdblist.useTrakt,
+        useLetterboxd: mdblist.useLetterboxd,
+        useAudience: mdblist.useAudience,
+        useMal: mdblist.useMal,
+        ...change,
+      });
+      setMdblist(saved);
+      setMdblistError(null);
+      setMdblistStatus("saved");
+      window.setTimeout(() => setMdblistStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setMdblistStatus("error");
+      setMdblistError(errorText(e));
+    }
+  }, [mdblist]);
 
   // The account sent something: shown at once. An edit still waiting keeps the screen as it is;
   // its save writes only that edit and returns both.
@@ -290,6 +403,230 @@ export function Settings() {
             </Row>
           </div>
         )}
+
+        {section === "services" && (servicePage === "integrations" ? (
+          <div className="settings-group">
+            <button className="integration-row" onClick={() => setServicePage("tmdb")} data-service="tmdb">
+              <span className="integration-icon tmdb">TMDB</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Enriquecimento TMDB")}</span>
+                <span className="muted small">{t("Controles de enriquecimento de metadados")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" onClick={() => setServicePage("mdblist")} data-service="mdblist">
+              <span className="integration-icon mdb">M</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("MDBList Ratings")}</span>
+                <span className="muted small">{t("Avaliações externas")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" onClick={() => setServicePage("debrid")} data-service="debrid">
+              <span className="integration-icon link">↔</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Serviços conectados")}</span>
+                <span className="muted small">{t("TorBox, Premiumize e Real-Debrid (debrid)")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          </div>
+        ) : servicePage === "mdblist" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <h2>{t("MDBList Ratings")}</h2>
+              <span className={`save-status ${mdblistStatus}`} role="status" data-testid="mdblist-save-status">
+                {mdblistStatus === "saving" && t("Salvando…")}
+                {mdblistStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {mdblistError && <div className="row-error">{mdblistError}</div>}
+            {!mdblist ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row
+                  title={t("Ativar avaliações externas")}
+                  description={
+                    mdblist.apiKeyFromAccount
+                      ? t("Chave sincronizada da conta Nuvio.")
+                      : mdblist.apiKeyFromOriginal
+                        ? t("Chave do Nuvio original em uso.")
+                        : mdblist.apiKeySet
+                          ? t("Uma chave está configurada.")
+                          : t("Sem chave: as avaliações ficam indisponíveis.")
+                  }
+                >
+                  <Toggle label={t("Ativar avaliações externas")} checked={mdblist.enabled} onChange={(v) => void saveMdblist({ enabled: v })} />
+                </Row>
+                <Row title={t("Chave do MDBList")} description={t("Chave da API do MDBList (mdblist.com).")}>
+                  <span className="tmdb-key">
+                    <input
+                      type="password"
+                      value={mdblistKeyDraft}
+                      placeholder={mdblist.apiKeySet ? "••••••••" : t("Cole a chave")}
+                      aria-label={t("Chave do MDBList")}
+                      onChange={(e) => setMdblistKeyDraft(e.target.value)}
+                    />
+                    <button className="ghost" disabled={!mdblistKeyDraft.trim()} onClick={() => { const key = mdblistKeyDraft.trim(); if (key) { setMdblistKeyDraft(""); void saveMdblist({ apiKey: key }); } }}>
+                      {t("Salvar")}
+                    </button>
+                  </span>
+                </Row>
+                {([
+                  ["useImdb", "IMDb"],
+                  ["useTmdb", "TMDB"],
+                  ["useTomatoes", "Rotten Tomatoes"],
+                  ["useMetacritic", "Metacritic"],
+                  ["useTrakt", "Trakt"],
+                  ["useLetterboxd", "Letterboxd"],
+                  ["useAudience", "Audience"],
+                  ["useMal", "MyAnimeList"],
+                ] as const).map(([key, label]) => (
+                  <Row key={key} title={label}>
+                    <Toggle label={label} checked={mdblist[key]} disabled={!mdblist.enabled} onChange={(v) => void saveMdblist({ [key]: v } as Partial<MdblistSettingsInput>)} />
+                  </Row>
+                ))}
+                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio; as avaliações aparecem no ecrã de detalhes.")}</p>
+              </div>
+            )}
+          </>
+        ) : servicePage === "debrid" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <h2>{t("Serviços conectados")}</h2>
+              <span className={`save-status ${debridStatus}`} role="status" data-testid="debrid-save-status">
+                {debridStatus === "saving" && t("Salvando…")}
+                {debridStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {debridError && <div className="row-error">{debridError}</div>}
+            {!debrid ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row title={t("Ativar resolução de links")} description={t("Resolve as fontes de debrid para uma ligação direta antes de reproduzir.")}>
+                  <Toggle label={t("Ativar resolução de links")} checked={debrid.enabled} disabled={!debrid.torboxConnected} onChange={(v) => void saveDebrid({ enabled: v })} />
+                </Row>
+                <Row
+                  title="TorBox"
+                  description={
+                    debrid.torboxFromAccount
+                      ? t("Chave sincronizada da conta Nuvio.")
+                      : debrid.torboxFromOriginal
+                        ? t("Chave do Nuvio original em uso.")
+                        : debrid.torboxConnected
+                          ? t("Ligado{account}.", { account: debrid.account ? ` · ${debrid.account}` : "" })
+                          : t("Sem chave: ligue o TorBox na conta Nuvio ou cole uma chave.")
+                  }
+                >
+                  <span className="tmdb-key">
+                    <input
+                      type="password"
+                      value={torboxDraft}
+                      placeholder={debrid.torboxConnected ? "••••••••" : t("Cole a chave")}
+                      aria-label="TorBox"
+                      onChange={(e) => setTorboxDraft(e.target.value)}
+                    />
+                    <button className="ghost" disabled={!torboxDraft.trim()} onClick={() => { const key = torboxDraft.trim(); if (key) { setTorboxDraft(""); void saveDebrid({ torboxApiKey: key }); } }}>
+                      {t("Salvar")}
+                    </button>
+                  </span>
+                </Row>
+                <div className="integration-row disabled" aria-disabled="true">
+                  <span className="integration-text">
+                    <span className="setting-title">Premiumize</span>
+                    <span className="muted small">{t("Requer o client ID do dispositivo, que não está no repositório público.")}</span>
+                  </span>
+                  <span className="integration-tag">{t("Ainda não disponível")}</span>
+                </div>
+                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio (ProviderCredentialSync) por perfil; o TorBox é o serviço de debrid suportado nesta versão.")}</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("integrations")}>← {t("Integrações")}</button>
+              <h2>{t("Enriquecimento TMDB")}</h2>
+              <span className={`save-status ${tmdbStatus}`} role="status" data-testid="tmdb-save-status">
+                {tmdbStatus === "saving" && t("Salvando…")}
+                {tmdbStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {tmdbError && <div className="row-error">{tmdbError}</div>}
+            {!tmdb ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row title={t("Ativar enriquecimento TMDB")} description={t("Fontes TMDB nas coleções e “Mais como este”.")}>
+                  <Toggle label={t("Ativar enriquecimento TMDB")} checked={tmdb.enabled} onChange={(v) => void saveTmdb({ enabled: v })} />
+                </Row>
+                <Row
+                  title={t("Chave da API do TMDB")}
+                  description={
+                    tmdb.apiKeyFromAccount
+                      ? t("Chave sincronizada da conta Nuvio.")
+                      : tmdb.apiKeyFromOriginal
+                        ? t("A chave do Nuvio original está em uso.")
+                        : tmdb.apiKeySet
+                        ? t("Uma chave está configurada.")
+                        : t("Sem chave: os recursos TMDB ficam indisponíveis.")
+                  }
+                >
+                  <span className="tmdb-key">
+                    <input
+                      type="password"
+                      value={apiKeyDraft}
+                      placeholder={tmdb.apiKeySet ? "••••••••" : t("Cole a chave")}
+                      aria-label={t("Chave da API do TMDB")}
+                      onChange={(e) => setApiKeyDraft(e.target.value)}
+                    />
+                    <button className="ghost" disabled={!apiKeyDraft.trim()} onClick={() => { const key = apiKeyDraft.trim(); if (key) { setApiKeyDraft(""); void saveTmdb({ apiKey: key }); } }}>
+                      {t("Salvar")}
+                    </button>
+                    {tmdb.apiKeySet && !tmdb.apiKeyFromOriginal && (
+                      <button className="ghost" onClick={() => void saveTmdb({ apiKey: "" })}>{t("Remover")}</button>
+                    )}
+                  </span>
+                </Row>
+                <Row title={t("Idioma preferido")} description={t("Idioma dos títulos e sinopses do TMDB.")}>
+                  <select aria-label={t("Idioma preferido")} value={tmdb.language} onChange={(e) => void saveTmdb({ language: e.target.value })}>
+                    {!TMDB_LANGUAGES.some(([code]) => code === tmdb.language) && <option value={tmdb.language}>{tmdb.language}</option>}
+                    {TMDB_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+                  </select>
+                </Row>
+                <Row title={t("Imagens (arte)")} description={t("Cartazes, fundos e logotipos do TMDB.")}>
+                  <Toggle label={t("Imagens (arte)")} checked={tmdb.useArtwork} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useArtwork: v })} />
+                </Row>
+                <Row title={t("Informações básicas")} description={t("Título, sinopse, avaliação e géneros.")}>
+                  <Toggle label={t("Informações básicas")} checked={tmdb.useBasicInfo} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useBasicInfo: v })} />
+                </Row>
+                <Row title={t("Detalhes")} description={t("Estado, classificação etária, duração, país e idioma.")}>
+                  <Toggle label={t("Detalhes")} checked={tmdb.useDetails} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useDetails: v })} />
+                </Row>
+                <Row title={t("Elenco e equipa")} description={t("Elenco, realização e argumento do TMDB.")}>
+                  <Toggle label={t("Elenco e equipa")} checked={tmdb.useCredits} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useCredits: v })} />
+                </Row>
+                <Row title={t("Episódios")} description={t("Títulos, sinopses e imagens dos episódios.")}>
+                  <Toggle label={t("Episódios")} checked={tmdb.useEpisodes} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useEpisodes: v })} />
+                </Row>
+                <Row title={t("Trailers")} description={t("Trailers do TMDB no ecrã de detalhes.")}>
+                  <Toggle label={t("Trailers")} checked={tmdb.useTrailers} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useTrailers: v })} />
+                </Row>
+                <Row title={t("Mais como este")} description={t("Recomendações do TMDB no ecrã de detalhes.")}>
+                  <Toggle label={t("Mais como este")} checked={tmdb.useMoreLikeThis} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useMoreLikeThis: v })} />
+                </Row>
+                <Row title={t("Fontes TMDB nas coleções")} description={t("Catálogos TMDB dos folders das coleções do perfil.")}>
+                  <Toggle label={t("Fontes TMDB nas coleções")} checked={tmdb.useCollections} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useCollections: v })} />
+                </Row>
+                <p className="muted small settings-note">{t("Os módulos de produtoras, redes, cartazes de temporada e coleções do TMDB ainda não foram portados.")}</p>
+              </div>
+            )}
+          </>
+        ))}
 
         {section === "data" && (
           <div className="settings-group">

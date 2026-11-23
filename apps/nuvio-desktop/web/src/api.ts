@@ -12,6 +12,15 @@ import type {
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
+  DiscoverPage, DiscoverView,
+  StreamBadgeRules,
+  TmdbSettingsInput,
+  TmdbSettingsView,
+  DebridSettingsInput,
+  DebridSettingsView,
+  MdblistSettingsInput,
+  MdblistSettingsView,
+  MetaPreview,
   TitleProgress,
 } from "./types";
 
@@ -82,10 +91,35 @@ export const api = {
   /** `genre`: a collection folder's catalog filtered by genre. */
   catalogPage: (key: string, skip: number | null, genre: string | null = null) =>
     cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre })),
+  /** Discover picker: the addons' listable catalogs + the catalog saved for this profile. */
+  discoverSources: () => invoke<DiscoverView>("discover_sources"),
+  /** Remembers the catalog chosen in Discover (per profile). */
+  discoverSelect: (key: string) => invoke<void>("discover_select", { key }),
+  /** One Discover page. `existingKeys` are `type:id` of the items already shown; `reset` starts a
+   *  new catalog/genre. Paging rules (duplicate pages, full page) are applied by Rust. */
+  discoverPage: (key: string, skip: number, reset: boolean, existingKeys: string[], duplicatePages: number, genre: string | null) =>
+    invoke<DiscoverPage>("discover_page", { key, skip, reset, existingKeys, duplicatePages, genre }),
+  /** One page of a TMDB collection source (`provider: "tmdb"` in a folder); `page` is 1-based. */
+  tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
+    invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
-  streams: (contentType: string, id: string) => invoke<StreamGroup[]>("title_streams", { contentType, id }),
+  streams: (contentType: string, id: string, refresh = false) =>
+    invoke<StreamGroup[]>("title_streams", { contentType, id, refresh }),
+  /** Settings → Services → TMDB (key and language). */
+  tmdbSettings: () => invoke<TmdbSettingsView>("tmdb_settings"),
+  tmdbSettingsSet: (settings: TmdbSettingsInput) => invoke<TmdbSettingsView>("tmdb_settings_set", { settings }),
+  /** Settings → Services → MDBList Ratings. */
+  mdblistSettings: () => invoke<MdblistSettingsView>("mdblist_settings"),
+  mdblistSettingsSet: (settings: MdblistSettingsInput) => invoke<MdblistSettingsView>("mdblist_settings_set", { settings }),
+  /** Settings → Services → Connected Services (debrid). */
+  debridSettings: () => invoke<DebridSettingsView>("debrid_settings"),
+  debridSettingsSet: (settings: DebridSettingsInput) => invoke<DebridSettingsView>("debrid_settings_set", { settings }),
+  /** Badge rules imported in the original app (empty when it has none). */
+  streamBadges: () => invoke<StreamBadgeRules>("stream_badge_rules"),
+  /** TMDB "More Like This" of a title (empty without a TMDB key or when TMDB does not know it). */
+  moreLikeThis: (contentType: string, id: string) => invoke<MetaPreview[]>("more_like_this", { contentType, id }),
   settingsGet: () => invoke<SettingsView>("settings_get"),
   /** Saves and returns what was stored (validated by Rust). `previous`: what was loaded before the
    *  edit, so only the edit is written. `profile`: the one edited. Home changes drop the cached pages. */

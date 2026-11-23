@@ -4,11 +4,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { FavoriteButton } from "../components/FavoriteButton";
+import { ResultRow } from "../components/ResultRow";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -16,13 +17,42 @@ interface Props {
    *  opened from Continue watching / history (selects that movie/episode and resumes). */
   item: MetaRef;
   onBack(): void;
+  /** Opens another title ("More Like This"); the screen remounts for it. */
+  onOpen(item: MetaPreview): void;
+}
+
+/** Short labels of the MDBList sources (`MetaExternalRating` in the original). */
+function ratingSource(source: string): string {
+  switch (source) {
+    case "imdb": return "IMDb";
+    case "tmdb": return "TMDB";
+    case "tomatoes": return "RT";
+    case "metacritic": return "MC";
+    case "trakt": return "Trakt";
+    case "letterboxd": return "LB";
+    case "audience": return "Audience";
+    case "mal": return "MAL";
+    default: return source;
+  }
+}
+
+function ratingValue(rating: { source: string; value: number }): string {
+  switch (rating.source) {
+    case "imdb":
+    case "mal":
+      return ` ${rating.value.toFixed(1)}`;
+    case "letterboxd":
+      return ` ${rating.value.toFixed(1)}/5`;
+    default:
+      return ` ${Math.round(rating.value)}%`;
+  }
 }
 
 function episodeLabel(v: MetaVideo): string {
   return v.season != null && v.episode != null ? t("T{season} E{episode}", { season: v.season, episode: v.episode }) : "";
 }
 
-export function Details({ item, onBack }: Props) {
+export function Details({ item, onBack, onOpen }: Props) {
   const { contentType, id } = item;
   const player = usePlayer();
   const [data, setData] = useState<DetailsData | null>(null);
@@ -33,6 +63,7 @@ export function Details({ item, onBack }: Props) {
   /** Torrent source being started by the P2P engine (before the player opens). */
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [trailerBusy, setTrailerBusy] = useState(false);
+  const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -45,6 +76,19 @@ export function Details({ item, onBack }: Props) {
       cancelled = true;
     };
   }, [id, version]);
+
+  // TMDB recommendations of this title (the original's "More Like This", powered by TMDB).
+  useEffect(() => {
+    let cancelled = false;
+    setMoreLikeThis([]);
+    api.moreLikeThis(contentType, id).then(
+      (items) => !cancelled && setMoreLikeThis(items),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [contentType, id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,8 +116,17 @@ export function Details({ item, onBack }: Props) {
   }, [contentType, id]);
 
   useEffect(() => {
-    // The panel is sticky on the right: keep it in view (series: chosen far down the episode list).
-    if (selected) sources.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // The sources panel is a modal over the details: focus it so Escape and the keyboard work.
+    if (selected) requestAnimationFrame(() => sources.current?.focus());
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
 
   const episodes = useMemo(
@@ -107,7 +160,7 @@ export function Details({ item, onBack }: Props) {
 
   const play = (stream: StreamEntry, prepared = false) => {
     if (!data) return;
-    if (stream.kind === "torrent" && !prepared) {
+    if (stream.kind === "torrent" && !prepared && !stream.debridPlayable) {
       setTorrent(stream);
       return;
     }
@@ -154,6 +207,16 @@ export function Details({ item, onBack }: Props) {
             <div className="meta-line">
               {[m.releaseInfo, m.runtime, m.imdbRating && `★ ${m.imdbRating}`, m.ageRating].filter(Boolean).join("   ")}
             </div>
+            {data.ratings.length > 0 && (
+              <div className="external-ratings" aria-label={t("Avaliações externas")}>
+                {data.ratings.map((rating) => (
+                  <span key={rating.source} className={`rating-chip ${rating.certified ? "certified" : ""}`} title={rating.source}>
+                    <b>{ratingSource(rating.source)}</b>
+                    {ratingValue(rating)}
+                  </span>
+                ))}
+              </div>
+            )}
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
             {m.description && <p className="details-desc">{m.description}</p>}
             {m.director.length > 0 && <div className="muted">{t("Direção:")} {m.director.join(", ")}</div>}
@@ -255,10 +318,30 @@ export function Details({ item, onBack }: Props) {
             </div>
           </section>
         )}
+
+        {moreLikeThis.length > 0 && (
+          <section className="details-section more-like-this" data-testid="more-like-this">
+            <ResultRow title={t("Mais como este")} addonName="" items={moreLikeThis} onOpen={onOpen} />
+            <div className="muted small tmdb-credit">{t("Powered by TMDB")}</div>
+          </section>
+        )}
         </div>
 
-        {selected && (
-          <aside className="sources-panel" ref={sources} aria-label={t("Fontes")} data-testid="sources-panel">
+        </div>
+      </div>
+
+      {selected && (
+        <div className="sources-overlay" onClick={() => setSelected(null)}>
+          <aside
+            className="sources-panel"
+            ref={sources}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("Fontes")}
+            data-testid="sources-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header className="sources-header">
               <div>
                 <h2>{t("Fontes")}</h2>
@@ -273,9 +356,8 @@ export function Details({ item, onBack }: Props) {
               <StreamList contentType={m.contentType} id={selected === "movie" ? m.id : selected.id} onPlay={play} />
             </div>
           </aside>
-        )}
         </div>
-      </div>
+      )}
       {torrent && (
         <TorrentStart
           stream={torrent}

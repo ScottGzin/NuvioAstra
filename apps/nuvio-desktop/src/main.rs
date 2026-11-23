@@ -208,7 +208,7 @@ async fn streams_search(
 ///
 /// `progress`: the movie/episode being played (Details, Library), so its position is saved for the
 /// active profile; absent for live TV.
-fn stream_play(
+async fn stream_play(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     key: String,
@@ -217,13 +217,22 @@ fn stream_play(
     previous_finished: Option<bool>,
 ) -> Result<PlayerInfo, String> {
     let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
-    let torrent = match streams::kind_of(&stream) {
-        streams::StreamKind::Direct => false,
-        // Prepared by `torrent_prepare`: the engine's local HTTP route of the selected file.
-        streams::StreamKind::Torrent => true,
-        other => return Err(format!("stream type {other:?} is not playable in this stage")),
+    let kind = streams::kind_of(&stream);
+    // With a debrid service connected, a torrent source is played through it (`LocalTorrentResolve`
+    // in the original): the local P2P engine is not started.
+    let debrid_key = match kind {
+        streams::StreamKind::Torrent | streams::StreamKind::Debrid => {
+            let profile = state.active_profile();
+            services::debrid::access(&state.app_store, profile)
+        }
+        _ => None,
     };
-    let url = if torrent {
+    let torrent = kind == streams::StreamKind::Torrent && debrid_key.is_none();
+    let url = if let Some(debrid_key) = debrid_key {
+        // TorBox (Settings → Services → Connected Services): the addon left the magnet, the app
+        // asks the provider for a direct link (`DirectDebridPlaybackResolver` in the original).
+        services::debrid::resolve_torbox(&debrid_key, &stream).await?
+    } else if torrent {
         p2p::prepared_url(&state, &key)?
     } else {
         stream.playable_direct_url().ok_or("stream has no playable URL")?.to_string()
@@ -532,6 +541,18 @@ fn main() {
             api::app_bootstrap,
             api::home_rows,
             api::catalog_page,
+            api::stream_badge_rules,
+            api::debrid_settings,
+            api::debrid_settings_set,
+            api::mdblist_settings,
+            api::mdblist_settings_set,
+            api::more_like_this,
+            api::tmdb_settings,
+            api::tmdb_settings_set,
+            api::tmdb_source_page,
+            api::discover_sources,
+            api::discover_select,
+            api::discover_page,
             api::search_all,
             api::search_stream,
             api::meta_details,

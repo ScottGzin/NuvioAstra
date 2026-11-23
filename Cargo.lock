@@ -2321,6 +2321,7 @@ dependencies = [
  "nuvio-player",
  "nuvio-store",
  "nuvio-sync",
+ "reqwest",
  "serde",
  "serde_json",
  "tauri",

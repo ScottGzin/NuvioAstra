@@ -240,7 +240,7 @@ mod tests {
             {"id":"c2","title":"Fixa","pinToTop":true,"folders":[{"id":"g","title":"G"}]},
             {"id":"c3","title":"Oculta","folders":[{"id":"h","title":"H"}]}
         ]);
-        let collections = crate::services::collections::views(&stored, &[manifest()], true);
+        let collections = crate::services::collections::views(&stored, &[manifest()], true, false);
         let settings = HomeCatalogSettings {
             items: vec![
                 HomeCatalogPreference { key: "collection_c1".into(), order: 0, ..Default::default() },

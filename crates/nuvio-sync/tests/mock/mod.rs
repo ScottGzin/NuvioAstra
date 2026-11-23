@@ -38,6 +38,8 @@ pub struct Mock {
     pub home: BTreeMap<i64, Value>,
     /// `settings_json` of the `desktop` blob per profile (`sync_pull_profile_settings_blob`).
     pub blobs: BTreeMap<i64, Value>,
+    /// Rows of `sync_pull_provider_credentials` per profile.
+    pub provider_credentials: BTreeMap<i64, Vec<Value>>,
     pub pins: BTreeMap<i64, String>,
     pub pin_failures: BTreeMap<i64, u32>,
     pub origins: Vec<String>,
@@ -222,6 +224,14 @@ impl Mock {
                 assert_eq!(p["p_platform"], "desktop");
                 assert!(p["p_origin_client_id"].is_string());
                 self.blobs.insert(profile, p["p_settings_json"].clone());
+                Value::Null
+            }
+            "sync_pull_provider_credentials" => {
+                Value::Array(self.provider_credentials.get(&profile).cloned().unwrap_or_default())
+            }
+            "sync_push_provider_credentials" => {
+                assert!(p["p_origin_client_id"].is_string());
+                self.provider_credentials.insert(profile, p["p_credentials"].as_array().unwrap().clone());
                 Value::Null
             }
             "sync_push_addons" => {

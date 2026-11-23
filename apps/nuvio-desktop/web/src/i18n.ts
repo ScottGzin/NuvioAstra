@@ -96,6 +96,21 @@ export function localizeCatalogTitle(title: string): string {
   });
 }
 
+/** Content type as the original's `localizedMediaTypeLabel` shows it in the Discover picker. */
+export function mediaTypeLabel(contentType: string): string {
+  switch (contentType.trim().toLowerCase()) {
+    case "movie": return t("Filmes");
+    case "series": return t("Séries");
+    case "anime": return t("Anime");
+    case "channel": return t("Canais");
+    case "tv": return t("TV");
+    default: {
+      const type = contentType.trim();
+      return type ? type[0].toUpperCase() + type.slice(1) : "";
+    }
+  }
+}
+
 export const LANGUAGES_UI: [Lang, string][] = [
   ["pt", "Português"],
   ["en", "English"],

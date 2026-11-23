@@ -72,12 +72,21 @@ impl Default for StoredFolder {
 #[derive(Debug, Clone, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct StoredSource {
+    id: Option<String>,
     provider: Option<String>,
     addon_id: Option<String>,
     #[serde(rename = "type")]
     content_type: Option<String>,
     catalog_id: Option<String>,
     genre: Option<String>,
+    /// TMDB sources: media type, source kind, sort and discover filters.
+    media_type: Option<String>,
+    tmdb_source_type: Option<String>,
+    sort_by: Option<String>,
+    tmdb_id: Option<i64>,
+    filters: Option<super::tmdb::Filters>,
+    name: Option<String>,
+    title: Option<String>,
 }
 
 // ---------------------------------------------------------------- what the interface gets
@@ -119,8 +128,13 @@ pub struct FolderView {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderSource {
-    /// Catalog key `<manifestId>:<type>:<catalogId>` (as the Home rows).
+    /// `addon` (a catalog of an installed addon) or `tmdb` (a discover query resolved in Rust).
+    pub provider: String,
+    /// Catalog key `<manifestId>:<type>:<catalogId>` (addon sources, as the Home rows).
     pub key: String,
+    /// Stored source id of a TMDB source (the page is asked with the collection and folder ids).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_id: Option<String>,
     pub genre: Option<String>,
     pub label: String,
     pub addon_name: String,
@@ -168,30 +182,71 @@ fn find_catalog<'a>(catalogs: &'a [AddonCatalog], content_type: &str, catalog_id
         .or_else(|| catalogs.iter().find(|c| c.id == short && c.content_type == content_type))
 }
 
-/// `findCollectionCatalog`: the declared addon, then any enabled addon with the same catalog.
-fn resolve<'a>(manifests: &'a [AddonManifest], addon_id: &str, content_type: &str, catalog_id: &str) -> Option<(&'a AddonManifest, &'a AddonCatalog)> {
-    manifests
-        .iter()
-        .find(|m| m.id == addon_id)
-        .and_then(|m| find_catalog(&m.catalogs, content_type, catalog_id).map(|c| (m, c)))
-        .or_else(|| manifests.iter().find_map(|m| m.catalogs.iter().find(|c| c.id == catalog_id && c.content_type == content_type).map(|c| (m, c))))
+/// `findCollectionCatalog`: a catalog of the declared addon when it still exists, else any enabled
+/// addon with the same catalog. Several installed manifests can share an id (more than one
+/// AIOMetadata configuration, for instance), so every manifest with that id is searched, not only
+/// the first one.
+pub fn resolve_catalog<'a>(
+    manifests: &'a [AddonManifest],
+    manifest_id: &str,
+    content_type: &str,
+    catalog_id: &str,
+) -> Option<(&'a AddonManifest, &'a AddonCatalog)> {
+    let find = |m: &'a AddonManifest| find_catalog(&m.catalogs, content_type, catalog_id).map(|c| (m, c));
+    manifests.iter().filter(|m| m.id == manifest_id).find_map(find).or_else(|| manifests.iter().find_map(find))
 }
 
-fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_type: bool) -> FolderView {
+fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_type: bool, collection_id: &str, tmdb_available: bool) -> FolderView {
     let sources = if folder.sources.is_empty() { &folder.catalog_sources } else { &folder.sources };
     let mut resolved = Vec::new();
     let mut skipped = 0;
     for source in sources {
         let provider = clean(&source.provider).unwrap_or_else(|| "addon".into());
+        if provider.eq_ignore_ascii_case("tmdb") {
+            let Some(source_id) = clean(&source.id) else {
+                skipped += 1;
+                continue;
+            };
+            let source_type = clean(&source.tmdb_source_type).unwrap_or_else(|| "DISCOVER".into());
+            // Without a TMDB key no TMDB source is listed (as before).
+            if !tmdb_available || !super::tmdb::supported(&source_type) {
+                skipped += 1;
+                continue;
+            }
+            let media_type = if source_type.eq_ignore_ascii_case("NETWORK") {
+                super::tmdb::MediaType::Tv
+            } else {
+                super::tmdb::MediaType::parse(source.media_type.as_deref())
+            };
+            let name = clean(&source.title)
+                .or_else(|| clean(&source.name))
+                .or_else(|| clean(&source.genre))
+                .unwrap_or_else(|| "TMDB".into());
+            let content_type = media_type.content_type();
+            // The original's TMDB tabs show the source title only (no " - Movies" suffix).
+            resolved.push(FolderSource {
+                provider: "tmdb".into(),
+                key: format!("tmdb:{collection_id}:{}:{source_id}", folder.id),
+                source_id: Some(source_id),
+                genre: None,
+                label: name,
+                addon_name: "TMDB".into(),
+                content_type: content_type.into(),
+                // The original pages discover, lists, networks and companies; not a collection or a
+                // person's credits.
+                supports_pagination: !matches!(source_type.to_uppercase().as_str(), "COLLECTION" | "PERSON" | "DIRECTOR"),
+            });
+            continue;
+        }
+        if provider.eq_ignore_ascii_case("trakt") {
+            skipped += 1;
+            continue;
+        }
         let (Some(addon_id), Some(content_type), Some(catalog_id)) = (clean(&source.addon_id), clean(&source.content_type), clean(&source.catalog_id)) else {
             skipped += 1;
             continue;
         };
-        if provider.eq_ignore_ascii_case("tmdb") || provider.eq_ignore_ascii_case("trakt") {
-            skipped += 1;
-            continue;
-        }
-        let Some((manifest, catalog)) = resolve(manifests, &addon_id, &content_type, &catalog_id) else {
+        let Some((manifest, catalog)) = resolve_catalog(manifests, &addon_id, &content_type, &catalog_id) else {
             skipped += 1;
             continue;
         };
@@ -203,7 +258,9 @@ fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_
         };
         let label = if show_catalog_type { format!("{name} - {}", media_type_label(&catalog.content_type)) } else { name };
         resolved.push(FolderSource {
+            provider: "addon".into(),
             key: format!("{}:{}:{}", manifest.id, catalog.content_type, catalog.id),
+            source_id: None,
             genre,
             label,
             addon_name: manifest.name.clone(),
@@ -233,13 +290,41 @@ fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_
     }
 }
 
+/// The stored TMDB source behind a folder tab (`tmdb_source_page`): its kind, media type, sort and
+/// discover filters, taken from the account's copy of the collections (never from the UI).
+pub fn tmdb_source(value: &Value, collection_id: &str, folder_id: &str, source_id: &str) -> Option<super::tmdb::Source> {
+    let collection = parse(value).into_iter().find(|c| c.id == collection_id)?;
+    let folder = collection.folders.iter().find(|f| f.id == folder_id)?;
+    let sources = if folder.sources.is_empty() { &folder.catalog_sources } else { &folder.sources };
+    let source = sources.iter().find(|s| clean(&s.id).as_deref() == Some(source_id))?;
+    if !clean(&source.provider).is_some_and(|p| p.eq_ignore_ascii_case("tmdb")) {
+        return None;
+    }
+    let source_type = clean(&source.tmdb_source_type).unwrap_or_else(|| "DISCOVER".into());
+    if !super::tmdb::supported(&source_type) {
+        return None;
+    }
+    let media_type = if source_type.eq_ignore_ascii_case("NETWORK") {
+        super::tmdb::MediaType::Tv
+    } else {
+        super::tmdb::MediaType::parse(source.media_type.as_deref())
+    };
+    Some(super::tmdb::Source {
+        source_type,
+        media_type,
+        sort_by: clean(&source.sort_by),
+        tmdb_id: source.tmdb_id,
+        filters: source.filters.clone().unwrap_or_default(),
+    })
+}
+
 /// Collections that can appear on Home (at least one folder), in the stored order.
-pub fn views(value: &Value, manifests: &[AddonManifest], show_catalog_type: bool) -> Vec<CollectionView> {
+pub fn views(value: &Value, manifests: &[AddonManifest], show_catalog_type: bool, tmdb_available: bool) -> Vec<CollectionView> {
     parse(value)
         .into_iter()
         .filter(|c| !c.folders.is_empty())
         .map(|c| CollectionView {
-            folders: c.folders.iter().filter(|f| !f.id.trim().is_empty()).map(|f| folder_view(f, manifests, show_catalog_type)).collect(),
+            folders: c.folders.iter().filter(|f| !f.id.trim().is_empty()).map(|f| folder_view(f, manifests, show_catalog_type, &c.id, tmdb_available)).collect(),
             id: c.id,
             title: c.title,
             backdrop: clean(&c.backdrop_image_url),
@@ -292,7 +377,7 @@ mod tests {
             {"title":"Sem id","folders":[{"id":"y","title":"y"}]},
             "lixo"
         ]);
-        let views = views(&stored, &manifests(), true);
+        let views = views(&stored, &manifests(), true, false);
         assert_eq!(views.len(), 1);
         let c = &views[0];
         assert_eq!((c.view_mode.as_str(), c.show_all_tab, c.pin_to_top), ("TABBED_GRID", true, false));
@@ -310,5 +395,84 @@ mod tests {
         assert_eq!(f2.image.as_deref(), Some("https://img/a.jpg"), "GIF turned off in the folder");
         assert_eq!(f2.sources[0].genre, None, "\"None\" is no genre");
         assert_eq!(f2.shape, "poster");
+    }
+
+    /// TMDB sources of a folder (the Netflix tabs of "Streaming Services", the lists of Actors and
+    /// Directors, the parts of Film Collections): listed when the profile has a TMDB key.
+    #[test]
+    fn tmdb_sources_become_folder_tabs_when_a_key_is_configured() {
+        let stored = json!([{"id":"collection-1","title":"Services","folders":[{"id":"folder-1","title":"Netflix",
+            "sources":[
+                {"id":"src-1","provider":"tmdb","mediaType":"TV","tmdbSourceType":"DISCOVER","sortBy":"popularity.desc",
+                 "name":"New Series","title":"New Series","genre":"New Series",
+                 "filters":{"withoutGenres":"16,10764","watchRegion":"US","withWatchProviders":"8|1796"}},
+                {"id":"src-2","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"NETWORK","tmdbId":213,"title":"Netflix"},
+                {"id":"src-3","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"COLLECTION","tmdbId":1,"title":"Saga"},
+                {"id":"src-4","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"LIST","tmdbId":8659010,"sortBy":"vote_average.desc","title":"Top Rated"}]}]}]);
+        let with_key = views(&stored, &[], true, true);
+        let tabs: Vec<_> = with_key[0].folders[0]
+            .sources
+            .iter()
+            .map(|s| (s.provider.as_str(), s.label.as_str(), s.content_type.as_str(), s.source_id.as_deref()))
+            .collect();
+        assert_eq!(
+            tabs,
+            vec![
+                ("tmdb", "New Series", "series", Some("src-1")),
+                ("tmdb", "Netflix", "series", Some("src-2")),
+                ("tmdb", "Saga", "movie", Some("src-3")),
+                ("tmdb", "Top Rated", "movie", Some("src-4")),
+            ]
+        );
+        assert_eq!(with_key[0].folders[0].skipped_sources, 0);
+
+        // Without a key the tabs are not listed (as before).
+        assert!(views(&stored, &[], true, false)[0].folders[0].sources.is_empty());
+
+        let source = tmdb_source(&stored, "collection-1", "folder-1", "src-1").expect("discover source");
+        assert_eq!(source.media_type, super::super::tmdb::MediaType::Tv);
+        assert_eq!(source.filters.with_watch_providers.as_deref(), Some("8|1796"));
+        assert_eq!(source.filters.without_genres.as_deref(), Some("16,10764"));
+        let network = tmdb_source(&stored, "collection-1", "folder-1", "src-2").expect("network source");
+        assert_eq!(network.media_type, super::super::tmdb::MediaType::Tv, "networks are TV");
+        assert_eq!(network.tmdb_id, Some(213));
+        let collection = tmdb_source(&stored, "collection-1", "folder-1", "src-3").expect("collection source");
+        assert_eq!(collection.tmdb_id, Some(1));
+        assert!(!with_key[0].folders[0].sources[2].supports_pagination, "a collection has no pages");
+        assert!(with_key[0].folders[0].sources[3].supports_pagination, "a list pages");
+        let list = tmdb_source(&stored, "collection-1", "folder-1", "src-4").expect("list source");
+        assert_eq!(list.sort_by.as_deref(), Some("vote_average.desc"));
+    }
+
+    /// Several AIOMetadata configurations installed at once share the manifest id `aio-metadata`;
+    /// a source of the second one must resolve (and load) with its own catalog.
+    #[test]
+    fn addons_with_the_same_manifest_id_each_resolve_their_catalogs() {
+        let manifests = vec![
+            parse_manifest(
+                "https://one.test/manifest.json",
+                r#"{"id":"aio","name":"AIO 1","version":"1","resources":["catalog"],"types":["movie"],
+                    "catalogs":[{"type":"movie","id":"shared","name":"Shared"}]}"#,
+            )
+            .unwrap(),
+            parse_manifest(
+                "https://two.test/manifest.json",
+                r#"{"id":"aio","name":"AIO 2","version":"1","resources":["catalog"],"types":["movie"],
+                    "catalogs":[{"type":"movie","id":"shared","name":"Shared"},{"type":"movie","id":"only-two","name":"Only two"}]}"#,
+            )
+            .unwrap(),
+        ];
+        let (manifest, catalog) = resolve_catalog(&manifests, "aio", "movie", "only-two").expect("found in the second addon");
+        assert_eq!((manifest.name.as_str(), catalog.name.as_str()), ("AIO 2", "Only two"));
+        // The declared addon wins for a catalog both of them have.
+        let (manifest, _) = resolve_catalog(&manifests, "aio", "movie", "shared").unwrap();
+        assert_eq!(manifest.name, "AIO 1");
+
+        let stored = json!([{"id":"c","title":"C","folders":[{"id":"f","title":"F",
+            "sources":[{"provider":"addon","addonId":"aio","type":"movie","catalogId":"only-two"}]}]}]);
+        let views = views(&stored, &manifests, false, false);
+        assert_eq!(views[0].folders[0].sources.len(), 1);
+        assert_eq!(views[0].folders[0].sources[0].addon_name, "AIO 2");
+        assert_eq!(views[0].folders[0].skipped_sources, 0);
     }
 }

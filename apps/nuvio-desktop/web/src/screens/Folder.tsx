@@ -62,7 +62,10 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
     busy.current.add(id);
     setStates((all) => ({ ...all, [id]: { ...(all[id] ?? EMPTY), loading: true, started: true, error: null } }));
     try {
-      const page = await api.catalogPage(source.key, skip, source.genre);
+      // TMDB sources are discover queries resolved in Rust; `skip` is their page number (1-based).
+      const page = source.provider === "tmdb"
+        ? await api.tmdbSourcePage(collection.id, folder.id, source.sourceId ?? "", skip ?? 1)
+        : await api.catalogPage(source.key, skip, source.genre);
       setStates((all) => {
         const prev = all[id] ?? EMPTY;
         const seen = new Set(prev.items.map((i) => `${i.contentType}:${i.id}`));
@@ -81,7 +84,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
     } finally {
       busy.current.delete(id);
     }
-  }, []);
+  }, [collection.id, folder.id]);
 
   const visibleSources = tab === ALL ? sources : sources.filter((s) => sourceId(s) === tab);
 
@@ -132,6 +135,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
               key={sourceId(s)}
               row={{ key: s.key, title: s.label, addonName: s.addonName, contentType: s.contentType, catalogId: "", supportsPagination: s.supportsPagination }}
               genre={s.genre}
+              tmdb={s.provider === "tmdb" && s.sourceId ? { collectionId: collection.id, folderId: folder.id, sourceId: s.sourceId } : undefined}
               onOpen={onOpen}
             />
           ))}

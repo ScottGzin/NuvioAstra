@@ -33,6 +33,7 @@
 - **Catálogos dos seus addons** em fileiras, que podem ser renomeadas, ocultadas e reordenadas.
 - **Coleções da conta Nuvio**, com capas em GIF que animam ao passar o mouse.
 - **Pesquisa** com resultados enquanto você digita e histórico.
+- **Descobrir** na tela de pesquisa: filtros por tipo, catálogo e gênero dos addons, com mais títulos ao rolar.
 - **Detalhes** com temporadas, episódios, elenco e trailers do YouTube.
 
 ### Player
