@@ -9,7 +9,7 @@ import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, ShuffleView, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -71,6 +71,7 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
   const [metaSettings, setMetaSettings] = useState<MetaScreenSettings | null>(null);
   const [guide, setGuide] = useState<ParentalGuide | null>(null);
+  const [shuffle, setShuffle] = useState<ShuffleView | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
@@ -86,6 +87,28 @@ export function Details({ item, onBack, onOpen }: Props) {
   }, [id, version]);
 
   useEffect(() => setWatchedKeys(data?.watchedKeys ?? []), [data?.watchedKeys]);
+
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    api.shuffleView(data.meta.id, data.meta.contentType).then((view) => !cancelled && setShuffle(view), () => {});
+    return () => { cancelled = true; };
+  }, [data?.meta.id]);
+
+  const setShuffleOption = (enabled: boolean, includeWatched: boolean) => {
+    if (!data) return;
+    const id = data.meta.id;
+    setShuffle((current) => current ? { ...current, enabled, includeWatched } : current);
+    void api.shuffleSet(id, enabled, includeWatched).then(setShuffle, () => {
+      void api.shuffleView(id, data.meta.contentType).then(setShuffle, () => {});
+    });
+  };
+
+  const playShuffled = async () => {
+    if (!data) return;
+    const video = await api.shufflePick(data.meta.id, data.meta.contentType, "detail", null, null);
+    if (video) choose(video);
+  };
 
   // Discord presence on the details screen (the original's PresenceSnapshot.Details).
   useEffect(() => {
@@ -315,6 +338,28 @@ export function Details({ item, onBack, onOpen }: Props) {
                 >
                   {watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? t("✓ Assistido") : t("Marcar como assistido")}
                 </button>
+              )}
+              {isSeries && (
+                <>
+                  <button className="chip" data-testid="shuffle-play" onClick={() => void playShuffled()}>🎲 {t("Embaralhar")}</button>
+                  <button
+                    className={`chip ${shuffle?.enabled ? "active" : ""}`}
+                    data-testid="shuffle-toggle"
+                    title={t("Embaralhar episódios")}
+                    onClick={() => setShuffleOption(!shuffle?.enabled, shuffle?.includeWatched ?? false)}
+                  >
+                    {t("Embaralhar episódios")}
+                  </button>
+                  {shuffle?.enabled && (
+                    <button
+                      className={`chip ${shuffle.includeWatched ? "active" : ""}`}
+                      data-testid="shuffle-watched"
+                      onClick={() => setShuffleOption(true, !shuffle.includeWatched)}
+                    >
+                      {t("Incluir assistidos")}
+                    </button>
+                  )}
+                </>
               )}
             </div>}
             {!isSeries && movieEntry && (

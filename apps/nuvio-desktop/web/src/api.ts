@@ -11,7 +11,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -22,7 +22,7 @@ import type {
   ParentalGuide,
   MdblistSettingsInput,
   MdblistSettingsView,
-  MetaPreview,
+  MetaPreview, MetaVideo,
   TitleProgress,
 } from "./types";
 
@@ -107,6 +107,11 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Episode shuffle settings and a random pick for one title. */
+  shuffleView: (contentId: string, contentType: string) => invoke<ShuffleView>("shuffle_view", { contentId, contentType }),
+  shuffleSet: (contentId: string, enabled: boolean, includeWatched: boolean) => invoke<ShuffleView>("shuffle_set", { contentId, enabled, includeWatched }),
+  shufflePick: (contentId: string, contentType: string, surface: string, season: number | null, episode: number | null) =>
+    invoke<MetaVideo | null>("shuffle_pick", { contentId, contentType, surface, currentSeason: season, currentEpisode: episode }),
   /** Discord Rich Presence (no-op when disabled in Settings). */
   discordActivity: (activity: DiscordActivity | null) => invoke<void>("discord_activity", { activity }),
   /** IMDb parents-guide warnings, only when enabled in Settings → Reprodução. */

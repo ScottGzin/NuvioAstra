@@ -579,6 +579,55 @@ pub fn migrate_from_legacy(app: &AppStore, legacy: &LegacyStore) -> Result<Migra
     Ok(record)
 }
 
+/// One show's shuffle preference (`EpisodeShuffleSettings` in the original).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShuffleShowSettings {
+    pub enabled: bool,
+    pub include_watched: bool,
+}
+
+/// Per-profile shuffle state (`EpisodeShuffleProfile`) of the original.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EpisodeShuffleProfile {
+    pub available: bool,
+    #[serde(default)]
+    pub shows: BTreeMap<String, ShuffleShowSettings>,
+}
+
+impl ShuffleShowSettings {
+    pub fn sanitized(mut self) -> Self {
+        self.include_watched = self.include_watched && self.enabled;
+        self
+    }
+}
+
+static SHUFFLE_LOCK: Mutex<()> = Mutex::new(());
+
+impl AppStore {
+    pub fn all_shuffle(&self) -> Result<BTreeMap<i64, EpisodeShuffleProfile>, StoreError> {
+        Ok(self.read("episode_shuffle")?.unwrap_or_default())
+    }
+
+    pub fn shuffle_profile(&self, profile: i64) -> Result<EpisodeShuffleProfile, StoreError> {
+        Ok(self.all_shuffle()?.remove(&profile).unwrap_or_default())
+    }
+
+    pub fn set_shuffle(&self, profile: i64, content_id: String, settings: ShuffleShowSettings) -> Result<EpisodeShuffleProfile, StoreError> {
+        let _guard = SHUFFLE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.all_shuffle()?;
+        let result = {
+            let entry = all.entry(profile).or_default();
+            entry.available = true;
+            entry.shows.insert(content_id, settings.sanitized());
+            entry.clone()
+        };
+        self.write("episode_shuffle", &all)?;
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -976,5 +1025,18 @@ mod transaction_tests {
         assert_eq!(app.progress(2).unwrap().len(), 1, "unvalidated document re-imported");
         assert!(app.progress(1).unwrap().is_empty(), "document not created by the interrupted run is kept as it was");
         assert!(!app.dir().join("migration-journal.json").exists());
+    }
+
+    #[test]
+    fn shuffle_settings_are_per_profile_and_per_show() {
+        let app = AppStore::open(&dir("shuffle-store")).unwrap();
+        assert!(!app.shuffle_profile(1).unwrap().available);
+        app.set_shuffle(1, "tt1".into(), ShuffleShowSettings { enabled: true, include_watched: true }).unwrap();
+        let profile = app.shuffle_profile(1).unwrap();
+        assert!(profile.available);
+        assert_eq!(profile.shows["tt1"], ShuffleShowSettings { enabled: true, include_watched: true });
+        assert!(app.shuffle_profile(2).unwrap().shows.is_empty());
+        app.set_shuffle(1, "tt1".into(), ShuffleShowSettings { enabled: false, include_watched: true }).unwrap();
+        assert!(!app.shuffle_profile(1).unwrap().shows["tt1"].include_watched);
     }
 }

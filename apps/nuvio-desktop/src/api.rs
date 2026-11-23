@@ -5,6 +5,8 @@ use crate::services::{addons, badges, collections, debrid, discord, discover, fo
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
+use nuvio_core::meta::MetaVideo;
+use nuvio_core::shuffle::{Picker, ShuffleSettings};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
 use nuvio_store::settings::{ContinueWatchingSettings, ProfileSettings};
@@ -300,6 +302,83 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
         return Ok(None);
     }
     Ok(parental::fetch(&state.addons.client, &id).await)
+}
+
+/// Effective shuffle settings for one title (`EpisodeShuffleRepository.settings`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShuffleView {
+    pub available: bool,
+    pub enabled: bool,
+    pub include_watched: bool,
+}
+
+fn shuffle_view_for(state: &AppState, content_id: &str, content_type: &str) -> Result<ShuffleView, String> {
+    let profile = state.active_profile();
+    let profile_state = state.app_store.shuffle_profile(profile).map_err(|e| e.to_string())?;
+    let saved = profile_state.shows.get(content_id).cloned().unwrap_or_default();
+    let effective = ShuffleSettings { enabled: saved.enabled, include_watched: saved.include_watched }
+        .effective(profile_state.available, content_type);
+    Ok(ShuffleView { available: profile_state.available, enabled: effective.enabled, include_watched: effective.include_watched })
+}
+
+#[tauri::command]
+pub fn shuffle_view(state: State<'_, AppState>, content_id: String, content_type: String) -> Result<ShuffleView, String> {
+    shuffle_view_for(&state, &content_id, &content_type)
+}
+
+#[tauri::command]
+pub fn shuffle_set(state: State<'_, AppState>, content_id: String, enabled: bool, include_watched: bool) -> Result<ShuffleView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    state
+        .app_store
+        .set_shuffle(profile, content_id.clone(), nuvio_store::nextgen::ShuffleShowSettings { enabled, include_watched })
+        .map_err(|e| e.to_string())?;
+    state.request_sync();
+    // The content type is not needed to read the saved toggle here.
+    shuffle_view_for(&state, &content_id, "series")
+}
+
+/// Picks a random episode with the original's `RandomEpisodePicker` rules.
+#[tauri::command]
+pub async fn shuffle_pick(
+    state: State<'_, AppState>,
+    content_id: String,
+    content_type: String,
+    surface: String,
+    current_season: Option<i64>,
+    current_episode: Option<i64>,
+) -> Result<Option<MetaVideo>, String> {
+    let view = shuffle_view_for(&state, &content_id, &content_type)?;
+    if !view.enabled {
+        return Ok(None);
+    }
+    let loaded = state.addons.loaded().await?;
+    let details = meta::details(&state.addons.client, &loaded.manifests, &content_type, &content_id).await?;
+    let profile = state.active_profile();
+    let mut watched: std::collections::HashSet<(i64, i64)> = std::collections::HashSet::new();
+    for item in state.app_store.watched(profile).map_err(|e| e.to_string())? {
+        if let (Some(season), Some(episode)) = (item.season, item.episode) {
+            watched.insert((season as i64, episode as i64));
+        }
+    }
+    for entry in state.app_store.progress(profile).map_err(|e| e.to_string())? {
+        if entry.effectively_completed() {
+            if let (Some(season), Some(episode)) = (entry.season_number, entry.episode_number) {
+                watched.insert((season as i64, episode as i64));
+            }
+        }
+    }
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+        ^ (std::process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut picker = Picker::new(&details.meta.videos, &watched, &home::today_iso(), seed);
+    let current = current_season.zip(current_episode);
+    let consume = surface != "playback" || current.is_none();
+    Ok(picker.pick(view.include_watched, current, consume))
 }
 
 /// Opens an `externalUrl` source in the browser, as the original does. Only http(s) links are

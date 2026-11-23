@@ -27,6 +27,7 @@ export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }:
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [starting, setStarting] = useState(false);
   const [resumeAt, setResumeAt] = useState<number | null>(null);
+  const [canShuffle, setCanShuffle] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +41,30 @@ export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }:
   }, [meta.id, next]);
 
   // Preparing a torrent: only its own Cancel ends it.
+  useEffect(() => {
+    let cancelled = false;
+    api.shuffleView(meta.id, meta.contentType).then((view) => !cancelled && setCanShuffle(view.enabled), () => {});
+    return () => { cancelled = true; };
+  }, [meta.id]);
+
+  const shufflePlay = async () => {
+    const picked = await api.shufflePick(meta.id, meta.contentType, "playback", context.video.season ?? null, context.video.episode ?? null);
+    if (!picked) return;
+    const groups = await api.streams(meta.contentType, picked.id);
+    const stream = groups.flatMap((group) => group.streams).find((candidate) =>
+      ["direct", "torrent", "debrid", "youTube"].includes(candidate.kind));
+    if (!stream) return;
+    const ok = await player.play(() => api.playStream(stream.key, null, playbackItem(meta, picked)), {
+      title: meta.name,
+      subtitle: episodeTitle(picked),
+      view: "full",
+      returnTo: null,
+      episode: { meta, video: picked },
+      torrent: stream.kind === "torrent" && !stream.debridPlayable,
+    });
+    if (ok) onClose();
+  };
+
   useEffect(() => {
     if (!torrent) return;
     const block = (e: KeyboardEvent) => e.key === "Escape" && e.stopPropagation();
@@ -127,6 +152,9 @@ export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }:
               {resumeAt !== null && ` · ${t("continua de {time}", { time: clock(resumeAt) })}`}
             </div>
           </div>
+          {canShuffle && (
+            <button className="chip" data-testid="shuffle-playback" onClick={() => void shufflePlay()}>🎲 {t("Embaralhar")}</button>
+          )}
           <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={onClose}>✕</button>
         </header>
         <div className="sources-body">

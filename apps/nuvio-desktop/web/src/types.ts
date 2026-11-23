@@ -196,6 +196,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
+export interface ShuffleView { available: boolean; enabled: boolean; includeWatched: boolean }
 export interface ParentalGuide { nudity: string | null; violence: string | null; profanity: string | null; alcohol: string | null; frightening: string | null }
 export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[]; watchedKeys: string[] }
 

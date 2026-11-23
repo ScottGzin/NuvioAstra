@@ -11,6 +11,7 @@ pub mod client;
 pub mod error;
 pub mod manifest;
 pub mod meta;
+pub mod shuffle;
 pub mod skip;
 pub mod stream;
 pub mod subtitle;
