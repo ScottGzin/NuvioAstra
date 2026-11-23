@@ -36,6 +36,7 @@ export interface MetaPreview {
   imdbRating: string | null; genres: string[]; landscapePoster: string | null; runtime: string | null;
 }
 export interface CatalogPage { items: MetaPreview[]; rawItemCount: number; nextSkip: number | null }
+export interface CatalogGenres { options: string[]; required: boolean }
 export interface HomeRow {
   key: string; title: string; addonName: string; contentType: string; catalogId: string; supportsPagination: boolean;
   /** Set for a collection row (key `collection_<id>`). */

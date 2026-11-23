@@ -673,7 +673,7 @@ export function Settings() {
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
             <p className="muted small">{t("Já disponíveis: Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
-              <li><b>{t("Início e catálogos")}</b>{t("— “Ver todos” de um catálogo, prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
+              <li><b>{t("Início e catálogos")}</b>{t("— prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
               <li><b>{t("Tela de detalhes")}</b>{t("— escolher as seções exibidas, comentários e desfocar episódios não assistidos.")}</li>
               <li><b>{t("Continuar assistindo")}</b>{t("— aviso de retomada ao abrir o app.")}</li>
               <li><b>{t("Fontes")}</b>{t("— seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.")}</li>

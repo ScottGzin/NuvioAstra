@@ -541,6 +541,7 @@ fn main() {
             api::app_bootstrap,
             api::home_rows,
             api::catalog_page,
+            api::catalog_genres,
             api::stream_badge_rules,
             api::debrid_settings,
             api::debrid_settings_set,

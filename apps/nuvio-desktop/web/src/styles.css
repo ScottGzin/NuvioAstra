@@ -132,6 +132,12 @@ body.playing .screen-fill { background: transparent; }
 .meta-line { color: var(--muted); white-space: pre; }
 
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
+/* "See all" of a Home row: a full catalog grid over the Home screen. */
+.see-all-btn { border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; padding: 4px 8px; }
+.see-all-btn:hover { color: var(--accent); }
+.modal.see-all { width: min(1180px, calc(100vw - 32px)); height: min(860px, calc(100vh - 48px)); }
+.see-all-body { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -8px; padding: 0 8px; }
+.see-all-body .discover-grid { padding: 0; }
 .row-header { display: flex; align-items: baseline; gap: 10px; padding-right: 32px; }
 .row-header h2 { font-size: 18px; margin: 0 0 8px; }
 .row-track {

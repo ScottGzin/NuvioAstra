@@ -13,7 +13,8 @@ import { CatalogRow } from "../components/CatalogRow";
 import { CollectionRow } from "../components/CollectionRow";
 import { ContinueWatchingRow } from "../components/ContinueWatching";
 import { HeroCarousel } from "../components/HeroCarousel";
-import type { CollectionView, FolderView, HistoryEntry, HomeView, MetaPreview } from "../types";
+import { SeeAll } from "../components/SeeAll";
+import type { CollectionView, FolderView, HistoryEntry, HomeRow, HomeView, MetaPreview } from "../types";
 import { t } from "../i18n";
 
 interface Props {
@@ -47,6 +48,7 @@ export function Home({ onOpen, onResume, onOpenFolder }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<MetaPreview[] | null>(heroCache);
   const [generation, setGeneration] = useState(0);
+  const [seeAll, setSeeAll] = useState<HomeRow | null>(null);
   const rows = view?.rows ?? null;
 
   // Settings → Início changes (order, visibility, titles, hero) and collections received from the
@@ -130,9 +132,10 @@ export function Home({ onOpen, onResume, onOpenFolder }: Props) {
         row.collection ? (
           <CollectionRow key={`${generation}:${row.key}`} title={row.title} collection={row.collection} onOpenFolder={onOpenFolder} />
         ) : (
-          <CatalogRow key={`${generation}:${row.key}`} row={row} onOpen={onOpen} />
+          <CatalogRow key={`${generation}:${row.key}`} row={row} onOpen={onOpen} onSeeAll={setSeeAll} />
         ),
       )}
+      {seeAll && <SeeAll row={seeAll} onOpen={onOpen} onClose={() => setSeeAll(null)} />}
     </div>
   );
 }

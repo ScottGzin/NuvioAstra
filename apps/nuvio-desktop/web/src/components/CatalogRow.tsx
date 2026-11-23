@@ -16,9 +16,11 @@ interface Props {
   genre?: string | null;
   /** Set for a TMDB source of a collection folder (its page comes from Rust, not the addon). */
   tmdb?: { collectionId: string; folderId: string; sourceId: string };
+  /** Opens the full catalog grid (the original's "See all"). */
+  onSeeAll?(row: HomeRow): void;
 }
 
-export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb }: Props) {
+export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, onSeeAll }: Props) {
   const [ref, inView] = useInView<HTMLElement>();
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +72,9 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb }: Props)
         <h2>{localizeCatalogTitle(row.title)}</h2>
         <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
+        {items && onSeeAll && !genre && !tmdb && (
+          <button className="see-all-btn" data-see-all={row.key} onClick={() => onSeeAll(row)}>{t("Ver todos")}</button>
+        )}
         {items && (
           <>
             <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>

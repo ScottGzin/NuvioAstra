@@ -88,6 +88,31 @@ pub async fn search_all(state: State<'_, AppState>, query: String) -> Result<Vec
     Ok(search::search(&state.addons.client, &loaded.manifests, &query).await)
 }
 
+/// Genre options of a Home catalog key (`<manifestId>:<type>:<catalogId>`), used by "See all".
+#[derive(Debug, Clone, Serialize)]
+pub struct CatalogGenres {
+    pub options: Vec<String>,
+    pub required: bool,
+}
+
+#[tauri::command]
+pub async fn catalog_genres(state: State<'_, AppState>, key: String) -> Result<CatalogGenres, String> {
+    let loaded = state.addons.loaded().await?;
+    let mut parts = key.splitn(3, ':');
+    let (manifest_id, content_type, catalog_id) = (
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+    );
+    // The same resolver the Home rows and `catalog_page` use, so the keys always agree.
+    let (_, catalog) = collections::resolve_catalog(&loaded.manifests, manifest_id, content_type, catalog_id)
+        .ok_or("catalog not found")?;
+    Ok(match catalog.genre_extra() {
+        Some(extra) => CatalogGenres { options: extra.options.clone(), required: extra.is_required },
+        None => CatalogGenres { options: Vec::new(), required: false },
+    })
+}
+
 /// One page of a TMDB collection source (`TmdbCollectionSourceResolver`). The source's kind,
 /// media type, sort and filters are read from the account's copy of the collections, never taken
 /// from the UI; `page` is 1-based, as the original's `skip` for these sources.

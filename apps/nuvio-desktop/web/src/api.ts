@@ -10,7 +10,7 @@ import type {
   UpdateStatus,
   P2pStatus,
   TorrentPrepared,
-  AddonPreview, AddonsView, Bootstrap, CatalogPage, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
+  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
@@ -89,6 +89,8 @@ function cached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Prom
 export const api = {
   bootstrap: () => invoke<Bootstrap>("app_bootstrap"),
   homeRows: () => invoke<HomeView>("home_rows"),
+  /** Genre options of a Home catalog key, for "See all". */
+  catalogGenres: (key: string) => invoke<CatalogGenres>("catalog_genres", { key }),
   /** `genre`: a collection folder's catalog filtered by genre. */
   catalogPage: (key: string, skip: number | null, genre: string | null = null) =>
     cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre })),
