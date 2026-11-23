@@ -1,7 +1,7 @@
 // App shell: sidebar + current screen. Screens stay mounted while hidden behind the full-window
 // player, so returning keeps scroll position and loaded rows.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { start as startAccount } from "./account";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
 import { listen } from "./tauri";
@@ -9,6 +9,7 @@ import { LockScreen } from "./screens/LockScreen";
 import { Welcome } from "./screens/Welcome";
 import { PinDialog } from "./components/PinDialog";
 import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
+import { ResumePrompt } from "./components/ResumePrompt";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FullPlayer } from "./player/FullPlayer";
@@ -174,6 +175,23 @@ export function App() {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title, resume: resumeTarget(entry) });
   }, []);
+  // Resume prompt on launch shows the most recent title once per app session.
+  const [resumeEntry, setResumeEntry] = useState<HistoryEntry | null>(null);
+  const resumePrompted = useRef(false);
+  useEffect(() => {
+    if (resumePrompted.current) return;
+    const timer = window.setTimeout(() => {
+      void Promise.all([api.settingsGet(), api.libraryContinueWatching()]).then(([settings, entries]) => {
+        if (resumePrompted.current) return;
+        resumePrompted.current = true;
+        if (settings.settings.continueWatching.showResumePromptOnLaunch && entries.length > 0) {
+          setResumeEntry(entries[0]);
+        }
+      }, () => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const openEntry = useCallback((entry: HistoryEntry) => {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title });
@@ -236,6 +254,13 @@ export function App() {
           )}
         </main>
       </div>
+      {resumeEntry && !full && (
+        <ResumePrompt
+          entry={resumeEntry}
+          onResume={() => { const entry = resumeEntry; setResumeEntry(null); resume(entry); }}
+          onDismiss={() => setResumeEntry(null)}
+        />
+      )}
       {full && <FullPlayer />}
     </>
   );

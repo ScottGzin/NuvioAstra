@@ -456,6 +456,8 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 .provider-heading { margin: 0; font-size: 24px; font-weight: 700; }
 .provider-watermark { position: absolute; right: 26px; top: 18px; font-size: 150px; line-height: 1; font-weight: 800; opacity: .10; pointer-events: none; }
 .provider-watermark.simkl-watermark { right: 30px; top: 4px; font-size: 190px; opacity: .06; }
+.resume-prompt { width: min(380px, calc(100vw - 32px)); }
+.resume-poster { width: 100%; max-height: 180px; object-fit: cover; border-radius: 10px; }
 .provider-card { position: relative; overflow: hidden; }
 .provider-action.large { width: 100%; border: 0; border-radius: 999px; padding: 15px 20px; font-size: 15px; font-weight: 700; text-align: center; text-decoration: none; display: block; cursor: pointer; background: rgba(255,255,255,.16); color: inherit; }
 .provider-card.trakt .provider-action.large { background: #fff; color: #c0264c; }

@@ -1155,6 +1155,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Classic": { en: "Classic", ar: "Classic" },
   "Rounded": { en: "Rounded", ar: "Rounded" },
   "Pill": { en: "Pill", ar: "Pill" },
+  "Continuar assistindo?": { en: "Continue watching?", ar: "Continuar assistindo?" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },
