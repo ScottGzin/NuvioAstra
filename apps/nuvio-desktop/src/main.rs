@@ -614,6 +614,8 @@ fn main() {
             api::simkl_authorize_url,
             api::simkl_complete,
             api::tracking_disconnect,
+            api::mdblist_device_start,
+            api::mdblist_device_poll,
             api::tracking_sync,
             api::tracking_credential_set,
             api::server_add,

@@ -118,6 +118,7 @@ export interface PlayerSettings {
   bufferEnabled: boolean; minBufferMs: number; maxBufferMs: number; bufferForPlaybackMs: number;
   bufferForPlaybackAfterRebufferMs: number; backBufferDurationMs: number; targetBufferSizeMb: number;
   vodCacheEnabled: boolean; vodCacheSizeMode: "auto" | "manual"; vodCacheSizeMb: number;
+  librarySource: string; progressSource: string;
 }
 export interface HomeCatalogPreference { key: string; customTitle: string; enabled: boolean; heroSourceEnabled: boolean; order: number }
 export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[]; heroCatalogs: string[] | null }
@@ -196,7 +197,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
-export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean }
+export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean; mdblistConnected: boolean; mdblistFromBuild: boolean }
 export interface TraktDeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
 export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied" | "slowDown" | "noSession" | "error";
 export interface TrackingSyncResult { movies: number; episodes: number }

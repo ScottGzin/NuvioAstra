@@ -316,6 +316,8 @@ pub struct TrackingCredentialsView {
     pub simkl_connected: bool,
     pub trakt_from_build: bool,
     pub simkl_from_build: bool,
+    pub mdblist_connected: bool,
+    pub mdblist_from_build: bool,
 }
 
 /// Build-time default from the gitignored local.properties, overridden by a value entered in Settings.
@@ -324,6 +326,7 @@ fn tracking_default(key: &str) -> Option<&'static str> {
         "trakt:clientId" => option_env!("NUVIO_TRAKT_CLIENT_ID"),
         "trakt:clientSecret" => option_env!("NUVIO_TRAKT_CLIENT_SECRET"),
         "simkl:clientId" => option_env!("NUVIO_SIMKL_CLIENT_ID"),
+        "mdblist:clientId" => option_env!("NUVIO_MDBLIST_CLIENT_ID"),
         _ => None,
     }
     .filter(|value| !value.is_empty())
@@ -349,6 +352,8 @@ fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
         simkl_connected: tracking::connected(&state.app_store, state.active_profile(), "simkl"),
         trakt_from_build: tracking_default("trakt:clientId").is_some() && tracking_default("trakt:clientSecret").is_some(),
         simkl_from_build: tracking_default("simkl:clientId").is_some(),
+        mdblist_connected: tracking::connected(&state.app_store, state.active_profile(), "mdblist"),
+        mdblist_from_build: tracking_default("mdblist:clientId").is_some(),
     })
 }
 
@@ -646,6 +651,20 @@ pub async fn simkl_complete(state: State<'_, AppState>, code: String, state_valu
     let profile = state.active_profile();
     let id = crate::api::tracking_value(&state, "simkl:clientId").ok_or("Simkl client id não configurado")?;
     tracking::simkl_complete(&state.app_store, profile, &id, &code, &state_value).await
+}
+
+#[tauri::command]
+pub async fn mdblist_device_start(state: State<'_, AppState>) -> Result<tracking::DeviceStart, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "mdblist:clientId").ok_or("MDBList client id não configurado")?;
+    tracking::mdblist_start(&state.app_store, profile, &id).await
+}
+
+#[tauri::command]
+pub async fn mdblist_device_poll(state: State<'_, AppState>) -> Result<tracking::PollResult, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "mdblist:clientId").ok_or("MDBList client id não configurado")?;
+    tracking::mdblist_poll(&state.app_store, profile, &id).await
 }
 
 #[tauri::command]

@@ -209,6 +209,12 @@ pub struct PlayerSettings {
     pub vod_cache_size_mode: String,
     /// 100–65536 MB (the original's default is 500 MB).
     pub vod_cache_size_mb: i64,
+    /// Tracking page: source that feeds the Library (`nuvio`, `trakt`, `simkl`, `mdblist`).
+    #[serde(default)]
+    pub library_source: String,
+    /// Tracking page: source that powers resume / Continue Watching.
+    #[serde(default)]
+    pub progress_source: String,
 }
 
 impl Default for PlayerSettings {
@@ -274,6 +280,9 @@ impl Default for PlayerSettings {
             vod_cache_enabled: false,
             vod_cache_size_mode: "auto".into(),
             vod_cache_size_mb: 500,
+
+            library_source: "nuvio".into(),
+            progress_source: "nuvio".into(),
         }
     }
 }
@@ -581,6 +590,11 @@ impl PlayerSettings {
             self.vod_cache_size_mode = d.vod_cache_size_mode;
         }
         self.vod_cache_size_mb = self.vod_cache_size_mb.clamp(100, 65_536);
+        for source in [&mut self.library_source, &mut self.progress_source] {
+            if !matches!(source.as_str(), "nuvio" | "trakt" | "simkl" | "mdblist") {
+                *source = "nuvio".into();
+            }
+        }
         self
     }
 }
@@ -701,6 +715,8 @@ impl LegacyStore {
             vod_cache_enabled: boolean("vod_cache_enabled").unwrap_or(d.vod_cache_enabled),
             vod_cache_size_mode: get("vod_cache_size_mode").unwrap_or(d.vod_cache_size_mode),
             vod_cache_size_mb: int("vod_cache_size_mb").unwrap_or(d.vod_cache_size_mb),
+            library_source: get("library_source").unwrap_or(d.library_source),
+            progress_source: get("progress_source").unwrap_or(d.progress_source),
         }
         .sanitized())
     }

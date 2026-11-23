@@ -327,3 +327,69 @@ mod tests {
         assert!(!challenge.is_empty() && !state.is_empty());
     }
 }
+
+const MDBLIST_API: &str = "https://api.mdblist.com";
+
+/// MDBList device flow (`MdbListAuthRepository.startDeviceAuthorization`). Form POST, not JSON.
+pub async fn mdblist_start(app: &AppStore, profile: i64, client_id: &str) -> Result<DeviceStart, String> {
+    let response = client()?
+        .post(format!("{MDBLIST_API}/oauth/device-authorization/"))
+        .form(&[("scope", "write"), ("client_id", client_id)])
+        .send().await.map_err(|e| e.to_string())?;
+    if !response.status().is_success() {
+        return Err(format!("MDBList recusou o pedido ({})", response.status().as_u16()));
+    }
+    let body: Value = response.json().await.map_err(|e| e.to_string())?;
+    let device_code = body.get("device_code").and_then(Value::as_str).unwrap_or("").to_string();
+    let user_code = body.get("user_code").and_then(Value::as_str).unwrap_or("").to_string();
+    if device_code.is_empty() || user_code.is_empty() { return Err("MDBList não devolveu um código de dispositivo.".into()); }
+    let verification_url = body.get("verification_uri_complete").or_else(|| body.get("verification_uri"))
+        .and_then(Value::as_str).unwrap_or("https://mdblist.com/activate").to_string();
+    let interval = body.get("interval").and_then(Value::as_i64).unwrap_or(5).clamp(1, 3600);
+    let expires = now_ms() + body.get("expires_in").and_then(Value::as_i64).unwrap_or(600).max(60) * 1000;
+    app.set_tracking_pending(profile, "mdblist", Some(TrackingPending {
+        secret: device_code, user_code: Some(user_code.clone()), verification_url: Some(verification_url.clone()),
+        state: None, interval_secs: interval, expires_at_epoch_ms: expires,
+    })).map_err(|e| e.to_string())?;
+    Ok(DeviceStart { user_code, verification_url, interval_secs: interval })
+}
+
+/// MDBList device flow, step 2 (`POST /oauth/token/` with the device_code grant).
+pub async fn mdblist_poll(app: &AppStore, profile: i64, client_id: &str) -> Result<PollResult, String> {
+    let pending = app.tracking_pending(profile, "mdblist").map_err(|e| e.to_string())?
+        .ok_or("Nenhuma autorização MDBList iniciada.")?;
+    if pending.expires_at_epoch_ms > 0 && now_ms() > pending.expires_at_epoch_ms {
+        app.set_tracking_pending(profile, "mdblist", None).map_err(|e| e.to_string())?;
+        return Ok(PollResult::Expired);
+    }
+    let response = client()?
+        .post(format!("{MDBLIST_API}/oauth/token/"))
+        .form(&[
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("device_code", pending.secret.as_str()),
+            ("scope", "write"),
+            ("client_id", client_id),
+        ])
+        .send().await.map_err(|e| e.to_string())?;
+    let status = response.status();
+    let body: Value = response.json().await.unwrap_or(Value::Null);
+    if status.is_success() {
+        let access = body.get("access_token").and_then(Value::as_str).unwrap_or("");
+        if access.is_empty() { return Ok(PollResult::Error); }
+        let expires_in = body.get("expires_in").and_then(Value::as_i64).unwrap_or(0);
+        app.set_tracking_token(profile, "mdblist", Some(TrackingToken {
+            access_token: access.to_string(),
+            refresh_token: body.get("refresh_token").and_then(Value::as_str).map(str::to_string),
+            expires_at_epoch_ms: if expires_in > 0 { now_ms() + expires_in * 1000 } else { 0 },
+        })).map_err(|e| e.to_string())?;
+        app.set_tracking_pending(profile, "mdblist", None).map_err(|e| e.to_string())?;
+        return Ok(PollResult::Authorized);
+    }
+    Ok(match body.get("error").and_then(Value::as_str).unwrap_or("") {
+        "authorization_pending" => PollResult::Pending,
+        "slow_down" => PollResult::SlowDown,
+        "expired_token" => PollResult::Expired,
+        "access_denied" => PollResult::Denied,
+        _ => PollResult::Error,
+    })
+}

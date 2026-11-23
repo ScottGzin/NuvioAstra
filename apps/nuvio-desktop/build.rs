@@ -20,7 +20,7 @@ fn main() {
     }
     for key in [
         "NUVIO_SUPABASE_URL", "NUVIO_SUPABASE_ANON_KEY", "NUVIO_SUPABASE_FALLBACK_URL", "NUVIO_UPDATE_REPOSITORY",
-        "TRAKT_CLIENT_ID", "TRAKT_CLIENT_SECRET", "SIMKL_CLIENT_ID",
+        "TRAKT_CLIENT_ID", "TRAKT_CLIENT_SECRET", "SIMKL_CLIENT_ID", "MDBLIST_CLIENT_ID",
     ] {
         println!("cargo:rerun-if-env-changed={key}");
     }
@@ -52,6 +52,7 @@ fn main() {
         ("TRAKT_CLIENT_ID", "NUVIO_TRAKT_CLIENT_ID"),
         ("TRAKT_CLIENT_SECRET", "NUVIO_TRAKT_CLIENT_SECRET"),
         ("SIMKL_CLIENT_ID", "NUVIO_SIMKL_CLIENT_ID"),
+        ("MDBLIST_CLIENT_ID", "NUVIO_MDBLIST_CLIENT_ID"),
     ] {
         let from_file = value(key);
         if !from_file.is_empty() {

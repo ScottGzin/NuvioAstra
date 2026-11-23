@@ -4,17 +4,19 @@
 import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import { Row } from "./SettingControls";
+import type { ProfileSettings } from "../types";
 import { t } from "../i18n";
 
 interface DeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
-interface View { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean }
+interface View { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean; mdblistConnected: boolean; mdblistFromBuild: boolean }
 type Key = "trakt:clientId" | "trakt:clientSecret" | "simkl:clientId";
 
-export function TrackingCredentialsPanel() {
+export function TrackingCredentialsPanel({ settings, update }: { settings: ProfileSettings | null; update(change: (s: ProfileSettings) => ProfileSettings): void }) {
   const [view, setView] = useState<View | null>(null);
   const [draft, setDraft] = useState<Record<Key, string>>({ "trakt:clientId": "", "trakt:clientSecret": "", "simkl:clientId": "" });
   const [error, setError] = useState<string | null>(null);
   const [device, setDevice] = useState<DeviceStart | null>(null);
+  const [mdbDevice, setMdbDevice] = useState<DeviceStart | null>(null);
   const [simklUrl, setSimklUrl] = useState<string | null>(null);
   const [callback, setCallback] = useState("");
   const [sync, setSync] = useState("");
@@ -41,6 +43,26 @@ export function TrackingCredentialsPanel() {
     window.addEventListener("nuvio-simkl-callback", onCallback);
     return () => window.removeEventListener("nuvio-simkl-callback", onCallback);
   }, []);
+
+  useEffect(() => {
+    if (!mdbDevice) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void api.mdblistDevicePoll().then((result) => {
+        if (!active) return;
+        if (result === "authorized") {
+          setMdbDevice(null);
+          void reload();
+          window.clearInterval(timer);
+        } else if (result === "expired" || result === "denied") {
+          setMdbDevice(null);
+          setError(t("Autorização expirada ou recusada."));
+          window.clearInterval(timer);
+        }
+      }, (e) => { if (active) setError(errorText(e)); });
+    }, Math.max(5, mdbDevice.intervalSecs) * 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [mdbDevice]);
 
   useEffect(() => {
     if (!device) return;
@@ -171,6 +193,61 @@ export function TrackingCredentialsPanel() {
         {view.simklFromBuild && !showSimkl && <button className="provider-more" onClick={() => setShowSimkl(true)}>{t("Alterar credenciais")}</button>}
         <button className="provider-link" onClick={() => void api.openUrl("https://simkl.com")}>{t("Visitar Simkl")}</button>
       </section>}
+      {view && <section className={`provider-card mdblist ${mdbDevice ? "authorizing" : ""}`} data-provider="mdblist">
+        <div className="provider-logo mdb-logo">M</div>
+        <div className="provider-watermark" aria-hidden>M</div>
+        {!mdbDevice ? (
+          <>
+            <h3 className="provider-title">{t("MDBList Ratings")}</h3>
+            <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
+            {view.mdblistConnected ? (
+              <div className="modal-actions">
+                <button className="provider-action large" onClick={() => void api.trackingSync("mdblist").then((r) => setSync(t("Sincronizados: {movies} filmes e {episodes} episódios.", { movies: r.movies, episodes: r.episodes })), (e) => setError(errorText(e)))}>{t("Sincronizar assistidos")}</button>
+                <button className="provider-action outline" onClick={() => void api.trackingDisconnect("mdblist").then(setView)}>{t("Desconectar")}</button>
+              </div>
+            ) : (
+              <button className="provider-action large" data-testid="mdblist-connect" disabled={!view.mdblistFromBuild} onClick={() => {
+                void api.mdblistDeviceStart().then(setMdbDevice, (e) => setError(errorText(e)));
+              }}>{t("Conectar ao MDBList")}</button>
+            )}
+          </>
+        ) : (
+          <>
+            <h3 className="provider-heading">{t("Digite este código no MDBList")}</h3>
+            <p className="provider-desc">{t("Abra o link e digite este código para aprovar o Nuvio. Esta tela será atualizada automaticamente.")}</p>
+            <div className="device-code-box">
+              <strong>{mdbDevice.userCode}</strong>
+              <button className="link" onClick={() => void api.openUrl(mdbDevice.verificationUrl)}>{mdbDevice.verificationUrl}</button>
+            </div>
+            <button className="provider-action large" onClick={() => void api.openUrl(mdbDevice.verificationUrl).catch((e) => setError(errorText(e)))}>{t("Abrir ativação do MDBList")}</button>
+            <button className="provider-action outline" onClick={() => setMdbDevice(null)}>{t("Cancelar")}</button>
+            <div className="device-status">{t("Aguardando aprovação no MDBList…")}</div>
+          </>
+        )}
+        <button className="provider-link" onClick={() => void api.openUrl("https://mdblist.com")}>{t("Visitar MDBList")}</button>
+      </section>}
+
+      {view && settings && <div className="settings-group tracking-sources">
+        <div className="setting-title">{t("Fontes")}</div>
+        {([
+          ["librarySource", t("Fonte da Biblioteca"), t("Escolha qual serviço o Nuvio lê para sua Biblioteca.")],
+          ["progressSource", t("Progresso de reprodução"), t("Escolha qual serviço fornece retomada e Continuar assistindo.")],
+        ] as const).map(([key, label, description]) => {
+          const providers: [string, string, boolean][] = [
+            ["nuvio", key === "librarySource" ? "Nuvio Library" : "Nuvio Sync", true],
+            ["trakt", "Trakt", view.traktConnected],
+            ["simkl", "Simkl", view.simklConnected],
+            ["mdblist", "MDBList", view.mdblistConnected],
+          ];
+          return (
+            <Row key={key} title={label} description={description}>
+              <select aria-label={label} value={settings.player[key]} onChange={(e) => update((s) => ({ ...s, player: { ...s.player, [key]: e.target.value } }))}>
+                {providers.map(([value, name, enabled]) => <option key={value} value={value} disabled={!enabled}>{name}{!enabled ? ` (${t("Conecte primeiro")})` : ""}</option>)}
+              </select>
+            </Row>
+          );
+        })}
+      </div>}
       {sync && <p className="muted small" role="status">{sync}</p>}
       {error && <div className="row-error" role="alert">{error}</div>}
     </>

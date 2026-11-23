@@ -483,7 +483,7 @@ export function Settings() {
               <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
               <h2>{t("Rastreamento")}</h2>
             </div>
-            <TrackingCredentialsPanel />
+            <TrackingCredentialsPanel settings={draft} update={update} />
           </>
         ) : servicePage === "integrations" ? (
           <>
