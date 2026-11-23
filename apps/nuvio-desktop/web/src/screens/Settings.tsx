@@ -486,6 +486,11 @@ export function Settings() {
             <TrackingCredentialsPanel />
           </>
         ) : servicePage === "integrations" ? (
+          <>
+          <div className="settings-subhead">
+            <button className="ghost" data-testid="integrations-back" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
+            <h2>{t("Integrações")}</h2>
+          </div>
           <div className="settings-group">
             <button className="integration-row" onClick={() => setServicePage("tmdb")} data-service="tmdb">
               <span className="integration-icon tmdb">TMDB</span>
@@ -529,6 +534,7 @@ export function Settings() {
             />
           </Row>
           </div>
+          </>
         ) : servicePage === "servers" ? (
           <>
             <div className="settings-subhead">

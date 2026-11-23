@@ -4,3 +4,5 @@
 apps/nuvio-desktop/gen/
 local.properties
 *.log
+
+nuvio-desktop-release
