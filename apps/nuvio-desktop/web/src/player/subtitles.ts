@@ -24,7 +24,7 @@ export function canonicalLanguage(code: string | null | undefined): string {
 }
 
 export function languageName(code: string): string {
-  if (!code) return "Idioma não informado";
+  if (!code) return t("Idioma não informado");
   let name = code;
   try {
     name = NAMES.of(code) ?? code;
@@ -57,13 +57,13 @@ export function subtitleGroups(tracks: Track[], options: SubtitleOption[], prefe
     groups.get(language)!.choices.push(choice);
   };
   const subs = tracks.filter((t) => t.kind === "sub");
-  for (const t of subs) {
-    const detail = [t.external ? "Carregada" : "No arquivo", t.forced && "forçada", t.codec].filter(Boolean).join(" · ");
-    add(t.lang, { id: `track:${t.id}`, label: t.title || `Faixa ${t.id}`, detail, track: t });
+  for (const track of subs) {
+    const detail = [track.external ? t("Carregada") : t("No arquivo"), track.forced && t("forçada"), track.codec].filter(Boolean).join(" · ");
+    add(track.lang, { id: `track:${track.id}`, label: track.title || t("Faixa {id}", { id: track.id }), detail, track });
   }
   const loaded = new Set(subs.filter((t) => t.external).map((t) => t.title));
   for (const o of options) {
-    if (!loaded.has(o.title)) add(o.language, { id: `option:${o.index}`, label: o.title, detail: o.source === t("Fonte") ? "Da fonte" : "De addon", option: o });
+    if (!loaded.has(o.title)) add(o.language, { id: `option:${o.index}`, label: o.title, detail: o.source === t("Fonte") ? t("Da fonte") : t("De addon"), option: o });
   }
   const wanted = preferred.map(canonicalLanguage).filter(Boolean);
   const rank = (language: string) => {

@@ -65,6 +65,15 @@ export function t(source: string, vars?: Record<string, string | number>): strin
   return out;
 }
 
+/** Number with fixed decimals in the active locale (comma in Portuguese, dot in English). */
+export function decimal(value: number, digits = 1): string {
+  try {
+    return new Intl.NumberFormat(locale(), { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+  } catch {
+    return value.toFixed(digits);
+  }
+}
+
 /** BCP-47 locale for date/time formatting in the active UI language. */
 export function locale(): string {
   return current === "pt" ? "pt-BR" : current === "ar" ? "ar" : "en-US";

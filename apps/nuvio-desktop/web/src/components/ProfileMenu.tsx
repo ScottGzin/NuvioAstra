@@ -53,7 +53,7 @@ export function ProfileMenu({ view, busy, onSwitch, onManage, onClose }: MenuPro
     };
   }, [onClose]);
   return (
-    <div className="profile-menu" ref={ref} role="menu" aria-label="Perfis" data-testid="profile-menu">
+    <div className="profile-menu" ref={ref} role="menu" aria-label={t("Perfis")} data-testid="profile-menu">
       <div className="muted small profile-menu-title">{t("Quem está assistindo?")}</div>
       {view.profiles.map((p) => {
         const active = p.index === view.active;
@@ -115,7 +115,7 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
   const remove = async () => {
     if (!editing || editing.index === null) return;
     const name = view.profiles.find((p) => p.index === editing.index)?.name ?? editing.name;
-    if (!window.confirm(`Excluir perfil?\n\nTodos os dados de “${name}” serão excluídos permanentemente: favoritos, histórico, progresso, addons e configurações deste perfil. Uma cópia de segurança é guardada na pasta de dados do Nuvio Astra.`)) return;
+    if (!window.confirm(t("Excluir perfil?\n\nTodos os dados de “{name}” serão excluídos permanentemente: favoritos, histórico, progresso, addons e configurações deste perfil. Uma cópia de segurança é guardada na pasta de dados do Nuvio Astra.", { name }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -221,11 +221,11 @@ function AvatarPicker({ value, onChange }: { value: string | null; onChange(id: 
   const avatars = useAvatars();
   const account = useAccount();
   if (!avatars.length) {
-    return <div className="muted small">{account?.configured ? "Os avatares da conta Nuvio aparecem aqui quando o catálogo for carregado (requer conexão na primeira vez)." : "Avatares indisponíveis nesta versão: o perfil usa cor e inicial."}</div>;
+    return <div className="muted small">{account?.configured ? t("Os avatares da conta Nuvio aparecem aqui quando o catálogo for carregado (requer conexão na primeira vez).") : t("Avatares indisponíveis nesta versão: o perfil usa cor e inicial.")}</div>;
   }
   return (
-    <div className="avatar-picker" role="radiogroup" aria-label="Avatar">
-      <button type="button" role="radio" aria-checked={!value} className={`avatar-choice none ${!value ? "active" : ""}`} onClick={() => onChange(null)} title="Cor e inicial">Aa</button>
+    <div className="avatar-picker" role="radiogroup" aria-label={t("Avatar")}>
+      <button type="button" role="radio" aria-checked={!value} className={`avatar-choice none ${!value ? "active" : ""}`} onClick={() => onChange(null)} title={t("Cor e inicial")}>Aa</button>
       {avatars.map((a) => (
         <button type="button" key={a.id} role="radio" aria-checked={value === a.id} title={a.displayName} className={`avatar-choice ${value === a.id ? "active" : ""}`} style={{ background: a.bgColor ?? undefined }} onClick={() => onChange(a.id)} data-avatar={a.id}>
           <img src={a.imageUrl} alt={a.displayName} loading="lazy" />
@@ -252,7 +252,7 @@ function PinSection({ profile, onChanged }: { profile: ProfileInfo; onChanged(vi
       <div className="setting-row">
         <div className="setting-text">
           <div className="setting-title">{t("Bloqueio por PIN")}</div>
-          <div className="muted small">{profile.pinEnabled ? "Este perfil está protegido com um PIN. " : ""}{t("Entre na conta Nuvio (Configurações → Conta) para definir, alterar ou remover o PIN.")}</div>
+          <div className="muted small">{profile.pinEnabled ? `${t("Este perfil está protegido com um PIN.")} ` : ""}{t("Entre na conta Nuvio (Configurações → Conta) para definir, alterar ou remover o PIN.")}</div>
         </div>
       </div>
     );
@@ -279,7 +279,7 @@ function PinSection({ profile, onChanged }: { profile: ProfileInfo; onChanged(vi
   return (
     <div className="pin-section" data-testid="pin-section">
       <div className="setting-title">{t("Bloqueio por PIN")}</div>
-      <div className="muted small">{profile.pinEnabled ? t("Este perfil está protegido com um PIN.") : "Adicione um PIN se quiser que este perfil seja bloqueado antes de alternar para ele."}</div>
+      <div className="muted small">{profile.pinEnabled ? t("Este perfil está protegido com um PIN.") : t("Adicione um PIN se quiser que este perfil seja bloqueado antes de alternar para ele.")}</div>
       {mode === "idle" && (
         <div className="account-actions">
           <button type="button" className="chip" onClick={() => setMode("set")}>{profile.pinEnabled ? t("Alterar PIN") : t("Definir bloqueio por PIN")}</button>
@@ -291,11 +291,11 @@ function PinSection({ profile, onChanged }: { profile: ProfileInfo; onChanged(vi
           {profile.pinEnabled && <input inputMode="numeric" type="password" placeholder={t("PIN atual")} aria-label={t("PIN atual")} value={current} onChange={(e) => setCurrent(digits(e.target.value))} />}
           {mode === "set" && (
             <>
-              <input inputMode="numeric" type="password" placeholder={t("Novo PIN (4 dígitos)")} aria-label="Novo PIN" value={pin} onChange={(e) => setPin(digits(e.target.value))} />
+              <input inputMode="numeric" type="password" placeholder={t("Novo PIN (4 dígitos)")} aria-label={t("Novo PIN")} value={pin} onChange={(e) => setPin(digits(e.target.value))} />
               <input inputMode="numeric" type="password" placeholder={t("Repita o novo PIN")} aria-label={t("Repita o novo PIN")} value={confirm} onChange={(e) => setConfirm(digits(e.target.value))} />
             </>
           )}
-          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>{busy ? t("Salvando…") : mode === "set" ? "Salvar PIN" : "Remover PIN"}</button>
+          <button type="button" className="primary" disabled={busy} onClick={() => void save()}>{busy ? t("Salvando…") : mode === "set" ? t("Salvar PIN") : t("Remover PIN")}</button>
           <button type="button" className="chip" onClick={reset}>{t("Cancelar")}</button>
         </div>
       )}

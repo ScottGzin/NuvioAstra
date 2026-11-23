@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { PlayerSnapshot, ProfileSettings, SubtitleSettings } from "../types";
 import { useSubtitles } from "./subtitles";
-import { t } from "../i18n";
+import { decimal, t } from "../i18n";
 
 const SAVE_MS = 350;
 
@@ -67,16 +67,16 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
 
   return (
     <>
-      <span className="pc-enhance-title">Atraso da legenda</span>
+      <span className="pc-enhance-title">{t("Atraso da legenda")}</span>
       <div className="pc-delay">
         <button className="pc-level" aria-label="Adiantar legenda" onClick={() => delay(snapshot.subDelayMs - 250)}>−0,25 s</button>
-        <output data-testid="subtitle-delay">{(snapshot.subDelayMs / 1000).toFixed(2).replace(".", ",")} s</output>
+        <output data-testid="subtitle-delay">{decimal(snapshot.subDelayMs / 1000, 2)} s</output>
         <button className="pc-level" aria-label="Atrasar legenda" onClick={() => delay(snapshot.subDelayMs + 250)}>+0,25 s</button>
         <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>Zerar</button>
       </div>
       {style && (
         <>
-          <span className="pc-enhance-title">Aparência</span>
+          <span className="pc-enhance-title">{t("Aparência")}</span>
           <label className="pc-sub-slider">
             <span>{t("Tamanho")}</span>
             <input type="range" min={6} max={40} value={style.fontSizeSp} aria-label={t("Tamanho da legenda")} onChange={(e) => change({ fontSizeSp: Number(e.target.value) })} />
@@ -84,14 +84,14 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
           </label>
           <label className="pc-sub-slider">
             <span>Altura</span>
-            <input type="range" min={0} max={200} value={style.bottomOffset} aria-label="Altura da legenda" onChange={(e) => change({ bottomOffset: Number(e.target.value) })} />
+            <input type="range" min={0} max={200} value={style.bottomOffset} aria-label={t("Altura da legenda")} onChange={(e) => change({ bottomOffset: Number(e.target.value) })} />
             <output>{style.bottomOffset}</output>
           </label>
           <div className="pc-motion">
             <button className={`pc-level ${style.bold ? "active" : ""}`} aria-pressed={style.bold} onClick={() => change({ bold: !style.bold })}>{t("Negrito")}</button>
             <button className={`pc-level ${style.outlineEnabled ? "active" : ""}`} aria-pressed={style.outlineEnabled} onClick={() => change({ outlineEnabled: !style.outlineEnabled })}>{t("Contorno")}</button>
           </div>
-          <p className="pc-enhance-note">Fonte, cores e fundo ficam em Configurações → Legendas.</p>
+          <p className="pc-enhance-note">{t("Fonte, cores e fundo ficam em Configurações → Legendas.")}</p>
         </>
       )}
     </>
@@ -124,13 +124,13 @@ export function SubtitleMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
   }, [open]);
 
   let empty: string | null = null;
-  if (!snapshot.loaded) empty = "Aguardando o vídeo carregar…";
+  if (!snapshot.loaded) empty = t("Aguardando o vídeo carregar…");
   else if (!searching && !error && !groups.length) {
     empty = list?.failed
-      ? "Os addons de legenda não responderam. Abra de novo para tentar outra vez."
+      ? t("Os addons de legenda não responderam. Abra de novo para tentar outra vez.")
       : list?.addons
-        ? "Nenhuma legenda encontrada para este vídeo."
-        : "Este vídeo não traz legendas. Para buscar outras, instale um addon de legendas em Configurações → Addons.";
+        ? t("Nenhuma legenda encontrada para este vídeo.")
+        : t("Este vídeo não traz legendas. Para buscar outras, instale um addon de legendas em Configurações → Addons.");
   }
 
   return (
@@ -166,7 +166,7 @@ export function SubtitleMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                     })}
                   </div>
                 ))}
-                {searching && snapshot.loaded && <p className="pc-enhance-note">Buscando legendas nos addons…</p>}
+                {searching && snapshot.loaded && <p className="pc-enhance-note">{t("Buscando legendas nos addons…")}</p>}
                 {empty && <p className="pc-enhance-note">{empty}</p>}
                 {error && <p className="pc-enhance-note pc-sub-error" role="alert">{error}</p>}
               </>

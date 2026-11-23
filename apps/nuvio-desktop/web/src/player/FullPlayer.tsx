@@ -108,7 +108,7 @@ export function FullPlayer() {
       {pip && (
         <div className="pip-placeholder" data-testid="pip-placeholder">
           <p>Reproduzindo em picture-in-picture</p>
-          <button className="ghost" onClick={() => void togglePip()}>Trazer de volta</button>
+          <button className="ghost" onClick={() => void togglePip()}>{t("Trazer de volta")}</button>
         </div>
       )}
       <EnhanceNotice key={`notice-${snapshot?.session}`} snapshot={snapshot} />
@@ -122,7 +122,7 @@ export function FullPlayer() {
         next={
           next
             ? {
-                label: nextAired ? `${episodeTitle(next)} (N)` : `Não exibido · ${airDate(next.released)}`,
+                label: nextAired ? `${episodeTitle(next)} (N)` : t("Não exibido · {date}", { date: airDate(next.released) }),
                 disabled: !nextAired,
                 open: openNext,
               }

@@ -80,7 +80,7 @@ export function HeroCarousel({ items, onOpen }: Props) {
           <button className="hero-arrow prev" aria-label="Destaque anterior" onClick={() => go(-1)}>
             <svg viewBox="0 0 24 24" aria-hidden><path d="M15 5l-7 7 7 7" /></svg>
           </button>
-          <button className="hero-arrow next" aria-label="Próximo destaque" onClick={() => go(1)}>
+          <button className="hero-arrow next" aria-label={t("Próximo destaque")} onClick={() => go(1)}>
             <svg viewBox="0 0 24 24" aria-hidden><path d="M9 5l7 7-7 7" /></svg>
           </button>
           <div className="hero-dots" role="tablist" aria-label="Escolher destaque">
@@ -89,7 +89,7 @@ export function HeroCarousel({ items, onOpen }: Props) {
                 key={`${item.contentType}/${item.id}`}
                 role="tab"
                 aria-selected={i === index}
-                aria-label={`Destaque ${i + 1}: ${item.name}`}
+                aria-label={t("Destaque {index}: {name}", { index: i + 1, name: item.name })}
                 className={`hero-dot ${i === index ? "active" : ""}`}
                 onClick={() => setIndex(i)}
               >

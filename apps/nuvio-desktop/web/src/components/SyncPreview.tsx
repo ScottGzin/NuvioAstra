@@ -8,7 +8,7 @@ import { t } from "../i18n";
 
 const KINDS: { key: "addons" | "favorites" | "progress" | "watched"; label: string }[] = [
   { key: "addons", label: "Addons" },
-  { key: "favorites", label: t("Favoritos") },
+  { key: "favorites", label: "Favoritos" },
   { key: "progress", label: "Progresso" },
   { key: "watched", label: "Assistidos" },
 ];
@@ -25,8 +25,8 @@ function Row({ label, c, note }: { label: string; c: SyncCompare; note?: string 
       <td className={c.onlyRemote ? "hl-receive" : ""}>{c.onlyRemote}</td>
       <td className={c.differing ? "hl-conflict" : ""}>
         {c.differing}
-        {c.localNewer > 0 && <span className="muted small"> ({c.localNewer} mais recente(s) aqui)</span>}
-        {dup > 0 && <span className="muted small"> · {dup} duplicado(s)</span>}
+        {c.localNewer > 0 && <span className="muted small"> ({t("{count} mais recente(s) aqui", { count: c.localNewer })})</span>}
+        {dup > 0 && <span className="muted small"> · {t("{count} duplicado(s)", { count: dup })}</span>}
       </td>
     </tr>
   );
@@ -38,34 +38,34 @@ export function SyncPreview({ preview }: { preview: Preview }) {
     <div className="sync-preview" data-testid="sync-preview" data-first={first ? "1" : "0"}>
       <div className="setting-title">{first ? t("Prévia da primeira sincronização") : t("Comparação com a conta")}</div>
       <p className="muted small">
-        Consultado em {when(preview.generatedAtEpochMs)} somente com leituras da conta: nada foi enviado nem alterado.
-        {preview.otherAccount && " Os dados deste computador vieram de outra conta Nuvio."}
+        {t("Consultado em {when} somente com leituras da conta: nada foi enviado nem alterado.", { when: when(preview.generatedAtEpochMs) })}
+        {preview.otherAccount && ` ${t("Os dados deste computador vieram de outra conta Nuvio.")}`}
       </p>
       <dl className="facts account-facts">
-        <div className="fact"><dt>Perfis</dt><dd>{preview.profiles.local} neste computador · {preview.profiles.remote} na conta</dd></div>
-        <div className="fact"><dt>{first ? t("Serão enviados") : "Só neste computador"}</dt><dd data-testid="preview-send">{preview.toSend}</dd></div>
-        <div className="fact"><dt>{first ? t("Serão recebidos") : "Só na conta / diferentes"}</dt><dd data-testid="preview-receive">{preview.toReceive}</dd></div>
+        <div className="fact"><dt>{t("Perfis")}</dt><dd>{t("{local} neste computador · {remote} na conta", { local: preview.profiles.local, remote: preview.profiles.remote })}</dd></div>
+        <div className="fact"><dt>{first ? t("Serão enviados") : t("Só neste computador")}</dt><dd data-testid="preview-send">{preview.toSend}</dd></div>
+        <div className="fact"><dt>{first ? t("Serão recebidos") : t("Só na conta / diferentes")}</dt><dd data-testid="preview-receive">{preview.toReceive}</dd></div>
         <div className="fact"><dt>{t("Conflitos")}</dt><dd data-testid="preview-conflicts">{preview.conflicts}</dd></div>
         <div className="fact"><dt>{t("Alterações locais pendentes")}</dt><dd>{preview.pending}</dd></div>
       </dl>
       {preview.entries.map((e) => (
         <div key={e.index} className="sync-preview-profile" data-profile={e.index}>
           <div className="setting-title">
-            Perfil {e.index}: {e.localName ?? "—"} (computador) · {e.remoteName ?? "—"} (conta)
+            {t("Perfil {index}: {local} (computador) · {remote} (conta)", { index: e.index, local: e.localName ?? "—", remote: e.remoteName ?? "—" })}
             {!e.localName && <span className="muted small"> {t("· será criado neste computador")}</span>}
             {!e.remoteName && <span className="muted small"> {t("· será criado na conta")}</span>}
           </div>
           {e.profileDiffers && <div className="muted small hl-conflict">{t("Nome, cor ou avatar diferentes: fica a versão da conta.")}</div>}
           <table className="sync-table">
             <thead>
-              <tr><th /><th>Computador</th><th>{t("Conta")}</th><th>Em ambos</th><th>{t("Só aqui")}</th><th>{t("Só na conta")}</th><th>Diferentes</th></tr>
+              <tr><th /><th>{t("Computador")}</th><th>{t("Conta")}</th><th>{t("Em ambos")}</th><th>{t("Só aqui")}</th><th>{t("Só na conta")}</th><th>{t("Diferentes")}</th></tr>
             </thead>
             <tbody>
               {KINDS.map((k) =>
                 k.key === "addons" && e.sharesPrimaryAddons ? (
-                  <tr key={k.key}><th scope="row">Addons</th><td colSpan={6} className="muted small">usa os addons do perfil 1</td></tr>
+                  <tr key={k.key}><th scope="row">{t("Addons")}</th><td colSpan={6} className="muted small">{t("usa os addons do perfil 1")}</td></tr>
                 ) : (
-                  <Row key={k.key} label={k.label} c={e[k.key]} note={k.key === "addons" && e.addonOrderDiffers ? "ordem diferente" : undefined} />
+                  <Row key={k.key} label={t(k.label)} c={e[k.key]} note={k.key === "addons" && e.addonOrderDiffers ? t("ordem diferente") : undefined} />
                 ),
               )}
             </tbody>

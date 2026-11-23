@@ -79,7 +79,7 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
       : s.buffering || !s.loaded
         ? t("Carregando…")
         : s.ended
-          ? reachedEnd(s) || live ? t("Fim") : "A transmissão parou antes do fim. Seu ponto ficou salvo."
+          ? reachedEnd(s) || live ? t("Fim") : t("A transmissão parou antes do fim. Seu ponto ficou salvo.")
           : null;
 
   const pct = (v: number) => `${(v * 100).toFixed(3)}%`;
@@ -151,8 +151,8 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
         {live && <span className="pc-live-volume">{volumeControl}</span>}
         {live && <span className="live-dot">{t("AO VIVO")}</span>}
         {next && (
-          <button className="pc-btn pc-next" aria-label="Próximo episódio" title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
-            {Icons.next}<span>Próximo episódio</span>
+          <button className="pc-btn pc-next" aria-label={t("Próximo episódio")} title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
+            {Icons.next}<span>{t("Próximo episódio")}</span>
           </button>
         )}
         <span className="spacer" />

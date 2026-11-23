@@ -11,22 +11,22 @@ import {
   clock, episodeCode, lastWatched, previewFromLibraryItem, remaining, removeHistory, useLibraryVersion,
 } from "../library";
 import type { HistoryEntry, LibraryItem, MetaPreview } from "../types";
-import { t } from "../i18n";
+import { locale, t } from "../i18n";
 
 type Section = "continue" | "favorites" | "history";
 const SECTIONS: { id: Section; label: string }[] = [
-  { id: "continue", label: t("Continuar assistindo") },
-  { id: "favorites", label: t("Favoritos") },
-  { id: "history", label: t("Histórico") },
+  { id: "continue", label: "Continuar assistindo" },
+  { id: "favorites", label: "Favoritos" },
+  { id: "history", label: "Histórico" },
 ];
 
 /** Local-library sort options of the original (`availableLibrarySortOptions`, LOCAL). */
 type Sort = "addedDesc" | "addedAsc" | "titleAsc" | "titleDesc";
 const SORTS: { id: Sort; label: string }[] = [
-  { id: "addedDesc", label: t("Adicionados recentemente") },
-  { id: "addedAsc", label: t("Adicionados há mais tempo") },
-  { id: "titleAsc", label: t("Título (A–Z)") },
-  { id: "titleDesc", label: t("Título (Z–A)") },
+  { id: "addedDesc", label: "Adicionados recentemente" },
+  { id: "addedAsc", label: "Adicionados há mais tempo" },
+  { id: "titleAsc", label: "Título (A–Z)" },
+  { id: "titleDesc", label: "Título (Z–A)" },
 ];
 type Kind = "all" | "movie" | "series";
 
@@ -51,7 +51,7 @@ export function Library({ onOpen, onResume, onOpenEntry }: Props) {
         <div className="season-tabs" role="tablist" aria-label={t("Categorias da Biblioteca")}>
           {SECTIONS.map((s) => (
             <button key={s.id} role="tab" aria-selected={section === s.id} className={`chip ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => select(s.id)}>
-              {s.label}
+              {t(s.label)}
             </button>
           ))}
         </div>
@@ -106,7 +106,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
 
   const sorted = useMemo(() => {
     const list = (items ?? []).filter((i) => kind === "all" || (kind === "movie" ? i.contentType === "movie" : i.contentType !== "movie"));
-    const byTitle = (a: LibraryItem, b: LibraryItem) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" });
+    const byTitle = (a: LibraryItem, b: LibraryItem) => a.name.localeCompare(b.name, locale(), { sensitivity: "base" });
     switch (sort) {
       case "addedAsc": return [...list].sort((a, b) => a.savedAtEpochMs - b.savedAtEpochMs);
       case "titleAsc": return [...list].sort(byTitle);
@@ -133,7 +133,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
         <span className="spacer" />
         <label className="muted small" htmlFor="library-sort">{t("Ordenar")}</label>
         <select id="library-sort" className="select" value={sort} onChange={(e) => setSort(e.target.value as Sort)} data-testid="library-sort">
-          {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+          {SORTS.map((s) => <option key={s.id} value={s.id}>{t(s.label)}</option>)}
         </select>
       </div>
       {sorted.length === 0 ? (
@@ -147,7 +147,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
       )}
       {shown < sorted.length && (
         <div ref={more} className="library-pad">
-          <button className="link" onClick={() => setShown((s) => s + FAVORITES_STEP)}>Mostrar mais ({sorted.length - shown})</button>
+          <button className="link" onClick={() => setShown((s) => s + FAVORITES_STEP)}>{t("Mostrar mais ({count})", { count: sorted.length - shown })}</button>
         </div>
       )}
     </div>
@@ -207,7 +207,7 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
   if (!items.length) return <Empty>{t("Nenhuma reprodução registrada ainda.")}</Empty>;
   return (
     <div className="history" data-testid="library-history">
-      <div className="muted small library-pad">{total} registro(s), mais recentes primeiro</div>
+      <div className="muted small library-pad">{t("{total} record(s), most recent first", { total })}</div>
       <ul className="history-list">
         {items.map((e) => (
           <li key={e.key} className="history-item" data-key={e.key}>
@@ -219,7 +219,7 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
                   {[episodeCode(e) && `${episodeCode(e)}${e.episodeTitle ? ` · ${e.episodeTitle}` : ""}`, e.metaType === "movie" ? t("Filme") : null].filter(Boolean).join(" ")}
                 </div>
                 <div className="muted small">
-                  {e.completed ? t("✓ Assistido") : [`${clock(e.positionMs)} assistidos`, remaining(e)].filter(Boolean).join(" · ")} · {lastWatched(e.lastWatchedEpochMs)}
+                  {e.completed ? t("✓ Assistido") : [t("{time} assistidos", { time: clock(e.positionMs) }), remaining(e)].filter(Boolean).join(" · ")} · {lastWatched(e.lastWatchedEpochMs)}
                 </div>
                 {!e.completed && e.durationMs > 0 && (
                   <div className="progress inline"><div style={{ width: `${Math.max(2, e.fraction * 100)}%` }} /></div>
@@ -227,13 +227,13 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
               </div>
             </button>
             {e.inProgress && <button className="chip" onClick={() => onResume(e)} data-testid="history-resume">{t("▶ Continuar")}</button>}
-            <button className="icon-btn" aria-label={`Remover ${e.title} do histórico`} title={t("Remover do histórico")} data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
+            <button className="icon-btn" aria-label={t("Remover {title} do histórico", { title: e.title })} title={t("Remover do histórico")} data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
           </li>
         ))}
       </ul>
       {next !== null && (
         <div ref={sentinel} className="library-pad">
-          {busy ? <span className="muted">{t("Carregando…")}</span> : <button className="link" onClick={loadMore}>Carregar mais ({total - (items?.length ?? 0)})</button>}
+          {busy ? <span className="muted">{t("Carregando…")}</span> : <button className="link" onClick={loadMore}>{t("Carregar mais ({count})", { count: total - (items?.length ?? 0) })}</button>}
         </div>
       )}
     </div>

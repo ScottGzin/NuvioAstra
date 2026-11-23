@@ -60,7 +60,7 @@ export function PinPad({ profile, onUnlocked }: { profile: ProfileInfo; onUnlock
 
   return (
     <div className="pin-pad" data-testid="pin-pad">
-      <div className="pin-dots" role="status" aria-label={`${pin.length} de 4 dígitos`} data-filled={pin.length}>
+      <div className="pin-dots" role="status" aria-label={t("{count} de 4 dígitos", { count: pin.length })} data-filled={pin.length}>
         {[0, 1, 2, 3].map((i) => <span key={i} className={`pin-dot ${i < pin.length ? "filled" : ""} ${error ? "error" : ""}`} />)}
       </div>
       <div className="pin-message" aria-live="polite">

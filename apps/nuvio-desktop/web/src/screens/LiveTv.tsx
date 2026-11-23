@@ -11,7 +11,7 @@ import { usePlayer } from "../player/PlayerContext";
 import { PlayerControls } from "../player/PlayerControls";
 import { PlayerSurface } from "../player/PlayerSurface";
 import type { Channel, ChannelList } from "../types";
-import { t } from "../i18n";
+import { locale, t } from "../i18n";
 
 const ALL = "__all__";
 const FAVORITES = "__favorites__";
@@ -79,7 +79,7 @@ export function LiveTv() {
   const addonOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of list?.channels ?? []) counts.set(c.addonName, (counts.get(c.addonName) ?? 0) + 1);
-    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], locale()));
   }, [list]);
   // A remembered addon that no longer provides channels is ignored.
   // A remembered choice whose addons no longer provide channels falls back to all of them.
@@ -130,7 +130,7 @@ export function LiveTv() {
       const stream = groups.flatMap((g) => g.streams).find((s) => s.kind === "direct");
       if (!stream) {
         const reason = groups.find((g) => g.error)?.error;
-        setChannelError(reason ? `O addon respondeu com erro: ${reason}` : "O addon não forneceu um stream reproduzível para este canal.");
+        setChannelError(reason ? t("O addon respondeu com erro: {error}", { error: reason }) : t("O addon não forneceu um stream reproduzível para este canal."));
         return;
       }
       // Leaving fullscreen returns to this preview (FullPlayer uses `returnTo`).
@@ -152,7 +152,7 @@ export function LiveTv() {
     try {
       setFavorites(await api.liveTvToggleFavorite(key));
     } catch (e) {
-      setChannelError(`Não foi possível salvar o favorito: ${errorText(e)}`);
+      setChannelError(t("Não foi possível salvar o favorito: {error}", { error: errorText(e) }));
     }
   };
 
@@ -167,7 +167,7 @@ export function LiveTv() {
       channelsCache = l;
       setList(l);
     } catch (e) {
-      setChannelError(`Não foi possível recarregar: ${errorText(e)}`);
+      setChannelError(t("Não foi possível recarregar: {error}", { error: errorText(e) }));
     } finally {
       setReloading(false);
     }
@@ -221,7 +221,7 @@ export function LiveTv() {
       <div className="channel-list" role="list">
         <div className="channel-list-title">
           <span>{categoryTitle}</span>
-          <span className="muted small">{visible.length} canais</span>
+          <span className="muted small">{t("{count} canais", { count: visible.length })}</span>
         </div>
         {!list && <div className="screen-message">{t("Carregando canais…")}</div>}
         {list && !visible.length && (
@@ -229,7 +229,7 @@ export function LiveTv() {
             {!list.channels.length
               ? t("Nenhum addon instalado fornece canais de TV.")
               : activeAddons !== null && activeAddons.length === 0
-                ? "Nenhum addon de canais selecionado. Escolha um ou mais no seletor ao lado da busca."
+                ? t("Nenhum addon de canais selecionado. Escolha um ou mais no seletor ao lado da busca.")
                 : t("Nenhum canal neste filtro.")}
           </div>
         )}
@@ -279,11 +279,11 @@ export function LiveTv() {
                 {current.logo && <img src={current.logo} alt="" />}
                 <div>
                   <h2>{current.name}</h2>
-                  <div className="muted small">Origem: {current.addonName}</div>
+                  <div className="muted small">{t("Origem: {name}", { name: current.addonName })}</div>
                 </div>
               </div>
               {resolving && <div className="muted">{t("Resolvendo o stream deste canal…")}</div>}
-              {(channelError || player.error) && <div className="row-error">{channelError ?? `Falha ao reproduzir: ${player.error}`}</div>}
+              {(channelError || player.error) && <div className="row-error">{channelError ?? t("Falha ao reproduzir: {error}", { error: player.error ?? "" })}</div>}
               <div className="preview-epg" data-testid="preview-epg">
                 <EpgGuide channelKey={current.key} />
               </div>

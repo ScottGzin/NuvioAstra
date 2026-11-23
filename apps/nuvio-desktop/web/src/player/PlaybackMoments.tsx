@@ -23,9 +23,9 @@ function skipLabel(m: Moment): string {
   switch (m.kind) {
     case "intro": return t("Pular introdução");
     case "recap": return t("Pular recapitulação");
-    case "outro": return "Pular encerramento";
+    case "outro": return t("Pular encerramento");
     case "movie-credits": return t("Pular créditos");
-    default: return "Pular";
+    default: return t("Pular");
   }
 }
 
@@ -107,7 +107,7 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
     if (!active?.auto || s.paused || s.buffering || covered || autoDone.current.has(keyOf(active))) return;
     if (active.end <= startedAt.current || seekPoints.current.some((p) => p >= active.start && p < active.end)) return;
     skip(active);
-    setNotice(SKIPPED[active.kind] ?? null);
+    setNotice(SKIPPED[active.kind] ? t(SKIPPED[active.kind]!) : null);
   }, [time, active, covered, skip, s.loaded, s.paused, s.buffering, s.speed]);
 
   useEffect(() => {
@@ -163,7 +163,7 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
                 <em>{aired ? t("Escolher fonte") : t("Não exibido · {date}", { date: airDate(next.released) })}</em>
               </span>
             </button>
-            {!reachedEnd(s) && <button className="next-card-close" aria-label="Dispensar próximo episódio" onClick={() => setDismissed(true)}>✕</button>}
+            {!reachedEnd(s) && <button className="next-card-close" aria-label={t("Dispensar próximo episódio")} onClick={() => setDismissed(true)}>✕</button>}
           </div>
         )}
       </div>

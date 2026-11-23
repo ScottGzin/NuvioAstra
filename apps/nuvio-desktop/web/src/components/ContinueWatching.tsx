@@ -22,11 +22,11 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
   const fresh = entry.nextUp && !entry.inProgress;
   return (
     <div className="cw-wrap">
-      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? `Próximo episódio de ${entry.title}` : `Continuar ${entry.title}`}>
+      <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? t("Próximo episódio de {title}", { title: entry.title }) : t("Continuar {title}", { title: entry.title })}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
-          {entry.nextUp && <span className="cw-badge">{entry.airs ? `Estreia em ${airDate(entry.airs)}` : "Próximo episódio"}</span>}
+          {entry.nextUp && <span className="cw-badge">{entry.airs ? t("Estreia em {date}", { date: airDate(entry.airs) }) : t("Próximo episódio")}</span>}
           {!fresh && (
             <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(entry.fraction * 100)}>
               <div style={{ width: `${Math.max(2, entry.fraction * 100)}%` }} />

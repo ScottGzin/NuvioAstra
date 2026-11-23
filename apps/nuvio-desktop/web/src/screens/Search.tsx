@@ -279,7 +279,7 @@ export function Search({ onOpen }: Props) {
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
                     {h}
                   </button>
-                  <button className="history-remove" aria-label={`Remover “${h}” do histórico`} onClick={() => removeHistory(h)}>×</button>
+                  <button className="history-remove" aria-label={t("Remover “{term}” do histórico", { term: h })} onClick={() => removeHistory(h)}>×</button>
                 </span>
               ))}
             </div>

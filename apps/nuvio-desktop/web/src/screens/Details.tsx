@@ -19,7 +19,7 @@ interface Props {
 }
 
 function episodeLabel(v: MetaVideo): string {
-  return v.season != null && v.episode != null ? `T${v.season} E${v.episode}` : "";
+  return v.season != null && v.episode != null ? t("T{season} E{episode}", { season: v.season, episode: v.episode }) : "";
 }
 
 export function Details({ item, onBack }: Props) {
@@ -160,7 +160,7 @@ export function Details({ item, onBack }: Props) {
             <div className="details-actions">
               {!isSeries && (movieEntry?.inProgress ? (
                 <>
-                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ Continuar de {clock(movieEntry.positionMs)}</button>
+                  <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ {t("Continuar de {time}", { time: clock(movieEntry.positionMs) })}</button>
                   <button className="chip" data-testid="watch-from-start" onClick={() => choose("movie", true)}>{t("Assistir do início")}</button>
                 </>
               ) : (
@@ -180,7 +180,7 @@ export function Details({ item, onBack }: Props) {
             </div>
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
-                {movieEntry.completed ? t("✓ Assistido") : [`${clock(movieEntry.positionMs)} assistidos`, remaining(movieEntry)].filter(Boolean).join(" · ")}
+                {movieEntry.completed ? t("✓ Assistido") : [t("{time} assistidos", { time: clock(movieEntry.positionMs) }), remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
             <div className="muted small">{t("Detalhes por")} {data.addonName}</div>
@@ -211,7 +211,7 @@ export function Details({ item, onBack }: Props) {
             <div className="season-tabs" role="tablist">
               {data.seasons.map((s) => (
                 <button key={s} role="tab" aria-selected={season === s} className={`chip ${season === s ? "active" : ""}`} onClick={() => setSeason(s)}>
-                  {s === 0 ? t("Especiais") : `Temporada ${s}`}
+                  {s === 0 ? t("Especiais") : t("Temporada {season}", { season: s })}
                 </button>
               ))}
             </div>
@@ -229,7 +229,7 @@ export function Details({ item, onBack }: Props) {
                       {v.released && <div className="muted small">{v.released.slice(0, 10)}</div>}
                       {e && (
                         <div className="small episode-progress" data-testid="episode-progress">
-                          {e.completed ? t("✓ Assistido") : `${clock(e.positionMs)} assistidos${remaining(e) ? ` · ${remaining(e)}` : ""}`}
+                          {e.completed ? t("✓ Assistido") : t("{time} assistidos", { time: clock(e.positionMs) }) + (remaining(e) ? ` · ${remaining(e)}` : "")}
                         </div>
                       )}
                       {v.overview && <div className="episode-overview">{v.overview}</div>}
@@ -264,7 +264,7 @@ export function Details({ item, onBack }: Props) {
                 <h2>{t("Fontes")}</h2>
                 <div className="muted small">
                   {selected === "movie" ? m.name : `${episodeLabel(selected)} · ${selected.title}`}
-                  {resumeAt !== null && <span data-testid="resume-note"> · continua de {clock(resumeAt)}</span>}
+                  {resumeAt !== null && <span data-testid="resume-note"> · {t("continua de {time}", { time: clock(resumeAt) })}</span>}
                 </div>
               </div>
               <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={() => setSelected(null)}>✕</button>

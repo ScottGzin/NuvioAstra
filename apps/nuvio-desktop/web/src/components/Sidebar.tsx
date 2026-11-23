@@ -63,7 +63,7 @@ export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
         <span className="nav-label">{t("Configurações")}</span>
       </button>
       {profile && (
-        <button className="profile-chip" title={`${profile.name} · trocar de perfil`} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
+        <button className="profile-chip" title={t("{name} · trocar de perfil", { name: profile.name })} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
           <span className="profile-ring"><Avatar profile={profile} /></span>
           <span className="nav-label">{profile.name}</span>
         </button>

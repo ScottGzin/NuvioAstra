@@ -3,10 +3,10 @@
 
 import { useEffect, useState } from "react";
 import { clearInstallError, dismissUpdate, installUpdate, startAutomaticChecks, useUpdates } from "../updates";
-import { t } from "../i18n";
+import { decimal, t } from "../i18n";
 
 export function megabytes(n: number) {
-  return `${(n / 1048576).toFixed(1).replace(".", ",")} MB`;
+  return `${decimal(n / 1048576)} MB`;
 }
 
 export function UpdateBanner({ automatic }: { automatic: boolean }) {
@@ -40,7 +40,7 @@ export function UpdateBanner({ automatic }: { automatic: boolean }) {
         )}
         {p && p.phase === "downloading" && (
           <span className="update-progress">
-            Baixando {pct !== null ? `${pct}%` : megabytes(p.downloaded)}
+            {t("Baixando")} {pct !== null ? `${pct}%` : megabytes(p.downloaded)}
             <span className="update-bar"><span style={{ width: `${pct ?? 30}%` }} /></span>
           </span>
         )}
@@ -48,7 +48,7 @@ export function UpdateBanner({ automatic }: { automatic: boolean }) {
         {p && p.phase === "installing" && <span>{t("Assinatura válida. Instalando — o Nuvio Astra vai fechar e abrir de novo.")}</span>}
         {p && p.phase === "error" && (
           <>
-            <span className="update-error">{p.error}</span>
+            <span className="update-error">{t(p.error ?? "")}</span>
             <button className="ghost small-btn" onClick={clearInstallError}>{t("Fechar")}</button>
           </>
         )}

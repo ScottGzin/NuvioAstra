@@ -63,9 +63,9 @@ export function AccountPanel() {
   const connect = async () => {
     const s = await api.accountConnect(false);
     setAccount(s);
-    if (s.state === "needsReview") setMessage({ ok: true, text: "Conectado. Os dados deste computador são de outra conta: confira e confirme para sincronizar." });
-    else if (s.state === "error" || s.state === "offline") setMessage({ ok: false, text: s.lastError ?? "Não foi possível sincronizar agora." });
-    else setMessage({ ok: true, text: "Conectado e sincronizado." });
+    if (s.state === "needsReview") setMessage({ ok: true, text: t("Conectado. Os dados deste computador são de outra conta: confira e confirme para sincronizar.") });
+    else if (s.state === "error" || s.state === "offline") setMessage({ ok: false, text: s.lastError ?? t("Não foi possível sincronizar agora.") });
+    else setMessage({ ok: true, text: t("Conectado e sincronizado.") });
   };
 
   const signIn = () =>
@@ -103,15 +103,20 @@ export function AccountPanel() {
 
   const startFirstSync = () => {
     if (!preview) return;
-    const text = `Iniciar a primeira sincronização com ${account?.email ?? t("esta conta")}?
-
-Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${preview.conflicts} conflito(s) resolvido(s) pelas regras mostradas. Favoritos e histórico dos dois lados são mantidos; a ordem do Início e as preferências de reprodução passam a ser as da conta. Uma cópia verificada dos dados deste computador é feita antes.`;
+    const text = t("Iniciar a primeira sincronização com {account}?\n\nSerão enviados {send} item(ns) e recebidos {receive}; {conflicts} conflito(s) resolvido(s) pelas regras mostradas. Nada é apagado, e uma cópia verificada dos dados deste computador é feita antes.", {
+      account: account?.email ?? t("esta conta"),
+      send: preview.toSend,
+      receive: preview.toReceive,
+      conflicts: preview.conflicts,
+    });
     if (window.confirm(text)) void startSync();
   };
 
   const signOut = () => {
-    const pending = account.pending > 0 ? `\n\n${account.pending} alteração(ões) ainda não foram enviadas. Elas continuam guardadas neste computador e serão enviadas quando você entrar de novo nesta conta.` : "";
-    if (!window.confirm(`Sair da conta ${account.email ?? ""}?\n\nFavoritos, histórico, progresso, addons e perfis continuam neste computador.${pending}`)) return;
+    const pending = account.pending > 0
+      ? "\n\n" + t("{count} alteração(ões) ainda não foram enviadas. Elas continuam guardadas neste computador e serão enviadas quando você entrar de novo nesta conta.", { count: account.pending })
+      : "";
+    if (!window.confirm(t("Sair da conta {account}?\n\nFavoritos, histórico, progresso, addons e perfis continuam neste computador.{pending}", { account: account.email ?? "", pending }))) return;
     void run("signout", async () => {
       setAccount(await api.accountSignOut());
       setMessage({ ok: true, text: t("Você saiu da conta. Os dados locais foram mantidos.") });
@@ -137,8 +142,8 @@ Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${p
                 {!reviewing && (
                   <div className="muted small" data-testid="sync-automatic">
                     {account.state === "error" || account.state === "offline"
-                      ? "Vai tentar de novo sozinho."
-                      : "Automática: recebe ao abrir e ao voltar para o app, envia a cada alteração."}
+                      ? t("Vai tentar de novo sozinho.")
+                      : t("Automática: recebe ao abrir e ao voltar para o app, envia a cada alteração.")}
                   </div>
                 )}
               </div>
@@ -149,7 +154,7 @@ Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${p
           </div>
           {reviewing && (
             <div className="banner review" data-testid="first-sync-review">
-              <p>Nenhum dado foi sincronizado ainda. Confira a prévia em t("Ver detalhes"); a primeira sincronização só começa quando você iniciar.</p>
+              <p>{t("Nenhum dado foi sincronizado ainda. Confira a prévia em “Ver detalhes”; a primeira sincronização só começa quando você iniciar.")}</p>
               {account.linkQuestion && <p data-testid="link-question">{account.linkQuestion}</p>}
               {busy === "preview" && <p className="muted">{t("Consultando a conta (somente leitura)…")}</p>}
               {previewError && <div className="row-error">{t("Não foi possível montar a prévia: {error}", { error: previewError })}</div>}
@@ -176,10 +181,10 @@ Serão enviados ${preview.toSend} item(ns) e recebidos ${preview.toReceive}; ${p
             </div>
             {preview && <SyncPreview preview={preview} />}
             <p className="muted small">
-              Sincronizados com a conta Nuvio, por perfil: perfis (nome, cor, avatar, PIN), addons e a ordem deles, favoritos, continuar assistindo, títulos assistidos, coleções (recebidas), ordem e nomes do Início, e preferências de reprodução, áudio e legendas.
-              As preferências de reprodução são compartilhadas só entre computadores, como no Nuvio Desktop, e se a conta já tiver preferências salvas por ele.
-              Ficam só neste computador: Melhorar imagem, Movimento, Torrent/P2P, catálogos do destaque (o Nuvio também não envia essa escolha para a conta) e favoritos de canais.
-              Sem internet, as alterações ficam guardadas e são enviadas quando a conexão voltar.
+              {t("Sincronizados com a conta Nuvio, por perfil: perfis (nome, cor, avatar, PIN), addons e a ordem deles, favoritos, continuar assistindo, títulos assistidos, coleções (recebidas), ordem e nomes do Início, e preferências de reprodução, áudio e legendas.")}{" "}
+              {t("As preferências de reprodução são compartilhadas só entre computadores, como no Nuvio Desktop, e se a conta já tiver preferências salvas por ele.")}{" "}
+              {t("Ficam só neste computador: Melhorar imagem, Movimento, Torrent/P2P, catálogos do destaque (o Nuvio também não envia essa escolha para a conta) e favoritos de canais.")}{" "}
+              {t("Sem internet, as alterações ficam guardadas e são enviadas quando a conexão voltar.")}
             </p>
           </details>
         </>

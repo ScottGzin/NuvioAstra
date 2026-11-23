@@ -123,7 +123,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
         <div className="screen-message">
           {folder.skippedSources > 0
             ? t("Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra.")
-            : "Esta pasta não tem catálogos."}
+            : t("Esta pasta não tem catálogos.")}
         </div>
       ) : rowsMode ? (
         <div className="folder-rows">
@@ -139,7 +139,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       ) : (
         <>
           {(showAll || sources.length > 1) && (
-            <nav className="folder-tabs" aria-label="Catálogos da pasta">
+            <nav className="folder-tabs" aria-label={t("Catálogos da pasta")}>
               {showAll && (
                 <button className={`chip ${tab === ALL ? "active" : ""}`} onClick={() => setTab(ALL)}>{t("Todos")}</button>
               )}

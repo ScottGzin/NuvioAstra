@@ -22,7 +22,7 @@ function AddonLogo({ addon }: { addon: AddonView }) {
 function Badges({ addon }: { addon: AddonView }) {
   return (
     <div className="chips addon-badges">
-      {addon.status === "ok" && <span className="chip badge-ok">Ativo</span>}
+      {addon.status === "ok" && <span className="chip badge-ok">{t("Ativo")}</span>}
       {addon.status === "disabled" && <span className="chip">{t("Desativado")}</span>}
       {addon.status === "error" && <span className="chip badge-error">{t("Indisponível")}</span>}
       {addon.configurable && <span className="chip">{t("Configurável")}</span>}
@@ -85,7 +85,7 @@ export function AddonsManager() {
     setPreview(null);
     setConsent(false);
     setChecking(true);
-    setFeedback({ kind: "busy", text: "Validando a URL do manifesto e carregando detalhes do addon…" });
+    setFeedback({ kind: "busy", text: t("Validando a URL do manifesto e carregando detalhes do addon…") });
     try {
       const p = await api.addonPreview(address);
       setPreview(p);
@@ -121,7 +121,7 @@ export function AddonsManager() {
   };
 
   if (error) return <div className="row-error">{t("Não foi possível ler os addons: {error}", { error })}</div>;
-  if (!view) return <div className="muted">Carregando addons…</div>;
+  if (!view) return <div className="muted">{t("Carregando addons…")}</div>;
   const active = view.addons.filter((a) => a.status === "ok").length;
   const catalogs = view.addons.filter((a) => a.enabled).reduce((n, a) => n + a.catalogCount, 0);
   const ro = view.readOnly;
@@ -129,9 +129,9 @@ export function AddonsManager() {
   return (
     <div className="settings-group addons" data-testid="addons">
       <div className="addon-overview">
-        <div><b>{view.addons.length}</b><span className="muted small">Addons</span></div>
-        <div><b>{active}</b><span className="muted small">Ativos</span></div>
-        <div><b>{catalogs}</b><span className="muted small">Catálogos</span></div>
+        <div><b>{view.addons.length}</b><span className="muted small">{t("Addons")}</span></div>
+        <div><b>{active}</b><span className="muted small">{t("Ativos")}</span></div>
+        <div><b>{catalogs}</b><span className="muted small">{t("Catálogos")}</span></div>
       </div>
 
       {ro && <div className="banner">{t("Este perfil usa os addons do perfil principal. Para gerenciá-los, entre no perfil principal ou desative “Usar addons do perfil principal” na edição do perfil.")}</div>}
@@ -146,7 +146,7 @@ export function AddonsManager() {
               type="text"
               inputMode="url"
               placeholder={t("URL do addon (manifest.json)")}
-              aria-label="URL do addon"
+              aria-label={t("URL do addon")}
               data-testid="addon-url"
               value={address}
               onChange={(e) => { setAddress(e.target.value); setPreview(null); }}
@@ -162,7 +162,7 @@ export function AddonsManager() {
               <AddonLogo addon={preview.addon} />
               <div className="addon-main">
                 <div className="addon-title">{preview.addon.name} <span className="muted small">{t("Versão {version}", { version: preview.addon.version })}</span></div>
-                <div className="muted small">{preview.addon.host}{preview.addon.configured && " · configurado"}</div>
+                <div className="muted small">{preview.addon.host}{preview.addon.configured && ` · ${t("configurado")}`}</div>
                 {preview.addon.description && <p className="addon-desc">{preview.addon.description}</p>}
                 <Badges addon={preview.addon} />
                 <Catalogs addon={preview.addon} />
@@ -171,8 +171,8 @@ export function AddonsManager() {
                   <label className="addon-consent">
                     <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} data-testid="addon-consent" />
                     <span>
-                      <b>{preview.addon.name}</b> é um addon de rastreamento: ele recebe o que você reproduz, pausa e para (com a posição), o que entra ou sai da biblioteca e o que é marcado como assistido.
-                      Concordo em compartilhar minha atividade e biblioteca com este addon.
+                      <b>{preview.addon.name}</b> {t("é um addon de rastreamento: ele recebe o que você reproduz, pausa e para (com a posição), o que entra ou sai da biblioteca e o que é marcado como assistido.")}{" "}
+                      {t("Concordo em compartilhar minha atividade e biblioteca com este addon.")}
                     </span>
                   </label>
                 )}
@@ -202,7 +202,7 @@ export function AddonsManager() {
                 <div className="addon-title">
                   {a.name} {a.version && <span className="muted small">{t("Versão {version}", { version: a.version })}</span>}
                 </div>
-                <div className="muted small">{a.host}{a.configured && " · configurado"}</div>
+                <div className="muted small">{a.host}{a.configured && ` · ${t("configurado")}`}</div>
                 {a.description && <p className="addon-desc">{a.description}</p>}
                 {a.error && <div className="row-error small">{a.error}</div>}
                 <Badges addon={a} />
@@ -216,30 +216,30 @@ export function AddonsManager() {
                   className={`switch ${a.enabled ? "on" : ""}`}
                   disabled={ro || busyKey === a.key}
                   data-testid="addon-toggle"
-                  onClick={() => void run(a.key, a.enabled ? "Desativando…" : "Ativando…", () => api.addonSetEnabled(a.key, !a.enabled), `${a.name} ${a.enabled ? "desativado" : "ativado"}.`)}
+                  onClick={() => void run(a.key, a.enabled ? t("Desativando…") : t("Ativando…"), () => api.addonSetEnabled(a.key, !a.enabled), t("{name} {state}.", { name: a.name, state: t(a.enabled ? "desativado" : "ativado") }))}
                 >
                   <span className="knob" />
                 </button>
                 <div className="addon-buttons">
-                  <button className="icon-btn" aria-label={`Mover ${a.name} para cima`} title="Mover para cima" disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, -1), t("Ordem salva."))}>↑</button>
-                  <button className="icon-btn" aria-label={`Mover ${a.name} para baixo`} title="Mover para baixo" disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, 1), t("Ordem salva."))}>↓</button>
+                  <button className="icon-btn" aria-label={t("Mover {name} para cima", { name: a.name })} title={t("Mover para cima")} disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, -1), t("Ordem salva."))}>↑</button>
+                  <button className="icon-btn" aria-label={t("Mover {name} para baixo", { name: a.name })} title={t("Mover para baixo")} disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, 1), t("Ordem salva."))}>↓</button>
                   <button
                     className="icon-btn"
-                    aria-label={`Atualizar ${a.name}`}
-                    title="Atualizar addon"
+                    aria-label={t("Atualizar {name}", { name: a.name })}
+                    title={t("Atualizar addon")}
                     disabled={!a.enabled || busyKey === a.key}
                     data-testid="addon-refresh"
-                    onClick={() => void run(a.key, `Atualizando ${a.name}…`, () => api.addonRefresh(a.key), (v) => {
+                    onClick={() => void run(a.key, t("Atualizando {name}…", { name: a.name }), () => api.addonRefresh(a.key), (v) => {
                       const now = v.addons.find((x) => x.key === a.key);
-                      return now?.status === "ok" ? `${now.name} atualizado (versão ${now.version}).` : `${a.name}: ${now?.error ?? "não foi possível atualizar"}`;
+                      return now?.status === "ok" ? t("{name} atualizado (versão {version}).", { name: now.name, version: now.version }) : t("{name}: {error}", { name: a.name, error: now?.error ?? t("não foi possível atualizar") });
                     })}
                   >
                     ⟳
                   </button>
                   {a.configurable && (
-                    <button className="icon-btn" aria-label={`Configurar ${a.name}`} title="Configurar addon" onClick={() => void configure(a)}>⚙</button>
+                    <button className="icon-btn" aria-label={t("Configurar {name}", { name: a.name })} title={t("Configurar addon")} onClick={() => void configure(a)}>⚙</button>
                   )}
-                  <button className="icon-btn danger" aria-label={`Excluir ${a.name}`} title="Excluir addon" disabled={ro || !!busyKey} data-testid="addon-remove" onClick={() => remove(a)}>🗑</button>
+                  <button className="icon-btn danger" aria-label={`Excluir ${a.name}`} title={t("Excluir addon")} disabled={ro || !!busyKey} data-testid="addon-remove" onClick={() => remove(a)}>🗑</button>
                 </div>
               </div>
             </li>

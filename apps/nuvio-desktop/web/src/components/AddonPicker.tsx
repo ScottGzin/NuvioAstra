@@ -63,7 +63,7 @@ export function AddonPicker({ options, selected, onChange }: Props) {
       </button>
       {open && (
         <div className="addon-picker-menu" role="listbox" aria-multiselectable="true">
-          <div className="addon-picker-title">Addons de canais</div>
+          <div className="addon-picker-title">{t("Addons de canais")}</div>
           <label className={`addon-picker-option ${all ? "on" : ""}`}>
             <input type="checkbox" checked={all} onChange={toggleAll} />
             <span className="addon-check" aria-hidden />

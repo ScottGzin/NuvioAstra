@@ -7,10 +7,10 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { listen } from "../tauri";
 import type { P2pStatus, StreamEntry, TorrentPrepared } from "../types";
-import { t } from "../i18n";
+import { decimal, t } from "../i18n";
 
 export const P2P_CONSENT_TEXT = [
-  t("Esta stream utiliza tecnologia ponto a ponto (P2P). Ao ativar o P2P, você reconhece e concorda que:"),
+  "Esta stream utiliza tecnologia ponto a ponto (P2P). Ao ativar o P2P, você reconhece e concorda que:",
   "• Seu endereço IP ficará visível para outros peers na rede",
   "• Você é o único responsável pelo conteúdo que acessa",
   "• Você confirma que tem o direito legal de transmitir este conteúdo em sua jurisdição",
@@ -20,19 +20,19 @@ export const P2P_CONSENT_TEXT = [
 ];
 
 const PHASES: Record<string, string> = {
-  engine: t("Iniciando o motor P2P…"),
-  metadata: t("Procurando peers e baixando as informações do torrent…"),
-  preparing: t("Preparando o arquivo de vídeo…"),
+  engine: "Iniciando o motor P2P…",
+  metadata: "Procurando peers e baixando as informações do torrent…",
+  preparing: "Preparando o arquivo de vídeo…",
 };
 
 export function speed(bytes: number): string {
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1).replace(".", ",")} MB/s`;
+  if (bytes >= 1_048_576) return `${decimal(bytes / 1_048_576)} MB/s`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB/s`;
   return `${bytes} B/s`;
 }
 
 export function megabytes(bytes: number): string {
-  return bytes >= 1_073_741_824 ? `${(bytes / 1_073_741_824).toFixed(2).replace(".", ",")} GB` : `${(bytes / 1_048_576).toFixed(1).replace(".", ",")} MB`;
+  return bytes >= 1_073_741_824 ? `${decimal(bytes / 1_073_741_824, 2)} GB` : `${decimal(bytes / 1_048_576)} MB`;
 }
 
 interface Props {
@@ -96,7 +96,7 @@ export function TorrentStart({ stream, onReady, onCancel }: Props) {
         {consent ? (
           <>
             <h2 id="torrent-title">{t("Streaming P2P")}</h2>
-            <div className="p2p-consent">{P2P_CONSENT_TEXT.map((l, i) => <p key={i}>{l}</p>)}</div>
+            <div className="p2p-consent">{P2P_CONSENT_TEXT.map((l, i) => <p key={i}>{t(l)}</p>)}</div>
             <div className="account-actions">
               <button className="primary" onClick={() => void accept()} data-testid="p2p-accept">{t("Ativar P2P")}</button>
               <button className="ghost" onClick={onCancel}>{t("Cancelar")}</button>
@@ -110,10 +110,10 @@ export function TorrentStart({ stream, onReady, onCancel }: Props) {
             ) : (
               <>
                 <div className="torrent-phase" data-testid="torrent-phase">
-                  <span className="spinner" aria-hidden /> {PHASES[status?.phase || "engine"] ?? t("Conectando…")}
+                  <span className="spinner" aria-hidden /> {t(PHASES[status?.phase || "engine"] ?? "Conectando…")}
                 </div>
                 <dl className="facts account-facts">
-                  <div className="fact"><dt>Peers</dt><dd>{status?.peers ?? 0} ({status?.seeds ?? 0} seeds)</dd></div>
+                  <div className="fact"><dt>{t("Peers")}</dt><dd>{status?.peers ?? 0} ({status?.seeds ?? 0} seeds)</dd></div>
                   <div className="fact"><dt>{t("Velocidade")}</dt><dd>{speed(status?.downloadSpeed ?? 0)}</dd></div>
                 </dl>
                 <p className="muted small">{t("A reprodução começa assim que o início do arquivo estiver disponível; o restante é baixado enquanto você assiste.")}</p>

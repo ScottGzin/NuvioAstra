@@ -123,7 +123,7 @@ export function App() {
         if (player.session) await player.close();
         setProfiles(await api.profileSwitch(index));
       } catch (e) {
-        setOpenError(`Não foi possível trocar de perfil: ${errorText(e)}`);
+        setOpenError(t("Não foi possível trocar de perfil: {error}", { error: errorText(e) }));
       } finally {
         setSwitching(null);
       }
@@ -147,7 +147,7 @@ export function App() {
   const open = useCallback((item: MetaPreview) => {
     const ref = metaRef(item);
     if (typeof ref === "string") {
-      setOpenError(`Não foi possível abrir “${item.name}”: ${ref}.`);
+      setOpenError(t("Não foi possível abrir “{name}”: {error}.", { name: item.name, error: ref }));
       return;
     }
     setOpenError(null);

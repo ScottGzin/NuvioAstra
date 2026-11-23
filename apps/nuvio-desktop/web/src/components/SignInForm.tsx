@@ -53,17 +53,17 @@ export function SignInForm({ onSignedIn, signUp = false }: Props) {
         <input type="text" inputMode="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} data-testid="gate-email" />
       </label>
       <label className="field">
-        <span>{creating ? "Senha (mínimo de 6 caracteres)" : t("Senha")}</span>
+        <span>{creating ? t("Senha (mínimo de 6 caracteres)") : t("Senha")}</span>
         <input type="password" autoComplete={creating ? "new-password" : "current-password"} value={password} onChange={(e) => setPassword(e.target.value)} data-testid="gate-password" />
       </label>
       {error && <div className="row-error" role="alert">{error}</div>}
       {notice && <div className="banner" role="status">{notice}</div>}
       <button className="primary" type="submit" disabled={busy || !email.trim() || !password || tooShort} data-testid="gate-sign-in">
-        {busy ? "Aguarde…" : creating ? t("Criar conta") : t("Entrar")}
+        {busy ? t("Aguarde…") : creating ? t("Criar conta") : t("Entrar")}
       </button>
       {signUp && (
         <button className="gate-link" type="button" disabled={busy} onClick={() => { setCreating((v) => !v); setError(null); }}>
-          {creating ? "Já tenho conta: entrar" : "Não tenho conta: criar"}
+          {creating ? t("Já tenho conta: entrar") : t("Não tenho conta: criar")}
         </button>
       )}
     </form>

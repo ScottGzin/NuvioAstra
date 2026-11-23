@@ -12,7 +12,7 @@ import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";
 import { checkForUpdates, installUpdate, useUpdates } from "../updates";
 import { Avatar } from "../components/ProfileMenu";
-import { LANGUAGES } from "../languages";
+import { LANGUAGES, languageLabel } from "../languages";
 import { P2P_CONSENT_TEXT, megabytes } from "../components/TorrentStart";
 import { ANIME_MODES, ENHANCEMENTS, MOTIONS } from "../player/EnhanceMenu";
 import { Row, Toggle } from "../components/SettingControls";
@@ -21,21 +21,21 @@ import { HeroCatalogs } from "../components/HeroCatalogs";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
 import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
-import { LANGUAGES_UI, setLang, t, useLang, type Lang } from "../i18n";
+import { LANGUAGES_UI, locale, setLang, t, useLang, type Lang } from "../i18n";
 
 type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
-  { id: "account", label: t("Conta"), icon: <AccountIcon /> },
-  { id: "home", label: t("Início"), icon: <HomeIcon /> },
-  { id: "addons", label: t("Addons"), icon: <AddonsIcon /> },
-  { id: "playback", label: t("Reprodução"), icon: <PlaybackIcon /> },
-  { id: "p2p", label: t("Torrent / P2P"), icon: <P2pIcon /> },
-  { id: "audio", label: t("Áudio"), icon: <AudioIcon /> },
-  { id: "subtitles", label: t("Legendas"), icon: <SubtitlesIcon /> },
-  { id: "data", label: t("Perfil e dados"), icon: <ProfileDataIcon /> },
-  { id: "updates", label: t("Atualizações"), icon: <UpdatesIcon /> },
-  { id: "pending", label: t("Ainda não disponível"), icon: <PendingIcon /> },
+  { id: "account", label: "Conta", icon: <AccountIcon /> },
+  { id: "home", label: "Início", icon: <HomeIcon /> },
+  { id: "addons", label: "Addons", icon: <AddonsIcon /> },
+  { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
+  { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
+  { id: "audio", label: "Áudio", icon: <AudioIcon /> },
+  { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
+  { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
+  { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
+  { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
 ];
 
 type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: string } | { kind: "error"; message: string };
@@ -43,12 +43,13 @@ type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: st
 // ---------- small controls ----------
 
 function LanguageSelect({ value, onChange, special, label }: { value: string | null; onChange(v: string | null): void; special: [string, string][]; label: string }) {
+  const lang = useLang();
   const known = LANGUAGES.some(([c]) => c.toLowerCase() === (value ?? "").toLowerCase()) || special.some(([c]) => c === (value ?? ""));
   return (
     <select aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
       {special.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
       {!known && value && <option value={value}>{value}</option>}
-      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{languageLabel(code, lang) || name}</option>)}
     </select>
   );
 }
@@ -161,8 +162,8 @@ export function Settings() {
 
   const resetSection = (what: Section) => {
     if (!view || !draft) return;
-    const name = SECTIONS.find((s) => s.id === what)?.label ?? "";
-    if (!window.confirm(`Restaurar os padrões de “${name}” para o perfil ${view.profile.name}? As alterações desta seção serão descartadas.`)) return;
+    const name = t(SECTIONS.find((s) => s.id === what)?.label ?? "");
+    if (!window.confirm(t("Restaurar os padrões de “{name}” para o perfil {profile}? As alterações desta seção serão descartadas.", { name, profile: view.profile.name }))) return;
     const d = view.defaults;
     update((s) => {
       switch (what) {
@@ -193,14 +194,14 @@ export function Settings() {
         {SECTIONS.map((s) => (
           <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => setSection(s.id)}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
-            <span>{s.label}</span>
+            <span>{t(s.label)}</span>
           </button>
         ))}
       </nav>
 
       <div className="settings-body" key={section}>
         <header className="settings-header">
-          <h1>{SECTIONS.find((s) => s.id === section)?.label}</h1>
+          <h1>{t(SECTIONS.find((s) => s.id === section)?.label ?? "")}</h1>
           <span className={`save-status ${status.kind}`} role="status" data-testid="save-status">
             {status.kind === "saving" && t("Salvando…")}
             {status.kind === "saved" && `✓ Salvo${status.note ? ` · ${status.note}` : ""}`}
@@ -235,23 +236,23 @@ export function Settings() {
                 <option value={2}>{t("Somente software")}</option>
               </select>
             </Row>
-            <Row title="Melhorar imagem" description="Filmes e episódios. O Anime4K muda bastante em 480p e 720p e é sutil em 1080p numa tela 1080p. Se a placa não aguentar, o nível cai sozinho.">
-              <select aria-label="Melhorar imagem" data-setting="videoEnhancement" value={p.videoEnhancement} onChange={(e) => player((x) => ({ ...x, videoEnhancement: e.target.value as EnhancementName }))}>
-                {ENHANCEMENTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <Row title={t("Melhorar imagem")} description={t("Filmes e episódios. O Anime4K muda bastante em 480p e 720p e é sutil em 1080p numa tela 1080p. Se a placa não aguentar, o nível cai sozinho.")}>
+              <select aria-label={t("Melhorar imagem")} data-setting="videoEnhancement" value={p.videoEnhancement} onChange={(e) => player((x) => ({ ...x, videoEnhancement: e.target.value as EnhancementName }))}>
+                {ENHANCEMENTS.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
               </select>
             </Row>
-            <Row title="Modo do Anime4K" description={`${ANIME_MODES.find((m) => m.value === p.picture.mode)?.hint ?? ""} Efeitos de traço, nitidez e cores ficam no botão Melhorar imagem, dentro do player.`}>
-              <select aria-label="Modo do Anime4K" data-setting="animeMode" value={p.picture.mode} onChange={(e) => player((x) => ({ ...x, picture: { ...x.picture, mode: e.target.value as AnimeModeName } }))}>
-                {ANIME_MODES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <Row title={t("Modo do Anime4K")} description={`${t(ANIME_MODES.find((m) => m.value === p.picture.mode)?.hint ?? "")} ${t("Efeitos de traço, nitidez e cores ficam no botão Melhorar imagem, dentro do player.")}`}>
+              <select aria-label={t("Modo do Anime4K")} data-setting="animeMode" value={p.picture.mode} onChange={(e) => player((x) => ({ ...x, picture: { ...x.picture, mode: e.target.value as AnimeModeName } }))}>
+                {ANIME_MODES.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
               </select>
             </Row>
-            <Row title="Movimento do vídeo" description="“Sem tremidas” ajusta os 24 quadros ao monitor. “Fluido” mistura quadros vizinhos e pode deixar rastros. Com qualquer um dos dois, a saída HDR (inclusive RTX Video HDR) vira SDR.">
-              <select aria-label="Movimento do vídeo" data-setting="motionSmoothing" value={p.motionSmoothing} onChange={(e) => player((x) => ({ ...x, motionSmoothing: e.target.value as MotionName }))}>
-                {MOTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            <Row title={t("Movimento do vídeo")} description={t("“Sem tremidas” ajusta os 24 quadros ao monitor. “Fluido” mistura quadros vizinhos e pode deixar rastros. Com qualquer um dos dois, a saída HDR (inclusive RTX Video HDR) vira SDR.")}>
+              <select aria-label={t("Movimento do vídeo")} data-setting="motionSmoothing" value={p.motionSmoothing} onChange={(e) => player((x) => ({ ...x, motionSmoothing: e.target.value as MotionName }))}>
+                {MOTIONS.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
               </select>
             </Row>
-            <Row title="NVIDIA RTX Video Super Resolution" description="Requer placa NVIDIA RTX e driver compatível; sem efeito em outras placas. Nos níveis Anime, o Anime4K fica no lugar dela.">
-              <Toggle label="NVIDIA RTX Video Super Resolution" checked={p.nvidiaRtxSuperResolution} onChange={(v) => player((x) => ({ ...x, nvidiaRtxSuperResolution: v }))} />
+            <Row title={t("NVIDIA RTX Video Super Resolution")} description={t("Requer placa NVIDIA RTX e driver compatível; sem efeito em outras placas. Nos níveis Anime, o Anime4K fica no lugar dela.")}>
+              <Toggle label={t("NVIDIA RTX Video Super Resolution")} checked={p.nvidiaRtxSuperResolution} onChange={(v) => player((x) => ({ ...x, nvidiaRtxSuperResolution: v }))} />
             </Row>
             <Row title="NVIDIA RTX Video HDR" description={t("Converte SDR em HDR em telas HDR com placa RTX.")}>
               <Toggle label="NVIDIA RTX Video HDR" checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
@@ -264,7 +265,7 @@ export function Settings() {
 
         {section === "audio" && (
           <div className="settings-group">
-            <Row title={t("Idioma de áudio preferido")} description={`“Idioma do dispositivo” = ${view.deviceLanguages.join(", ") || t("não identificado")} neste PC.`}>
+            <Row title={t("Idioma de áudio preferido")} description={t("“Idioma do dispositivo” = {list} neste PC.", { list: view.deviceLanguages.join(", ") || t("não identificado") })}>
               <LanguageSelect label={t("Idioma de áudio preferido")} value={p.preferredAudioLanguage} special={[["device", t("Idioma do dispositivo")], ["default", t("Padrão do arquivo")], ["original", t("Idioma original")]]} onChange={(v) => player((x) => ({ ...x, preferredAudioLanguage: v ?? "device" }))} />
             </Row>
             <Row title={t("Idioma de áudio secundário")} description={t("Usado quando o preferido não existe no arquivo.")}>
@@ -295,7 +296,7 @@ export function Settings() {
               <img src="./nuvio-astra-128.png" alt="" width={56} height={56} draggable={false} />
               <div>
                 <div className="about-name">Nuvio Astra</div>
-                <div className="muted small">{t("Versão")} {view.appVersion} · Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados</div>
+                <div className="muted small">{t("Versão")} {view.appVersion} · {t("Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados")}</div>
               </div>
             </div>
             <Row title={t("Idioma da interface")} description={t("Aplicado imediatamente a todo o aplicativo.")}>
@@ -313,7 +314,12 @@ export function Settings() {
               <>
                 <Row title={t("Migração do Nuvio original")} description={t("Os arquivos originais não são alterados.")}>
                   <span>
-                    versão {view.migration.version} · {view.migration.backupFiles} arquivos em backup · {view.migration.profiles} perfis · configurações de {view.migration.settingsProfiles ?? 0} perfil(is)
+                    {t("versão {version} · {files} arquivos em backup · {profiles} perfis · configurações de {settings} perfil(is)", {
+                      version: view.migration.version,
+                      files: view.migration.backupFiles,
+                      profiles: view.migration.profiles,
+                      settings: view.migration.settingsProfiles ?? 0,
+                    })}
                   </span>
                 </Row>
                 <Row title={t("Backup verificado")}><code className="path">{view.migration.backupDir}</code></Row>
@@ -328,25 +334,25 @@ export function Settings() {
           <div className="settings-group">
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
             <ul className="pending-list">
-              <li><b>Início e catálogos</b> — “Ver todos” de um catálogo, Descobrir na pesquisa, prévia ao passar o mouse e fonte de pôsteres personalizada.</li>
-              <li><b>Tela de detalhes</b> — escolher as seções exibidas, títulos semelhantes, comentários e desfocar episódios não assistidos.</li>
-              <li><b>{t("Assistidos")}</b> — marcar ou desmarcar filmes e episódios como assistidos manualmente.</li>
-              <li><b>{t("Continuar assistindo")}</b> — estilo, ordenação, ação do clique, aviso de retomada ao abrir e opções para ocultar a fileira ou os episódios futuros.</li>
-              <li><b>{t("Fontes")}</b> — seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.</li>
-              <li><b>Player</b> — trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.</li>
-              <li><b>Próximo episódio</b> — tocar sozinho sem escolher a fonte, pré-carregar as fontes, preferir o mesmo grupo de fontes e ordem aleatória.</li>
-              <li><b>Pular introdução e créditos</b> — Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.</li>
-              <li><b>{t("Legendas")}</b> — sincronização automática com o áudio.</li>
-              <li><b>{t("Áudio")}</b> — ajuste de atraso no player, amplificação e downmix.</li>
-              <li><b>Buffer e cache</b> — ajustes de buffer e cache em disco para streams HTTP.</li>
-              <li><b>Downloads</b> — baixar filmes e episódios para assistir depois.</li>
-              <li><b>Debrid</b> — Real-Debrid, Premiumize, TorBox e biblioteca na nuvem.</li>
-              <li><b>{t("Integrações")}</b> — Trakt, Simkl, MDBList, TMDB e Discord Rich Presence.</li>
-              <li><b>Servidores de mídia</b> — Plex, Jellyfin, Emby e Silo.</li>
-              <li><b>Plugins e Watch Party</b> — plugins de fontes e assistir junto com outras pessoas.</li>
-              <li><b>Coleções</b> — criar e editar no app e pastas com catálogos do TMDB ou do Trakt.</li>
-              <li><b>Conta e perfis</b> — entrar com outro dispositivo (QR), sincronizar chaves de serviços e avatares exclusivos de membros.</li>
-              <li><b>Aplicativo</b> — idioma do app e busca dentro das Configurações.</li>
+              <li><b>{t("Início e catálogos")}</b>{t("— “Ver todos” de um catálogo, Descobrir na pesquisa, prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
+              <li><b>{t("Tela de detalhes")}</b>{t("— escolher as seções exibidas, títulos semelhantes, comentários e desfocar episódios não assistidos.")}</li>
+              <li><b>{t("Assistidos")}</b>{t("— marcar ou desmarcar filmes e episódios como assistidos manualmente.")}</li>
+              <li><b>{t("Continuar assistindo")}</b>{t("— estilo, ordenação, ação do clique, aviso de retomada ao abrir e opções para ocultar a fileira ou os episódios futuros.")}</li>
+              <li><b>{t("Fontes")}</b>{t("— seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.")}</li>
+              <li><b>{t("Player")}</b>{t("— trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.")}</li>
+              <li><b>{t("Próximo episódio")}</b>{t("— tocar sozinho sem escolher a fonte, pré-carregar as fontes, preferir o mesmo grupo de fontes e ordem aleatória.")}</li>
+              <li><b>{t("Pular introdução e créditos")}</b>{t("— Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.")}</li>
+              <li><b>{t("Legendas")}</b>{t("— sincronização automática com o áudio.")}</li>
+              <li><b>{t("Áudio")}</b>{t("— ajuste de atraso no player, amplificação e downmix.")}</li>
+              <li><b>{t("Buffer e cache")}</b>{t("— ajustes de buffer e cache em disco para streams HTTP.")}</li>
+              <li><b>{t("Downloads")}</b>{t("— baixar filmes e episódios para assistir depois.")}</li>
+              <li><b>{t("Debrid")}</b>{t("— Real-Debrid, Premiumize, TorBox e biblioteca na nuvem.")}</li>
+              <li><b>{t("Integrações")}</b>{t("— Trakt, Simkl, MDBList, TMDB e Discord Rich Presence.")}</li>
+              <li><b>{t("Servidores de mídia")}</b>{t("— Plex, Jellyfin, Emby e Silo.")}</li>
+              <li><b>{t("Plugins e Watch Party")}</b>{t("— plugins de fontes e assistir junto com outras pessoas.")}</li>
+              <li><b>{t("Coleções")}</b>{t("— criar e editar no app e pastas com catálogos do TMDB ou do Trakt.")}</li>
+              <li><b>{t("Conta e perfis")}</b>{t("— entrar com outro dispositivo (QR), sincronizar chaves de serviços e avatares exclusivos de membros.")}</li>
+              <li><b>{t("Aplicativo")}</b>{t("— idioma do app e busca dentro das Configurações.")}</li>
             </ul>
           </div>
         )}
@@ -360,10 +366,10 @@ export function Settings() {
 function UpdatesSection() {
   const u = useUpdates();
   const s = u.status;
-  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
+  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString(locale(), { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
   return (
     <div className="settings-group" data-testid="updates-settings">
-      <Row title={t("Versão instalada")} description={s?.repository ? `Atualizações publicadas em github.com/${s.repository}` : undefined}>
+      <Row title={t("Versão instalada")} description={s?.repository ? t("Atualizações publicadas em github.com/{repository}", { repository: s.repository }) : undefined}>
         <span>{s?.currentVersion ?? "…"}</span>
       </Row>
       {s && !s.configured && <p className="muted">{t("Esta compilação não tem atualizações automáticas configuradas (compilação local). As versões publicadas pelo GitHub têm.")}</p>}
@@ -406,7 +412,7 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
   }, []);
 
   const enable = (on: boolean) => {
-    if (on && !window.confirm(P2P_CONSENT_TEXT.join("\n\n"))) return;
+    if (on && !window.confirm(P2P_CONSENT_TEXT.map((l) => t(l)).join("\n\n"))) return;
     update((s) => ({ ...s, enabled: on }));
   };
   const clear = async () => {
@@ -414,7 +420,7 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
     setMessage(null);
     try {
       const freed = await api.p2pClearCache();
-      setMessage(`Cache limpo: ${megabytes(freed)} liberados.`);
+      setMessage(t("Cache limpo: {size} liberados.", { size: megabytes(freed) }));
       setCache(await api.p2pCacheSize());
     } catch (e) {
       setMessage(errorText(e));
@@ -519,21 +525,21 @@ function HomeSection({ settings, catalogs, update }: {
           <Toggle label={t("Ocultar conteúdo ainda não lançado")} checked={home.hideUnreleasedContent} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, hideUnreleasedContent: v } }), note)} />
         </Row>
       </div>
-      <h2 className="settings-subtitle">Catálogos ({ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length} de {ordered.length} {t("visíveis)")}</h2>
-      <p className="muted small">Com uma conta Nuvio, a ordem, os nomes e o que fica visível sincronizam sozinhos com os outros aparelhos.</p>
+      <h2 className="settings-subtitle">{t("Catálogos ({shown} de {total} visíveis)", { shown: ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length, total: ordered.length })}</h2>
+      <p className="muted small">{t("Com uma conta Nuvio, a ordem, os nomes e o que fica visível sincronizam sozinhos com os outros aparelhos.")}</p>
       <div className="settings-group catalogs">
         {ordered.map((c, index) => {
           const enabled = pref(c)?.enabled ?? c.enabled;
           const title = pref(c)?.customTitle ?? c.customTitle;
           return (
             <div key={c.key} className={`catalog-pref ${enabled ? "" : "off"}`} data-key={c.key}>
-              <Toggle label={`Mostrar ${c.defaultTitle}`} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
+              <Toggle label={t("Mostrar {title}", { title: c.defaultTitle })} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
               <div className="catalog-pref-text">
                 <input
                   className="catalog-title-input"
                   value={title}
                   placeholder={c.defaultTitle}
-                  aria-label={`Nome de ${c.defaultTitle}`}
+                  aria-label={t("Nome de {title}", { title: c.defaultTitle })}
                   onChange={(e) => saveCatalogs(ordered, { key: c.key, customTitle: e.target.value }, 600)}
                 />
                 <span className="muted small">{c.addonName}</span>

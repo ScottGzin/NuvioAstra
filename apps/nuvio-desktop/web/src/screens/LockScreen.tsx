@@ -41,8 +41,8 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
         if (asked) {
           setNote(
             account?.signedIn
-              ? "O PIN continua ativo ou não deu para falar com a conta. Se esta não é a conta dona do perfil, use outra conta."
-              : "Entre na conta Nuvio dona deste perfil para confirmar a remoção.",
+              ? t("O PIN continua ativo ou não deu para falar com a conta. Se esta não é a conta dona do perfil, use outra conta.")
+              : t("Entre na conta Nuvio dona deste perfil para confirmar a remoção."),
           );
         }
       } catch (e) {
@@ -91,7 +91,7 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
             <PinPad profile={profile} onUnlocked={() => void unlocked()} />
             {!account?.signedIn && account?.configured && (
               <p className="muted small" data-testid="lock-signed-out">
-                Este computador não está conectado à conta Nuvio. Se o PIN não for aceito ou você já o removeu, entre na conta.
+                {t("Este computador não está conectado à conta Nuvio. Se o PIN não for aceito ou você já o removeu, entre na conta")}.
               </p>
             )}
             {note && <p className="gate-note" role="status" data-testid="lock-note">{note}</p>}
@@ -101,8 +101,8 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
                   {account.signedIn ? t("Usar outra conta") : t("Entrar na conta Nuvio")}
                 </button>
               )}
-              <button className="ghost" disabled={checking} data-testid="lock-recheck" onClick={() => void check(true)}>{checking ? t("Verificando…") : "Já removi o PIN"}</button>
-              {view.profiles.length > 1 && <button className="ghost" data-testid="lock-profiles" onClick={() => setMode("profiles")}>Trocar de perfil</button>}
+              <button className="ghost" disabled={checking} data-testid="lock-recheck" onClick={() => void check(true)}>{checking ? t("Verificando…") : t("Já removi o PIN")}</button>
+              {view.profiles.length > 1 && <button className="ghost" data-testid="lock-profiles" onClick={() => setMode("profiles")}>{t("Trocar de perfil")}</button>}
             </div>
           </>
         )}
