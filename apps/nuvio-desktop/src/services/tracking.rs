@@ -30,7 +30,15 @@ pub struct DeviceStart {
 #[serde(rename_all = "camelCase")]
 pub enum PollResult { Pending, Authorized, Expired, Denied, SlowDown, NoSession, Error }
 
-fn client() -> Result<reqwest::Client, String> { reqwest::Client::builder().build().map_err(|e| e.to_string()) }
+fn client() -> Result<reqwest::Client, String> {
+    // Trakt rejects requests without a User-Agent (HTTP 403), reqwest does not send one by default.
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::USER_AGENT,
+        reqwest::header::HeaderValue::from_static(concat!("NuvioAstra/", env!("CARGO_PKG_VERSION"))),
+    );
+    reqwest::Client::builder().default_headers(headers).build().map_err(|e| e.to_string())
+}
 
 fn trakt_headers(client_id: &str, token: Option<&str>) -> reqwest::header::HeaderMap {
     let mut headers = reqwest::header::HeaderMap::new();
