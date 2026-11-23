@@ -1116,6 +1116,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Conectar ao Simkl": { en: "Connect Simkl", ar: "Conectar ao Simkl" },
   "نسخ الكود": { en: "Copy code", ar: "نسخ الكود" },
   "تم النسخ ✓": { en: "Copied ✓", ar: "تم النسخ ✓" },
+  "Conectar ao MDBList": { en: "Connect MDBList", ar: "الاتصال بـ MDBList" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },

@@ -472,6 +472,7 @@ body.selftest .hole { box-shadow: 0 0 0 200vmax var(--bg); }
 .trakt-logo { font-family: Arial, sans-serif; }
 .simkl-logo { font-size: 22px; letter-spacing: .04em; }
 .mdb-logo { width: 34px; height: 34px; display: grid; place-items: center; background: #3b82f6; border-radius: 8px; font-size: 18px; }
+.provider-title { margin: 0; font-size: 22px; font-weight: 700; }
 .provider-desc { margin: 0; opacity: .9; font-size: 14px; }
 .provider-action { border: 0; border-radius: 999px; padding: 12px 18px; font: inherit; font-weight: 600; cursor: pointer; background: rgba(255,255,255,.16); color: inherit; width: 100%; }
 .provider-card.trakt .provider-action, .provider-card.trakt .primary { background: #fff; color: #c0264c; }

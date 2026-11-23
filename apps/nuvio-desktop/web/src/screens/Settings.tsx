@@ -470,8 +470,9 @@ export function Settings() {
             </button>
             <section className="provider-card mdblist" data-provider="mdblist">
               <div className="provider-logo mdb-logo">M</div>
-              <p className="provider-desc">{t("Sincronize o histórico assistido e o progresso entre dispositivos.")}</p>
-              <button className="provider-action" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>{t("Avaliações externas")}</button>
+              <h3 className="provider-title">{t("MDBList Ratings")}</h3>
+              <p className="provider-desc">{t("Avaliações externas")}</p>
+              <button className="provider-action large" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>{t("Conectar ao MDBList")}</button>
               <button className="provider-link" onClick={() => void api.openUrl("https://mdblist.com")}>{t("Visitar MDBList")}</button>
             </section>
             <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
