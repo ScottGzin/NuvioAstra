@@ -784,16 +784,14 @@ export function Settings() {
         {section === "pending" && (
           <div className="settings-group">
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
-            <p className="muted small">{t("Já disponíveis: downloads, embaralhamento, servidores Jellyfin/Emby, editor de coleções, busca nas configurações, seleção automática e regex, fallback, reutilização de link, links externos e YouTube, capítulos, áudio, buffer/cache, Discord, Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
+            <p className="muted small">{t("Já disponíveis: Trakt e Simkl (com IDs locais), conexão MDBList, retomada pelo serviço escolhido, downloads, embaralhamento, servidores Jellyfin/Emby, editor de coleções, busca nas configurações, seleção automática e regex, fallback, reutilização de link, links externos e YouTube, capítulos, áudio, buffer/cache, Discord, Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
               <li><b>{t("Início e catálogos")}</b>{t("— prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
               <li><b>{t("Tela de detalhes")}</b>{t("— comentários.")}</li>
               <li><b>{t("Continuar assistindo")}</b>{t("— aviso de retomada ao abrir o app.")}</li>
-              <li><b>{t("Player")}</b>{t("— trocar de fonte e escolher qualquer episódio sem sair do vídeo.")}</li>
               <li><b>{t("Pular introdução e créditos")}</b>{t("— Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.")}</li>
               <li><b>{t("Legendas")}</b>{t("— sincronização automática com o áudio.")}</li>
-              <li><b>{t("Debrid")}</b>{t("— Real-Debrid, Premiumize, TorBox e biblioteca na nuvem.")}</li>
-              <li><b>{t("Integrações")}</b>{t("— Trakt e Simkl (exigem IDs de cliente próprios).")}</li>
+              <li><b>{t("Debrid")}</b>{t("— Real-Debrid, Premiumize e biblioteca na nuvem (TorBox já funciona).")}</li>
               <li><b>{t("Servidores de mídia")}</b>{t("— Plex e Silo (Jellyfin e Emby já funcionam).")}</li>
               <li><b>{t("Plugins e Watch Party")}</b>{t("— plugins de fontes e assistir junto com outras pessoas.")}</li>
               <li><b>{t("Coleções")}</b>{t("— editor visual e pastas com catálogos do Trakt.")}</li>
