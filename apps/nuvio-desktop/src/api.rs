@@ -667,6 +667,16 @@ pub async fn mdblist_device_poll(state: State<'_, AppState>) -> Result<tracking:
     tracking::mdblist_poll(&state.app_store, profile, &id).await
 }
 
+/// Playback progress from the service selected in Settings → Tracking → Watch Progress.
+#[tauri::command]
+pub async fn tracking_resume(state: State<'_, AppState>, content_id: String) -> Result<Vec<tracking::RemoteResume>, String> {
+    let profile = state.active_profile();
+    let source = state.app_store.profile_settings(profile).map(|s| s.player.progress_source).unwrap_or_else(|_| "nuvio".into());
+    let key = match source.as_str() { "trakt" => "trakt:clientId", "simkl" => "simkl:clientId", "mdblist" => "mdblist:clientId", _ => return Ok(Vec::new()) };
+    let Some(client_id) = tracking_value(&state, key) else { return Ok(Vec::new()) };
+    tracking::resume(&state.app_store, profile, &source, &content_id, &client_id).await
+}
+
 #[tauri::command]
 pub fn tracking_disconnect(state: State<'_, AppState>, provider: String) -> Result<TrackingCredentialsView, String> {
     state.ensure_unlocked()?;

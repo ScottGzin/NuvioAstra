@@ -9,7 +9,7 @@ import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, ShuffleView, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, RemoteResume, ShuffleView, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -73,6 +73,8 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [guide, setGuide] = useState<ParentalGuide | null>(null);
   const [shuffle, setShuffle] = useState<ShuffleView | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  const [progressSource, setProgressSource] = useState("nuvio");
+  const [remoteResumes, setRemoteResumes] = useState<RemoteResume[]>([]);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -124,8 +126,16 @@ export function Details({ item, onBack, onOpen }: Props) {
     api.settingsGet().then((v) => {
       setMetaSettings(v.settings.metaScreen);
       setShowGuide(v.settings.player.showParentalGuide);
+      setProgressSource(v.settings.player.progressSource || "nuvio");
     }, () => {});
   }, [version]);
+
+  useEffect(() => {
+    if (progressSource === "nuvio") { setRemoteResumes([]); return; }
+    let cancelled = false;
+    void api.trackingResume(id).then((list) => { if (!cancelled) setRemoteResumes(list); }, () => { if (!cancelled) setRemoteResumes([]); });
+    return () => { cancelled = true; };
+  }, [progressSource, id]);
 
   useEffect(() => {
     if (!showGuide) return;
@@ -221,7 +231,18 @@ export function Details({ item, onBack, onOpen }: Props) {
       : progress.entries.find((e) => e.season === target.season && e.episode === target.episode);
   };
   const selectedEntry = entryFor(selected);
-  const resumeAt = !fromStart && selectedEntry?.inProgress ? selectedEntry.positionMs : null;
+  // When a tracking service is selected as the progress source, its percentage replaces the
+  // locally saved position (the original's "resume from the chosen provider").
+  const remote = progressSource !== "nuvio"
+    ? remoteResumes.find((item) => (item.season ?? null) === (selectedEntry?.season ?? null) && (item.episode ?? null) === (selectedEntry?.episode ?? null))
+      ?? remoteResumes.find((item) => item.season === null && item.episode === null && (selected === "movie" || (selectedEntry?.season ?? null) === null))
+    : undefined;
+  const remoteMs = remote && selectedEntry && selectedEntry.durationMs > 0
+    ? Math.round(remote.progressPercent / 100 * selectedEntry.durationMs)
+    : null;
+  const resumeAt = !fromStart
+    ? (remoteMs ?? (selectedEntry?.inProgress ? selectedEntry.positionMs : null))
+    : null;
 
   const choose = (target: MetaVideo | "movie", start = false) => {
     setFromStart(start);

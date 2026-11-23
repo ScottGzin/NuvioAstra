@@ -393,3 +393,96 @@ pub async fn mdblist_poll(app: &AppStore, profile: i64, client_id: &str) -> Resu
         _ => PollResult::Error,
     })
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteResume {
+    pub season: Option<i64>,
+    pub episode: Option<i64>,
+    /// 0–100 percent reported by the service.
+    pub progress_percent: f64,
+    pub paused_at: Option<String>,
+}
+
+fn media_imdb(item: &Value, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = item.pointer(&format!("/{key}/ids/imdb")).and_then(Value::as_str) {
+            return Some(value.to_string());
+        }
+    }
+    None
+}
+
+/// Reads playback progress from the service chosen in Settings → Tracking → Watch Progress.
+/// All three services report a percentage; the caller converts it using the file's duration.
+pub async fn resume(
+    app: &AppStore,
+    profile: i64,
+    provider: &str,
+    content_id: &str,
+    client_id: &str,
+) -> Result<Vec<RemoteResume>, String> {
+    let token = app.tracking_token(profile, provider).map_err(|e| e.to_string())?
+        .ok_or("Serviço não conectado.")?;
+    let http = client()?;
+    let mut items: Vec<Value> = Vec::new();
+    match provider {
+        "trakt" => {
+            for path in ["movies", "episodes"] {
+                let response = http.get(format!("{TRAKT_API}/sync/playback/{path}"))
+                    .headers(trakt_headers(client_id, Some(&token.access_token)))
+                    .send().await.map_err(|e| e.to_string())?;
+                if response.status().is_success() {
+                    if let Ok(body) = response.json::<Value>().await {
+                        if let Some(values) = body.as_array() { items.extend(values.clone()); }
+                    }
+                }
+            }
+        }
+        "simkl" => {
+            let response = http.get(format!("{SIMKL_API}/sync/playback"))
+                .bearer_auth(&token.access_token).send().await.map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                if let Ok(body) = response.json::<Value>().await {
+                    if let Some(values) = body.as_array() { items.extend(values.clone()); }
+                }
+            }
+        }
+        "mdblist" => {
+            let response = http.get(format!("{MDBLIST_API}/sync/playback"))
+                .bearer_auth(&token.access_token).send().await.map_err(|e| e.to_string())?;
+            if response.status().is_success() {
+                if let Ok(body) = response.json::<Value>().await {
+                    if let Some(values) = body.as_array() { items.extend(values.clone()); }
+                }
+            }
+        }
+        _ => return Err("unknown provider".into()),
+    }
+    let wanted = content_id.trim();
+    let mut out = Vec::new();
+    for item in items {
+        let id = media_imdb(&item, &["movie", "show", "media"])
+            .or_else(|| item.pointer("/ids/imdb").and_then(Value::as_str).map(str::to_string))
+            .unwrap_or_default();
+        if !id.eq_ignore_ascii_case(wanted) && !wanted.is_empty() && !id.is_empty() {
+            continue;
+        }
+        let progress = item.get("progress").and_then(Value::as_f64).unwrap_or(0.0);
+        let (season, episode) = match provider {
+            "trakt" => (
+                item.pointer("/episode/season").and_then(Value::as_i64),
+                item.pointer("/episode/number").and_then(Value::as_i64),
+            ),
+            _ => (
+                item.get("season").and_then(Value::as_i64).or_else(|| item.pointer("/episode/season").and_then(Value::as_i64)),
+                item.get("episode").and_then(Value::as_i64).or_else(|| item.pointer("/episode/number").and_then(Value::as_i64)),
+            ),
+        };
+        out.push(RemoteResume {
+            season, episode, progress_percent: progress.clamp(0.0, 100.0),
+            paused_at: item.get("paused_at").and_then(Value::as_str).map(str::to_string),
+        });
+    }
+    Ok(out)
+}

@@ -11,7 +11,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ServerConnection, ServerLibrary, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, ServerConnection, ServerLibrary, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -117,6 +117,7 @@ export const api = {
   simklAuthorizeUrl: () => invoke<string>("simkl_authorize_url"),
   simklComplete: (code: string, stateValue: string) => invoke<boolean>("simkl_complete", { code, stateValue }),
   trackingDisconnect: (provider: string) => invoke<TrackingCredentialsView>("tracking_disconnect", { provider }),
+  trackingResume: (contentId: string) => invoke<RemoteResume[]>("tracking_resume", { contentId }),
   trackingSync: (provider: string) => invoke<TrackingSyncResult>("tracking_sync", { provider }),
   /** Media servers (the user's own Jellyfin/Emby credentials stay on that server). */
   serverList: () => invoke<ServerConnection[]>("server_list"),

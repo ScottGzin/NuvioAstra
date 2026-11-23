@@ -198,6 +198,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
 export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean; mdblistConnected: boolean; mdblistFromBuild: boolean }
+export interface RemoteResume { season: number | null; episode: number | null; progressPercent: number; pausedAt: string | null }
 export interface TraktDeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
 export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied" | "slowDown" | "noSession" | "error";
 export interface TrackingSyncResult { movies: number; episodes: number }
