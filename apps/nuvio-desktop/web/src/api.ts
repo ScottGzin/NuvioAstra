@@ -10,7 +10,7 @@ import type {
   UpdateStatus,
   P2pStatus,
   TorrentPrepared,
-  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
+  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
@@ -107,6 +107,8 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Discord Rich Presence (no-op when disabled in Settings). */
+  discordActivity: (activity: DiscordActivity | null) => invoke<void>("discord_activity", { activity }),
   /** IMDb parents-guide warnings, only when enabled in Settings → Reprodução. */
   parentalGuide: (id: string) => invoke<ParentalGuide | null>("parental_guide", { id }),
   details: (contentType: string, id: string) =>

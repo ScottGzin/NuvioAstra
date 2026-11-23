@@ -135,7 +135,8 @@ export interface MetaScreenSettings {
   episodeCardStyle: string; blurUnwatchedEpisodes: boolean; posterTransitionEnabled: boolean;
   showOverallRatings: boolean; episodeRatingsVisibility: string;
 }
-export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings }
+export interface DiscordActivity { title: string; state?: string | null; poster?: string | null; playing: boolean; positionMs?: number | null; durationMs?: number | null }
+export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings; discordRpcEnabled: boolean }
 /** A movie/episode watched mark (Settings → Library); ids stay opaque. */
 export interface WatchedItem {
   id: string; contentType: string; name: string; poster: string | null; releaseInfo: string | null;

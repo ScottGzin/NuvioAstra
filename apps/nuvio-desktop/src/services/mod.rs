@@ -5,6 +5,7 @@ pub mod addons;
 pub mod badges;
 pub mod collections;
 pub mod debrid;
+pub mod discord;
 pub mod discover;
 pub mod enrich;
 pub mod epg;

@@ -39,6 +39,26 @@ export function FullPlayer() {
     api.settingsGet().then((view) => !cancelled && setPlayerSettings(view.settings.player), () => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Discord presence follows the active playback (the original's PresenceSnapshot.Player).
+  useEffect(() => {
+    if (!session) {
+      void api.discordActivity(null);
+      return;
+    }
+    const paused = snapshot?.paused ?? false;
+    const episode = session.episode ? episodeTitle(session.episode.video) : null;
+    void api.discordActivity({
+      title: session.title,
+      state: episode ? `${episode}${paused ? ` · ${t("Pausado")}` : ""}` : (paused ? t("Pausado") : null),
+      poster: session.episode?.meta.poster ?? null,
+      playing: !paused,
+      positionMs: snapshot ? Math.round(snapshot.timePos * 1000) : null,
+      durationMs: snapshot ? Math.round(snapshot.duration * 1000) : null,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.title, session?.episode?.video.id, snapshot?.paused]);
+
   const openNext = useCallback(() => {
     if (!nextAired) return;
     if (player.session && snapshot?.pictureInPicture) void api.pictureInPicture(false, "").catch(() => {});

@@ -87,6 +87,15 @@ export function Details({ item, onBack, onOpen }: Props) {
 
   useEffect(() => setWatchedKeys(data?.watchedKeys ?? []), [data?.watchedKeys]);
 
+  // Discord presence on the details screen (the original's PresenceSnapshot.Details).
+  useEffect(() => {
+    if (!data) return;
+    void api.discordActivity({ title: data.meta.name, state: t("Vendo {title}", { title: data.meta.name }), poster: data.meta.poster, playing: false });
+    return () => { void api.discordActivity(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.meta.id]);
+
+
   // Details screen settings (the original's MetaScreenSettingsRepository).
   useEffect(() => {
     api.settingsGet().then((v) => {

@@ -413,6 +413,9 @@ pub struct ProfileSettings {
     pub continue_watching: ContinueWatchingSettings,
     #[serde(default)]
     pub meta_screen: MetaScreenSettings,
+    /// Discord Rich Presence (the original's `DiscordRichPresenceRepository`), off by default.
+    #[serde(default)]
+    pub discord_rpc_enabled: bool,
 }
 
 pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
@@ -711,6 +714,11 @@ impl LegacyStore {
             p2p: P2pSettings::default(),
             continue_watching: ContinueWatchingSettings::default(),
             meta_screen: MetaScreenSettings::default(),
+            discord_rpc_enabled: self.read_store("nuvio_discord_rich_presence")
+                .ok()
+                .and_then(|store| store.get(&format!("enabled_{profile_index}")).or_else(|| store.get("enabled")).cloned())
+                .and_then(|value| value.trim().parse::<bool>().ok())
+                .unwrap_or(false),
         }
         .sanitized())
     }

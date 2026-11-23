@@ -589,6 +589,7 @@ fn main() {
             api::library_toggle_watched,
             api::stream_open_external,
             api::parental_guide,
+            api::discord_activity,
             manage::addons_list,
             manage::addon_preview,
             manage::addon_install,

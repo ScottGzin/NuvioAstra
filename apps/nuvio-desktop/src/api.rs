@@ -1,7 +1,7 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, badges, collections, debrid, discover, fonts, home, livetv, mdblist, meta, parental, playback, search, tmdb};
+use crate::services::{addons, badges, collections, debrid, discord, discover, fonts, home, livetv, mdblist, meta, parental, playback, search, tmdb};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
@@ -279,6 +279,17 @@ pub async fn title_streams(state: State<'_, AppState>, content_type: String, id:
     let loaded = state.addons.loaded().await?;
     let debrid = debrid::access(&state.app_store, loaded.profile).is_some();
     Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), debrid).await)
+}
+
+/// Updates Discord Rich Presence (only when enabled in Settings → Serviços → Integrações).
+#[tauri::command]
+pub fn discord_activity(state: State<'_, AppState>, activity: Option<discord::Activity>) -> Result<(), String> {
+    let profile = state.active_profile();
+    if !state.app_store.profile_settings(profile).map(|s| s.discord_rpc_enabled).unwrap_or_default() {
+        return Ok(());
+    }
+    discord::publish(activity.as_ref());
+    Ok(())
 }
 
 /// IMDb parents-guide warnings of a title (Settings → Reprodução → Avisos de conteúdo).
