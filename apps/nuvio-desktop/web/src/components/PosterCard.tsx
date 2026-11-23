@@ -28,7 +28,7 @@ export const PosterCard = memo(function PosterCard({ item, onOpen, showType = fa
     <div className={`card-wrap ${shape}`}>
       <button className={`card ${shape}`} onClick={() => onOpen(item)} title={item.name} data-id={item.id} data-content-type={item.contentType}>
         <div className="card-art">
-          {image ? <img src={image} alt="" loading={eager ? "eager" : "lazy"} decoding="async" fetchPriority={eager ? "high" : "auto"} draggable={false} /> : <span className="card-fallback">{item.name}</span>}
+          {image ? <img src={image} alt="" loading="eager" decoding="async" fetchPriority={eager ? "high" : "auto"} draggable={false} /> : <span className="card-fallback">{item.name}</span>}
           {showType && <span className="card-type">{typeLabel(item.contentType)}</span>}
         </div>
         <div className="card-title">{item.name}</div>

@@ -140,7 +140,7 @@ body.playing .screen-fill { background: transparent; }
 .hero .primary { align-self: flex-start; }
 .meta-line { color: var(--muted); white-space: pre; }
 
-.row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
+.row-section { padding: 14px 0 6px 32px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
 /* Chapters over the player, and the hold-to-speed feedback on the forward button. */
 .server-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
