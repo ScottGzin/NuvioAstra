@@ -21,7 +21,7 @@ import { resumeTarget } from "./library";
 import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
 import { Settings } from "./screens/Settings";
-import { metaRef, type Bootstrap, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { metaRef, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
 import { t } from "./i18n";
 
 
@@ -31,7 +31,6 @@ export function App() {
   useEffect(() => {
     api.appMode().then(setAppMode, () => setAppMode("app"));
   }, []);
-  const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [details, setDetails] = useState<MetaRef | null>(null);
@@ -55,7 +54,7 @@ export function App() {
   const [addonsEpoch, setAddonsEpoch] = useState(0);
 
   useEffect(() => {
-    api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+    api.bootstrap().catch((e) => setBootError(errorText(e)));
     api.profilesList().then(setProfiles, () => setProfilesFailed(true));
     api.welcomeNeeded().then((needed) => setWelcome(needed ? "waiting" : "none"), () => setWelcome("none"));
     startAccount();
@@ -100,13 +99,12 @@ export function App() {
           setDetails(null);
           setFolder(null);
           setOpenError(null);
-          setBoot(null);
           api.profilesList().then(setProfiles, () => {});
         } else {
           setAddonsEpoch((e) => e + 1);
           setFolder(null); // its catalogs were resolved with the previous addons
         }
-        api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+        api.bootstrap().catch((e) => setBootError(errorText(e)));
       }),
     [],
   );
@@ -205,9 +203,6 @@ export function App() {
           <UpdateBanner automatic={appMode === "app"} />
           {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra:")} {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
-          {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{boot.addonsFailed} de {boot.addonsEnabled} {t("addon(s) não responderam; os demais estão disponíveis.")}</div>
-          )}
           <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
             <Home key={dataKey} onOpen={open} onResume={resume} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
           </div>
