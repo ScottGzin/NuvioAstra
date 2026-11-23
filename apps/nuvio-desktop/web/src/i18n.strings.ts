@@ -1190,6 +1190,8 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Streams": { en: "Streams", ar: "Streams" },
   "Stream result display and badge URL rules.": { en: "Stream result display and badge URL rules.", ar: "Stream result display and badge URL rules." },
   "Cinematic": { en: "Cinematic", ar: "Cinematic" },
+  "Selecionar": { en: "Select", ar: "Selecionar" },
+  "Navegar": { en: "Navigate", ar: "Navegar" },
   "Capítulos": { en: "Chapters", ar: "الفصول" },
   "Capítulo": { en: "Chapter", ar: "فصل" },
   "Avançar 10 s (segure para acelerar)": { en: "Forward 10 s (hold to speed up)", ar: "تقديم 10 ثوانٍ (اضغط مطوّلًا للتسريع)" },

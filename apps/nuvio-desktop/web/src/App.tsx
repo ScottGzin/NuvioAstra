@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { start as startAccount } from "./account";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
+import { useGamepad, useInputNavigation } from "./input/navigation";
 import { listen } from "./tauri";
 import { LockScreen } from "./screens/LockScreen";
 import { Welcome } from "./screens/Welcome";
@@ -27,6 +28,8 @@ import { t } from "./i18n";
 
 
 export function App() {
+  useInputNavigation();
+  useGamepad();
   const player = usePlayer();
   const [appMode, setAppMode] = useState<string>("");
   useEffect(() => {
@@ -261,6 +264,9 @@ export function App() {
           onDismiss={() => setResumeEntry(null)}
         />
       )}
+      <div className="gamepad-hints" aria-hidden>
+        <span>✕ / A — {t("Selecionar")}</span><span>○ / B — {t("Voltar")}</span><span>✛ — {t("Navegar")}</span>
+      </div>
       {full && <FullPlayer />}
     </>
   );
