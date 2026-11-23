@@ -11,7 +11,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ServerConnection, ServerLibrary, ShuffleView, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ServerConnection, ServerLibrary, TrackingCredentialsView, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -107,6 +107,9 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Trakt/Simkl OAuth app credentials (values never returned to the UI). */
+  trackingCredentials: () => invoke<TrackingCredentialsView>("tracking_credentials"),
+  trackingCredentialSet: (key: string, value: string) => invoke<TrackingCredentialsView>("tracking_credential_set", { key, value }),
   /** Media servers (the user's own Jellyfin/Emby credentials stay on that server). */
   serverList: () => invoke<ServerConnection[]>("server_list"),
   serverAdd: (provider: string, address: string, username: string, password: string) =>

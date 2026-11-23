@@ -11,7 +11,7 @@ use nuvio_core::shuffle::{Picker, ShuffleSettings};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
 use nuvio_store::settings::{ContinueWatchingSettings, ProfileSettings};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 #[derive(Serialize)]
@@ -303,6 +303,40 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
         return Ok(None);
     }
     Ok(parental::fetch(&state.addons.client, &id).await)
+}
+
+// ---- Tracking services (Trakt / Simkl). Secrets never leave Rust. ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackingCredentialsView {
+    pub trakt_configured: bool,
+    pub simkl_configured: bool,
+}
+
+fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
+    let credentials = state.app_store.tracking_credentials(state.active_profile()).map_err(|e| e.to_string())?;
+    Ok(TrackingCredentialsView {
+        trakt_configured: credentials.get("trakt:clientId").is_some_and(|v| !v.is_empty())
+            && credentials.get("trakt:clientSecret").is_some_and(|v| !v.is_empty()),
+        simkl_configured: credentials.get("simkl:clientId").is_some_and(|v| !v.is_empty()),
+    })
+}
+
+#[tauri::command]
+pub fn tracking_credentials(state: State<'_, AppState>) -> Result<TrackingCredentialsView, String> {
+    tracking_view(&state)
+}
+
+/// `key`: `trakt:clientId`, `trakt:clientSecret` or `simkl:clientId`. An empty value removes it.
+#[tauri::command]
+pub fn tracking_credential_set(state: State<'_, AppState>, key: String, value: String) -> Result<TrackingCredentialsView, String> {
+    state.ensure_unlocked()?;
+    if !matches!(key.as_str(), "trakt:clientId" | "trakt:clientSecret" | "simkl:clientId") {
+        return Err("unknown tracking credential".into());
+    }
+    state.app_store.set_tracking_credential(state.active_profile(), key, value).map_err(|e| e.to_string())?;
+    tracking_view(&state)
 }
 
 // ---- Media servers (Jellyfin / Emby) ----

@@ -204,6 +204,32 @@ impl AppStore {
     /// Provider credentials the Nuvio account holds for each profile (`tmdb`, `mdblist`,
     /// `debrid:torbox`, `debrid:premiumize`, `debrid:realdebrid`, ...). `ProviderCredentialSync` in
     /// the original keeps them apart from the settings blob; Astra stores them here.
+/// Tracking OAuth app credentials (Trakt/Simkl). Kept in a separate Rust-only document because
+/// the account's `provider-credentials` blob is replaced wholesale on every sync.
+pub fn tracking_credentials(&self, profile: i64) -> Result<BTreeMap<String, String>, StoreError> {
+    Ok(self
+        .read::<BTreeMap<i64, BTreeMap<String, String>>>("tracking-credentials")?
+        .unwrap_or_default()
+        .remove(&profile)
+        .unwrap_or_default())
+}
+
+pub fn set_tracking_credential(&self, profile: i64, key: String, value: String) -> Result<BTreeMap<String, String>, StoreError> {
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut all = self
+        .read::<BTreeMap<i64, BTreeMap<String, String>>>("tracking-credentials")?
+        .unwrap_or_default();
+    let entry = all.entry(profile).or_default();
+    if value.trim().is_empty() {
+        entry.remove(&key);
+    } else {
+        entry.insert(key, value.trim().to_string());
+    }
+    let result = entry.clone();
+    self.write("tracking-credentials", &all)?;
+    Ok(result)
+}
+
     pub fn provider_credentials(&self) -> Result<BTreeMap<i64, BTreeMap<String, String>>, StoreError> {
         Ok(self.read("provider-credentials")?.unwrap_or_default())
     }

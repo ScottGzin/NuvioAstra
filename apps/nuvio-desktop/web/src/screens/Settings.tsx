@@ -23,6 +23,7 @@ import { AudioSettings } from "../components/AudioSettings";
 import { BufferSettings } from "../components/BufferSettings";
 import { ServersPanel } from "../components/ServersPanel";
 import { SourceSettings } from "../components/SourceSettings";
+import { TrackingCredentialsPanel } from "../components/TrackingCredentialsPanel";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
 import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, MetaScreenSettings, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
@@ -491,6 +492,7 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
+          <TrackingCredentialsPanel />
           <Row title={t("Presença no Discord")} description={t("Mostra o que você está assistindo no Discord.")}>
             <Toggle
               label={t("Presença no Discord")}

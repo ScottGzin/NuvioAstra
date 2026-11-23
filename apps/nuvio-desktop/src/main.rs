@@ -597,6 +597,8 @@ fn main() {
             api::download_list,
             api::collections_editor_load,
             api::server_list,
+            api::tracking_credentials,
+            api::tracking_credential_set,
             api::server_add,
             api::server_remove,
             api::server_libraries,
