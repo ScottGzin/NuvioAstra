@@ -147,7 +147,10 @@ body.playing .screen-fill { background: transparent; }
 .server-form input { flex: 1 1 180px; min-width: 120px; padding: 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 .server-row { display: flex; align-items: center; gap: 12px; }
 .server-row > div:first-child { flex: 1; }
-.collections-manager { display: flex; flex-direction: column; gap: 10px; }
+.collections-manager { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.collections-manager .collections-search, .collections-manager > .primary { width: 100%; box-sizing: border-box; }
+.collection-row { padding: 8px 12px; }
+.collection-row .chip { padding: 4px 8px; min-width: 30px; }
 .collections-search { padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; }
 .collections-list { display: flex; flex-direction: column; gap: 6px; }
 .collection-row, .collection-folder-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface); border-radius: 10px; }
