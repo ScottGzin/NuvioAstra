@@ -337,7 +337,7 @@ pub async fn mdblist_start(app: &AppStore, profile: i64, client_id: &str) -> Res
         .form(&[("scope", "write"), ("client_id", client_id)])
         .send().await.map_err(|e| e.to_string())?;
     if !response.status().is_success() {
-        return Err(format!("MDBList recusou o pedido ({})", response.status().as_u16()));
+        return Err(format!("MDBList recusou o pedido ({}). Registre um app de Device Code em mdblist.com/developer e coloque o client_id em MDBLIST_CLIENT_ID no local.properties", response.status().as_u16()));
     }
     let body: Value = response.json().await.map_err(|e| e.to_string())?;
     let device_code = body.get("device_code").and_then(Value::as_str).unwrap_or("").to_string();
