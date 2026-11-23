@@ -977,6 +977,8 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Produção": { en: "Production", ar: "الإنتاج" },
   "Comentários": { en: "Comments", ar: "التعليقات" },
   "Títulos semelhantes": { en: "Similar titles", ar: "عناوين مشابهة" },
+  "Abrir link externo": { en: "Open external link", ar: "فتح رابط خارجي" },
+  "Link externo inválido": { en: "Invalid external link", ar: "رابط خارجي غير صالح" },
   "Ver todos": { en: "See all", ar: "عرض الكل" },
   "Gênero": { en: "Genre", ar: "النوع" },
   "Todos os gêneros": { en: "All genres", ar: "كل الأنواع" },

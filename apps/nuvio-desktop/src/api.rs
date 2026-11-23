@@ -281,6 +281,36 @@ pub async fn title_streams(state: State<'_, AppState>, content_type: String, id:
     Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), debrid).await)
 }
 
+/// Opens an `externalUrl` source in the browser, as the original does. Only http(s) links are
+/// accepted, and the UI never sees the stored stream directly, only its opaque key.
+#[tauri::command]
+pub fn stream_open_external(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
+    let url = stream
+        .external_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .ok_or("external link is not an http(s) URL")?
+        .to_string();
+    let spawned = {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(&url).spawn()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open").arg(&url).spawn()
+        }
+    };
+    spawned.map_err(|e| format!("could not open the browser: {e}"))?;
+    Ok(())
+}
+
 /// MDBList Ratings settings of the active profile (key never returned).
 #[tauri::command]
 pub fn mdblist_settings(state: State<'_, AppState>) -> mdblist::View {

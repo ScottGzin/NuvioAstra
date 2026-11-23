@@ -203,6 +203,8 @@ export const api = {
   libraryToggleWatched: (item: WatchedItem) => invoke<boolean>("library_toggle_watched", { item }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
+  /** Opens an `externalUrl` source in the browser. */
+  streamOpenExternal: (key: string) => invoke<void>("stream_open_external", { key }),
 
   /** `progress`: the movie/episode, so Rust saves its position (absent for live TV). */
   playStream: (key: string, startSeconds: number | null, progress: PlaybackItem | null = null, previousFinished = false) =>

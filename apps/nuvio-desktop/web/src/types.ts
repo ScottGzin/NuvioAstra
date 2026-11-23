@@ -184,6 +184,10 @@ export interface StreamEntry {
   /** Played through the connected debrid service instead of local P2P. */
   debridPlayable: boolean;
   headerNames: string[]; notWebReady: boolean;
+  /** `externalUrl` source: safe only as a link to open in the browser. */
+  externalUrl: string | null;
+  /** `ytId` source: resolved in Rust by the YouTube extractor. */
+  youtubeId: string | null;
 }
 export interface StreamGroup { addonName: string; streams: StreamEntry[]; error: string | null }
 

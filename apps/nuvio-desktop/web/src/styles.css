@@ -237,12 +237,21 @@ button.chip:hover { background: var(--surface-hover); }
 .streams { display: flex; flex-direction: column; gap: 14px; }
 .stream-group-title { font-weight: 600; margin-bottom: 6px; }
 .stream {
-  display: grid; grid-template-columns: 220px 1fr; gap: 4px 16px; width: 100%; text-align: left;
-  border: 0; background: var(--surface); border-radius: 10px; padding: 10px 14px; margin-bottom: 6px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: var(--surface); border-radius: 10px; padding: 10px 14px; margin-bottom: 6px;
   transition: background .15s;
 }
-.stream:hover:not(:disabled) { background: var(--surface-hover); }
-.stream:disabled { opacity: .55; cursor: default; }
+.stream-main {
+  display: grid; grid-template-columns: 220px 1fr; gap: 4px 16px; flex: 1; min-width: 0;
+  text-align: left; border: 0; background: none; color: inherit; font: inherit; padding: 0; cursor: pointer;
+}
+.stream:hover { background: var(--surface-hover); }
+.stream:has(.stream-main:disabled) { opacity: .55; }
+.stream-main:disabled { cursor: default; }
+.stream-action {
+  flex: none; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface-hover); color: var(--accent); font-size: 16px; cursor: pointer;
+}
 .stream-name { font-weight: 600; white-space: pre-line; }
 .stream-desc { color: var(--muted); white-space: pre-line; font-size: 13px; }
 .stream-pending { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-style: italic; }

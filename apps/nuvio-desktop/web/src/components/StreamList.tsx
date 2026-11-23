@@ -2,19 +2,14 @@
 // refresh button), and every source is a card with the addon's own text plus the badges of the
 // rules imported in the original app (Settings → Streams → badges): the same regex filters and
 // chips, read from its store. Direct and torrent (P2P) streams play in the app's player; the other
-// kinds are listed with the reason they cannot play yet (no fake buttons).
+// YouTube sources are resolved by the in-app extractor and external links open in the browser.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, errorText } from "../api";
-import type { StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup, StreamKind } from "../types";
+import type { StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup } from "../types";
 import { t } from "../i18n";
 import { message } from "../rustErrors";
-
-const PENDING: Record<Exclude<StreamKind, "direct" | "torrent" | "debrid">, string> = {
-  external: "Link externo — abre fora do player",
-  youTube: "YouTube — ainda não suportado nesta versão",
-};
 
 interface Props {
   contentType: string;
@@ -188,32 +183,43 @@ export function StreamList({ contentType, id, onPlay }: Props) {
 
       {shown.map((group) =>
         group.streams.map((stream) => {
-          const playable = stream.kind === "direct" || stream.kind === "torrent" || stream.kind === "debrid";
+          const playable = stream.kind === "direct" || stream.kind === "torrent" || stream.kind === "debrid" || stream.kind === "youTube";
+          const external = stream.kind === "external" && !!stream.externalUrl;
           const badges = rules ? matchedBadges(stream, rules.filters) : [];
           const showSize = !!rules?.showFileSizeBadges && !!stream.videoSize;
           return (
-            <button
-              key={stream.key}
-              className="stream"
-              data-kind={stream.kind}
-              disabled={!playable}
-              onClick={() => playable && onPlay(stream)}
-            >
-              <span className="stream-name">
-                {stream.name || t("Fonte")}
-                {stream.kind === "torrent" && <span className="stream-tag">P2P</span>}
-              </span>
-              {stream.description && <span className="stream-desc">{stream.description}</span>}
-              {(badges.length > 0 || showSize) && (
-                <span className="stream-badges">
-                  {showSize && <span className="badge badge-size">{t("SIZE {size}", { size: sizeLabel(stream.videoSize!) })}</span>}
-                  {badges.map((filter) => (
-                    <Badge key={`${filter.imageUrl || filter.name}`} filter={filter} />
-                  ))}
+            <div key={stream.key} className="stream" data-kind={stream.kind}>
+              <button
+                className="stream-main"
+                disabled={!playable}
+                onClick={() => playable && onPlay(stream)}
+              >
+                <span className="stream-name">
+                  {stream.name || t("Fonte")}
+                  {stream.kind === "torrent" && <span className="stream-tag">P2P</span>}
+                  {stream.kind === "youTube" && <span className="stream-tag">YouTube</span>}
+                  {stream.kind === "external" && <span className="stream-tag">↗</span>}
                 </span>
+                {stream.description && <span className="stream-desc">{stream.description}</span>}
+                {(badges.length > 0 || showSize) && (
+                  <span className="stream-badges">
+                    {showSize && <span className="badge badge-size">{t("SIZE {size}", { size: sizeLabel(stream.videoSize!) })}</span>}
+                    {badges.map((filter) => (
+                      <Badge key={`${filter.imageUrl || filter.name}`} filter={filter} />
+                    ))}
+                  </span>
+                )}
+              </button>
+              {external && (
+                <button
+                  className="stream-action"
+                  title={t("Abrir link externo")}
+                  aria-label={t("Abrir link externo")}
+                  onClick={() => void api.streamOpenExternal(stream.key).catch(() => {})}
+                >↗</button>
               )}
-              {!playable && <span className="stream-pending">{t(PENDING[stream.kind as Exclude<StreamKind, "direct" | "torrent" | "debrid">])}</span>}
-            </button>
+              {stream.kind === "external" && !external && <span className="stream-pending">{t("Link externo inválido")}</span>}
+            </div>
           );
         }),
       )}

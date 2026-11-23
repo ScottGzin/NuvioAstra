@@ -228,12 +228,24 @@ async fn stream_play(
         _ => None,
     };
     let torrent = kind == streams::StreamKind::Torrent && debrid_key.is_none();
+    // `ytId` sources are resolved by the in-app YouTube extractor, like a trailer, and played
+    // with their separate audio track when the extractor found one.
+    let mut youtube_audio: Option<String> = None;
     let url = if let Some(debrid_key) = debrid_key {
         // TorBox (Settings → Services → Connected Services): the addon left the magnet, the app
         // asks the provider for a direct link (`DirectDebridPlaybackResolver` in the original).
         services::debrid::resolve_torbox(&debrid_key, &stream).await?
     } else if torrent {
         p2p::prepared_url(&state, &key)?
+    } else if kind == streams::StreamKind::YouTube {
+        let id = stream
+            .yt_id
+            .as_deref()
+            .and_then(nuvio_core::youtube::video_id)
+            .ok_or("invalid YouTube source")?;
+        let source = state.youtube.resolve(&id).await?;
+        youtube_audio = source.audio_url;
+        source.video_url
     } else {
         stream.playable_direct_url().ok_or("stream has no playable URL")?.to_string()
     };
@@ -251,7 +263,7 @@ async fn stream_play(
         state.progress.mark_finished();
     }
     let source_url = url.clone();
-    let info = state.open(&app, url, headers, start_seconds.unwrap_or(0.0))?;
+    let info = state.open_with_audio(&app, url, youtube_audio, headers, start_seconds.unwrap_or(0.0))?;
     let parent_id = progress.as_ref().map(|item| item.parent_meta_id.clone());
     if let Some(item) = &progress {
         let playing = watching::Playing::new(info.session, item, &stream, &source_url);
@@ -575,6 +587,7 @@ fn main() {
             api::library_remove_history,
             api::library_title_progress,
             api::library_toggle_watched,
+            api::stream_open_external,
             manage::addons_list,
             manage::addon_preview,
             manage::addon_install,

@@ -64,6 +64,10 @@ pub struct StreamEntry {
     /// Header names only (values may be secrets).
     pub header_names: Vec<String>,
     pub not_web_ready: bool,
+    /// `externalUrl`: opened in the browser (the original's external-link source).
+    pub external_url: Option<String>,
+    /// `ytId`: resolved by the in-app YouTube extractor when played.
+    pub youtube_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -215,6 +219,8 @@ pub async fn search_in(
                             debrid_playable: debrid_available && matches!(kind, StreamKind::Torrent | StreamKind::Debrid),
                             header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
                             not_web_ready: stream.behavior_hints.not_web_ready,
+                            external_url: stream.external_url.clone(),
+                            youtube_id: stream.yt_id.clone(),
                         };
                         cached.insert(key, stream);
                         entry
