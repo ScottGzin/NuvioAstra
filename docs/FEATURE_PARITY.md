@@ -28,7 +28,7 @@ This file is updated at the end of every stage.
 | Sidebar (Início, **TV**, Buscar, Biblioteca, Configurações, perfil) | `DesktopHoverSidebar` | ✅ Início, TV, Buscar, Biblioteca; Configurações and the profile avatar (opens the profile switcher) at the bottom | UI tests (order, highlight, switcher) | React shell |
 | Home: catalog rows from enabled addons, user order/visibility/custom titles, hero on/off, type in titles, hide unreleased | `HomeRepository`, `HomeCatalogSettingsRepository` | ✅ lazy rows, paging, session cache; settings editable in Configurações → Início (NextGen store, imported from the original) | `home` tests (defaults, order/hide/rename, unreleased rule), `settings_set` IPC test, UI test (hero off reaches Home) | `nuvio-core`, `nuvio-store` |
 | Home hero, continue watching, collections/folders | `home`, `collection` | 🟡 hero ✅; Continue watching row ✅ (in-progress entries, original rule; next-up of the following episode ⏳); collections ⏳ | UI test (row after restart, click → resume) | watch progress |
-| Catalog page (paging, genre filter) | `CatalogScreen` | ⏳ | paging tests | `nuvio-core` |
+| Catalog page (paging, genre filter) | `CatalogScreen` | ✅ "See all" modal on Home with the catalog's genre options and paging through `catalog_page` | `auto_play`/catalog tests, web build | `nuvio-core`, `services/collections.rs` |
 | Search (addon search catalogs, history) | `SearchRepository` | 🟡 search ✅ (debounced, concurrent, stale answers dropped); history ⏳ | `search` test (only search-capable catalogs, encoding) | `nuvio-core` |
 | Discover (type/catalog/genre browser) | `SearchDiscoverContent` | ✅ addon catalogs: the original's `supportsDiscover` rules (`services::discover`), a catalog's `genre` options feed the genre picker and a required genre starts on its first option, type/catalog/genre pickers, chosen catalog remembered per profile (`discover-selection.json`), endless paging with the original's duplicate-page guard and full-page rule, Home "hide unreleased" filter. Media servers (Plex, Emby/Jellyfin, Silo) ⏳: media servers are not ported | `discover` tests (source rules, genre resolution, paging), UI full flow (Search part) | `nuvio-core::manifest`, `nuvio-store`, `services/discover.rs` |
 | Details: info, images, genres, year, rating, age rating, runtime, status, cast, direction, writers, country, language, awards, website, **More Like This** | `MetaDetailsScreen` | ✅ from Home, Search and Library; save button; movie progress / "Continuar de" / "Assistir do início"; per-episode progress and ✓ watched; series resume button. TMDB enrichment of the addon meta (artwork, basic info, details, credits, episodes, trailers) when enabled, plus **More Like This** from TMDB recommendations (`tmdb`, numeric or IMDb id → `/find`), 12 titles, unreleased dropped, "Powered by TMDB", cards open the title (AIOMetadata resolves `tmdb:<id>`) | `meta` tests, `meta_details` IPC contract test, UI tests (details, library-write/verify) | meta port |
@@ -51,20 +51,20 @@ This file is updated at the end of every stage.
 | Hardware decoding, decoder priority, fast profile | ✅ | self-test `d3d11va` on H.264/HEVC/4K |
 | Headers (Referer, Cookie, UA, tokens) | ✅ | local proxy end-to-end |
 | Audio tracks / languages, subtitles (style, add/remove, delay, visibility, SDH) | ✅ | self-test |
-| Audio delay (new on Windows), speed, exact seek, volume 0–200, resize modes | ✅ | self-test |
+| Audio delay (new on Windows), speed, exact seek, volume 0–200, resize modes, 0–10 dB amplification, channel downmix, HTTP buffer/cache | ✅ | self-test + settings tests |
 | Picture-in-picture | ✅ | self-test |
 | RTX VSR / HDR | 🟡 options ported, not exercised on video | needs RTX run |
 | Resume position | ✅ start position from the saved progress (Details / Continue watching → chosen source) | UI test: resumed at 305 s (saved 304 s) |
-| Chapters / skip intro / next episode | ⏳ postponed on purpose (stage 14) | skip API, meta videos |
-| Source fallback / autoplay | ⏳ postponed on purpose (stage 14) | `StreamAutoPlaySelector` port |
-| Subtitle auto-sync | ⏳ postponed on purpose (stage 14) | `autosync` (9k lines) |
+| Chapters / skip intro / next episode | ✅ chapters panel, skip buttons, automatic next episode with source fallback | player tests, web build |
+| Source fallback / autoplay | ✅ `nuvio-core::auto_play` (mode, scope, regex with exclusions, binge group, fallback, timeout snapping) + player hold-to-speed | 4 unit tests, 74 workspace tests |
+| Subtitle auto-sync | ⏳ | `autosync` (9k lines, audio analysis) |
 | Addon subtitles | ⏳ | subtitles resource |
 | Keyboard shortcuts | ⏳ | `controls.js` bindings |
 | Watch party | ⏳ | Supabase realtime |
 | Torrent / P2P (addon `infoHash` / magnet sources) | ✅ the original's Nuvio Engine 0.1.6 (`nuvio_engine.dll`, libtorrent 2.0.12) loaded by Rust (`crates/nuvio-p2p`, C ABI taken from the original's JVM binding); local HTTP route played by the app's libmpv; playback starts before the download ends, seeking fetches pieces on demand; file by `fileIdx` / `behaviorHints.filename` / engine choice; original default trackers + the stream's; peers, speed, downloaded, progress over the player; per-profile settings (off until the original's P2P notice is accepted, upload, hide stats, Soft/Balanced/Fast, cache 0/2/5/10 GB, clear cache); session ends with the player (stream stopped, torrent removed, engine destroyed). Torrent upload of `.torrent` files ⏳ | UI phase `p2p` 17/17 (Big Buck Bunny, CC BY: started at 17.6 % downloaded, seek to 7 min, sockets/threads back to the baseline after close); installed build `install-check` (engine found next to the exe and created) |
 | Debrid | ⏳ | Real-Debrid / Premiumize / TorBox APIs |
 | YouTube trailers ("Assistir trailer" on movie and series details) | ✅ addon meta `trailers` (`MetaDetailsParser`), choice of `selectHeroTrailer`, the original's in-app InnerTube extractor ported (`nuvio-core::youtube`: visionOS/Android/iOS clients, candidate ordering, `googlevideo` range probe); MP4 video + M4A audio in the app's player (separate audio file); resolved only on click, no autoplay, not saved to history/progress; HLS master only as a fallback (libmpv did not play YouTube's HLS here) | UI phase `trailer` 16/16 (one movie, one series: picture + audio, back to the details, counts unchanged) |
-| YouTube addon streams (`ytId` sources) | ⏳ | same resolver, not wired to the sources list yet |
+| YouTube addon streams (`ytId` sources) | ✅ resolved with the in-app extractor (separate audio) from the sources list | web build |
 
 ## Integrations
 
