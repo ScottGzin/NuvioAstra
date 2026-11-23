@@ -117,7 +117,15 @@ export function Home({ onOpen, onResume, onOpenFolder }: Props) {
   return (
     <div className="home">
       {view?.heroEnabled && view.heroSources.length > 0 && (hero ? <HeroCarousel items={hero} onOpen={onOpen} /> : <div className="hero hero-placeholder" aria-hidden />)}
-      <ContinueWatchingRow onResume={onResume} />
+      <ContinueWatchingRow
+        onResume={onResume}
+        prefs={view?.continueWatching}
+        onOpenDetails={(entry) => onOpen({
+          id: entry.metaId, contentType: entry.metaType, name: entry.title,
+          poster: entry.poster, background: entry.background, releaseInfo: null, imdbRating: null,
+          genres: [], cast: [], director: [], writer: [], videos: [], trailers: [],
+        } as unknown as MetaPreview)}
+      />
       {rows.map((row) =>
         row.collection ? (
           <CollectionRow key={`${generation}:${row.key}`} title={row.title} collection={row.collection} onOpenFolder={onOpenFolder} />

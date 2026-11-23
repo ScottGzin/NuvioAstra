@@ -180,12 +180,63 @@ impl Default for PlayerSettings {
     }
 }
 
+/// `ContinueWatchingPreferencesUiState` of the original (`features/watchprogress`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ContinueWatchingSettings {
+    pub visible: bool,
+    /// `card`, `wide` or `poster`.
+    pub style: String,
+    pub up_next_from_furthest_episode: bool,
+    pub use_episode_thumbnails: bool,
+    pub show_unaired_next_up: bool,
+    pub blur_next_up: bool,
+    pub show_resume_prompt_on_launch: bool,
+    /// `default`, `streaming` or `splitUpcoming`.
+    pub sort_mode: String,
+    /// `stream`, `details` or `detailsForUpcoming`.
+    pub click_action: String,
+}
+
+impl Default for ContinueWatchingSettings {
+    fn default() -> Self {
+        Self {
+            visible: true,
+            style: "card".into(),
+            up_next_from_furthest_episode: true,
+            use_episode_thumbnails: true,
+            show_unaired_next_up: true,
+            blur_next_up: false,
+            show_resume_prompt_on_launch: true,
+            sort_mode: "default".into(),
+            click_action: "stream".into(),
+        }
+    }
+}
+
+impl ContinueWatchingSettings {
+    pub fn sanitized(mut self) -> Self {
+        if !["card", "wide", "poster"].contains(&self.style.as_str()) {
+            self.style = "card".into();
+        }
+        if !["default", "streaming", "splitUpcoming"].contains(&self.sort_mode.as_str()) {
+            self.sort_mode = "default".into();
+        }
+        if !["stream", "details", "detailsForUpcoming"].contains(&self.click_action.as_str()) {
+            self.click_action = "stream".into();
+        }
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProfileSettings {
     pub player: PlayerSettings,
     pub home: HomeCatalogSettings,
     pub p2p: P2pSettings,
+    #[serde(default)]
+    pub continue_watching: ContinueWatchingSettings,
 }
 
 pub const MOTION_SMOOTHING: &[&str] = &["off", "steady", "fluid"];
@@ -324,6 +375,7 @@ impl ProfileSettings {
         self.p2p = self.p2p.sanitized();
         let mut seen = std::collections::HashSet::new();
         self.home.items.retain(|i| !i.key.trim().is_empty() && seen.insert(i.key.clone()));
+        self.continue_watching = self.continue_watching.sanitized();
         self
     }
 }
@@ -394,6 +446,7 @@ impl LegacyStore {
             home: self.home_catalog_settings(profile_index)?.unwrap_or_default(),
             // P2P starts off in Astra: the notice is accepted again here.
             p2p: P2pSettings::default(),
+            continue_watching: ContinueWatchingSettings::default(),
         }
         .sanitized())
     }
@@ -401,6 +454,18 @@ impl LegacyStore {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn continue_watching_defaults_match_the_original_and_are_sanitized() {
+        let cw = ContinueWatchingSettings::default();
+        assert_eq!((cw.visible, cw.up_next_from_furthest_episode, cw.use_episode_thumbnails, cw.show_unaired_next_up, cw.show_resume_prompt_on_launch), (true, true, true, true, true));
+        assert_eq!((cw.style.as_str(), cw.sort_mode.as_str(), cw.click_action.as_str()), ("card", "default", "stream"));
+        assert!(!cw.blur_next_up);
+        let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();
+        assert_eq!((bad.style.as_str(), bad.sort_mode.as_str(), bad.click_action.as_str()), ("card", "default", "stream"));
+        assert_eq!(ProfileSettings::default().continue_watching, ContinueWatchingSettings::default());
+    }
     use super::*;
 
     #[test]

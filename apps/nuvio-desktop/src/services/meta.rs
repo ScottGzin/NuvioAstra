@@ -17,6 +17,8 @@ pub struct Details {
     pub trailer: Option<MetaTrailer>,
     /// MDBList ratings (Settings → Services → MDBList Ratings); empty when off.
     pub ratings: Vec<super::mdblist::Rating>,
+    /// Watched marks of this title (movie, or its episodes) for the manual toggle.
+    pub watched_keys: Vec<String>,
 }
 
 pub async fn details(client: &AddonClient, manifests: &[AddonManifest], content_type: &str, id: &str) -> Result<Details, String> {
@@ -28,7 +30,7 @@ pub async fn details(client: &AddonClient, manifests: &[AddonManifest], content_
                 Ok(meta) => {
                     let seasons = meta.seasons();
                     let trailer = select_trailer(&meta.trailers).cloned();
-                    return Ok(Details { meta, seasons, addon_name: manifest.name.clone(), trailer, ratings: Vec::new() });
+                    return Ok(Details { meta, seasons, addon_name: manifest.name.clone(), trailer, ratings: Vec::new(), watched_keys: Vec::new() });
                 }
                 Err(e) => last_error = e.to_string(),
             },

@@ -13,6 +13,7 @@ import type {
   AddonPreview, AddonsView, Bootstrap, CatalogPage, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
+  WatchedItem,
   StreamBadgeRules,
   TmdbSettingsInput,
   TmdbSettingsView,
@@ -196,6 +197,8 @@ export const api = {
   /** The row completed with next episodes (asks the addons for the episode lists it lacks). */
   libraryNextUp: () => invoke<HistoryEntry[]>("library_next_up"),
   libraryHistory: (offset: number, limit: number) => invoke<HistoryPage>("library_history", { offset, limit }),
+  /** Marks or unmarks a movie/episode as watched manually. */
+  libraryToggleWatched: (item: WatchedItem) => invoke<boolean>("library_toggle_watched", { item }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
 

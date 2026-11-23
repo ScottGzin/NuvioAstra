@@ -5,7 +5,7 @@
 import { memo, useEffect, useState } from "react";
 import { api } from "../api";
 import { clock, episodeCode, lastWatched, remaining, removeHistory, useLibraryVersion } from "../library";
-import type { HistoryEntry } from "../types";
+import type { ContinueWatchingSettings, HistoryEntry } from "../types";
 import { airDate } from "../player/episodes";
 import { t } from "../i18n";
 
@@ -13,15 +13,16 @@ interface CardProps {
   entry: HistoryEntry;
   onResume(entry: HistoryEntry): void;
   onRemove?(entry: HistoryEntry): void;
+  blurred?: boolean;
 }
 
-export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove }: CardProps) {
+export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemove, blurred }: CardProps) {
   const image = entry.background ?? entry.poster;
   const code = episodeCode(entry);
   const left = remaining(entry);
   const fresh = entry.nextUp && !entry.inProgress;
   return (
-    <div className="cw-wrap">
+    <div className={`cw-wrap ${blurred ? "cw-blurred" : ""}`}>
       <button className="cw-card" onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? t("Próximo episódio de {title}", { title: entry.title }) : t("Continuar {title}", { title: entry.title })}>
         <div className="cw-art">
           {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
@@ -75,20 +76,51 @@ export function loadContinueWatching(show: (items: HistoryEntry[]) => void, fail
   };
 }
 
+const DEFAULT_PREFS: ContinueWatchingSettings = {
+  visible: true, style: "card", upNextFromFurthestEpisode: true, useEpisodeThumbnails: true,
+  showUnairedNextUp: true, blurNextUp: false, showResumePromptOnLaunch: true, sortMode: "default",
+  clickAction: "stream",
+};
+
 /** Home row (hidden when empty), like the original's Continue watching section at the top. */
-export function ContinueWatchingRow({ onResume }: { onResume(entry: HistoryEntry): void }) {
+export function ContinueWatchingRow({
+  onResume,
+  prefs = DEFAULT_PREFS,
+  onOpenDetails,
+}: {
+  onResume(entry: HistoryEntry): void;
+  prefs?: ContinueWatchingSettings;
+  onOpenDetails?(entry: HistoryEntry): void;
+}) {
   const version = useLibraryVersion();
   const [items, setItems] = useState<HistoryEntry[]>([]);
   useEffect(() => loadContinueWatching(setItems), [version]);
-  if (!items.length) return null;
+  if (!prefs.visible) return null;
+  let shown = items;
+  if (!prefs.showUnairedNextUp) {
+    const now = Date.now();
+    shown = shown.filter((entry) => !entry.nextUp || !entry.airs || new Date(entry.airs).getTime() <= now);
+  }
+  if (prefs.sortMode === "streaming" || prefs.sortMode === "splitUpcoming") {
+    const released = shown.filter((entry) => !entry.nextUp || !entry.airs || new Date(entry.airs).getTime() <= Date.now());
+    const upcoming = shown.filter((entry) => !released.includes(entry));
+    upcoming.sort((a, b) => (a.airs ?? "9999").localeCompare(b.airs ?? "9999"));
+    shown = [...released, ...upcoming];
+  }
+  if (!shown.length) return null;
+  const play = (entry: HistoryEntry) => {
+    const details = prefs.clickAction === "details" || (prefs.clickAction === "detailsForUpcoming" && entry.nextUp);
+    if (details && onOpenDetails) onOpenDetails(entry);
+    else onResume(entry);
+  };
   return (
-    <section className="row-section" data-testid="home-continue">
+    <section className={`row-section cw-${prefs.style}`} data-testid="home-continue">
       <header className="row-header">
         <h2>{t("Continuar assistindo")}</h2>
       </header>
       <div className="row-track">
-        {items.map((e) => (
-          <ContinueCard key={e.key} entry={e} onResume={onResume} onRemove={(x) => void removeHistory(x.key)} />
+        {shown.map((e) => (
+          <ContinueCard key={e.key} entry={e} onResume={play} onRemove={(x) => void removeHistory(x.key)} blurred={prefs.blurNextUp && e.nextUp} />
         ))}
       </div>
     </section>

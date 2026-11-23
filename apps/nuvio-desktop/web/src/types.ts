@@ -68,6 +68,7 @@ export interface HomeView {
   /** Catalog keys whose first page feeds the hero (at most 2, hidden rows included). */
   heroSources: string[];
   rows: HomeRow[];
+  continueWatching: ContinueWatchingSettings;
 }
 
 // ---- Settings (nuvio-store::settings, per profile) ----
@@ -102,7 +103,17 @@ export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: bo
 export type P2pProfileName = "SOFT" | "BALANCED" | "FAST";
 export type P2pCacheName = "NONE" | "GB_2" | "GB_5" | "GB_10";
 export interface P2pSettings { enabled: boolean; enableUpload: boolean; hideTorrentStats: boolean; torrentProfile: P2pProfileName; cacheSize: P2pCacheName }
-export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings }
+export interface ContinueWatchingSettings {
+  visible: boolean; style: string; upNextFromFurthestEpisode: boolean; useEpisodeThumbnails: boolean;
+  showUnairedNextUp: boolean; blurNextUp: boolean; showResumePromptOnLaunch: boolean;
+  sortMode: string; clickAction: string;
+}
+export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings }
+/** A movie/episode watched mark (Settings → Library); ids stay opaque. */
+export interface WatchedItem {
+  id: string; contentType: string; name: string; poster: string | null; releaseInfo: string | null;
+  season: number | null; episode: number | null; videoId: string | null; markedAtEpochMs: number;
+}
 /** Selected file of a torrent prepared by the P2P engine (the local URL stays in Rust). */
 export interface TorrentPrepared { fileIndex: number; fileSize: number; fileName: string; fileCount: number }
 export interface P2pStatus {
@@ -157,7 +168,7 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   return { contentType, id, name: item.name };
 }
 export interface ExternalRating { source: string; value: number; certified: boolean }
-export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[] }
+export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[]; watchedKeys: string[] }
 
 export type StreamKind = "direct" | "torrent" | "debrid" | "external" | "youTube";
 export interface StreamEntry {

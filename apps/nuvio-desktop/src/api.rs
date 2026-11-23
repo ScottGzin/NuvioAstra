@@ -7,7 +7,7 @@ use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
-use nuvio_store::settings::ProfileSettings;
+use nuvio_store::settings::{ContinueWatchingSettings, ProfileSettings};
 use serde::Serialize;
 use tauri::State;
 
@@ -36,6 +36,8 @@ pub struct HomeView {
     /// Catalog keys whose first page feeds the hero (may include catalogs hidden from Home).
     pub hero_sources: Vec<String>,
     pub rows: Vec<home::HomeRow>,
+    /// Continue watching preferences (Settings → Início → Continuar assistindo).
+    pub continue_watching: ContinueWatchingSettings,
 }
 
 /// Home rows of the active profile, with its Home settings from the NextGen store (imported
@@ -43,13 +45,15 @@ pub struct HomeView {
 #[tauri::command]
 pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
     let loaded = state.addons.loaded().await?;
-    let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home;
+    let profile_settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
+    let settings = profile_settings.home;
     let tmdb_available = tmdb::collections_enabled(&state.app_store, loaded.profile);
     let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type, tmdb_available);
     Ok(HomeView {
         hero_enabled: settings.hero_enabled,
         hero_sources: home::hero_sources(&loaded.manifests, &settings),
         rows: home::home_rows(&loaded.manifests, Some(&settings), &collections),
+        continue_watching: profile_settings.continue_watching,
     })
 }
 
@@ -181,6 +185,12 @@ pub async fn meta_details(state: State<'_, AppState>, content_type: String, id: 
     // MDBList ratings (the key comes from the Nuvio account); never holds the page for long.
     let imdb_id = if details.meta.id.starts_with("tt") { details.meta.id.clone() } else { id.clone() };
     let series = content_type == "series" || details.meta.content_type == "series";
+    let watched = state.app_store.watched(loaded.profile).unwrap_or_default();
+    details.watched_keys = watched
+        .iter()
+        .filter(|w| w.id == details.meta.id || w.id == id)
+        .map(|w| w.key())
+        .collect();
     details.ratings = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         mdblist::ratings(&state.app_store, loaded.profile, &imdb_id, series),
@@ -259,6 +269,16 @@ pub fn mdblist_settings_set(state: State<'_, AppState>, settings: mdblist::Setti
     let view = mdblist::update(&state.app_store, profile, settings)?;
     state.request_sync();
     Ok(view)
+}
+
+/// Manually marks (or unmarks) a movie/episode as watched (`WatchedRepository.markWatched`).
+#[tauri::command]
+pub fn library_toggle_watched(state: State<'_, AppState>, item: nuvio_store::library::WatchedItem) -> Result<bool, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let added = state.app_store.toggle_watched(profile, item).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(added)
 }
 
 /// Connected Services (debrid) of the active profile; the key itself never leaves Rust.

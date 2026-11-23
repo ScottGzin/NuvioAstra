@@ -7,7 +7,7 @@ import { FavoriteButton } from "../components/FavoriteButton";
 import { ResultRow } from "../components/ResultRow";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
-import { clock, episodeCode, libraryItemFromDetails, playbackItem, remaining, useLibraryVersion } from "../library";
+import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
 import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
 import { addonLabel, t } from "../i18n";
@@ -64,6 +64,7 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [trailerBusy, setTrailerBusy] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
+  const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -76,6 +77,28 @@ export function Details({ item, onBack, onOpen }: Props) {
       cancelled = true;
     };
   }, [id, version]);
+
+  useEffect(() => setWatchedKeys(data?.watchedKeys ?? []), [data?.watchedKeys]);
+
+  const watchedKey = (contentType: string, id: string, season: number | null, episode: number | null) => {
+    const raw = contentType.trim().toLowerCase();
+    const kind = ["series", "tv", "show", "tvshow", "anime"].includes(raw) ? "series" : contentType.trim();
+    return `${kind}:${id}:${season ?? -1}:${episode ?? -1}`;
+  };
+
+  /** Manually mark/unmark a movie or an episode as watched (synced with the account). */
+  const toggleWatched = (contentType: string, id: string, season: number | null, episode: number | null, name: string) => {
+    const key = watchedKey(contentType, id, season, episode);
+    const wasWatched = watchedKeys.includes(key);
+    setWatchedKeys((prev) => (wasWatched ? prev.filter((k) => k !== key) : [...prev, key]));
+    void api
+      .libraryToggleWatched({ id, contentType, name, poster: m.poster, releaseInfo: m.releaseInfo, season, episode, videoId: null, markedAtEpochMs: Date.now() })
+      .then((added) => {
+        if (added !== !wasWatched) setWatchedKeys(data?.watchedKeys ?? []);
+        refreshLibraryViews();
+      })
+      .catch(() => setWatchedKeys(data?.watchedKeys ?? []));
+  };
 
   // TMDB recommendations of this title (the original's "More Like This", powered by TMDB).
   useEffect(() => {
@@ -240,6 +263,16 @@ export function Details({ item, onBack, onOpen }: Props) {
                 </button>
               )}
               <FavoriteButton item={libraryItemFromDetails(m)} variant="pill" />
+              {!isSeries && (
+                <button
+                  className={`chip ${watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? "active" : ""}`}
+                  data-testid="movie-watched"
+                  title={t("Marcar como assistido")}
+                  onClick={() => toggleWatched(m.contentType, m.id, null, null, m.name)}
+                >
+                  {watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? t("✓ Assistido") : t("Marcar como assistido")}
+                </button>
+              )}
             </div>
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
@@ -281,8 +314,10 @@ export function Details({ item, onBack, onOpen }: Props) {
             <div className="episodes">
               {episodes.map((v) => {
                 const e = entryFor(v);
+                const epKey = watchedKey(m.contentType, m.id, v.season ?? null, v.episode ?? null);
                 return (
-                  <button key={v.id} className={`episode ${selected !== "movie" && selected?.id === v.id ? "active" : ""}`} onClick={() => choose(v)} data-episode={`${v.season}:${v.episode}`}>
+                  <div key={v.id} className="episode-wrap">
+                    <button className={`episode ${selected !== "movie" && selected?.id === v.id ? "active" : ""}`} onClick={() => choose(v)} data-episode={`${v.season}:${v.episode}`}>
                     <div className="episode-thumb">
                       {v.thumbnail && <img src={v.thumbnail} alt="" loading="lazy" decoding="async" />}
                       {e && !e.completed && e.fraction > 0 && <div className="progress"><div style={{ width: `${Math.max(2, e.fraction * 100)}%` }} /></div>}
@@ -297,7 +332,15 @@ export function Details({ item, onBack, onOpen }: Props) {
                       )}
                       {v.overview && <div className="episode-overview">{v.overview}</div>}
                     </div>
-                  </button>
+                    </button>
+                    <button
+                      className={`watched-toggle ${watchedKeys.includes(epKey) ? "on" : ""}`}
+                      data-episode-watched={`${v.season}:${v.episode}`}
+                      title={t("Marcar como assistido")}
+                      aria-label={t("Marcar como assistido")}
+                      onClick={() => toggleWatched(m.contentType, m.id, v.season ?? null, v.episode ?? null, v.title)}
+                    >✓</button>
+                  </div>
                 );
               })}
             </div>

@@ -21,7 +21,7 @@ import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
-import type { CatalogChoice, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
+import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
 import { message } from "../rustErrors";
 
@@ -671,11 +671,11 @@ export function Settings() {
         {section === "pending" && (
           <div className="settings-group">
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
+            <p className="muted small">{t("Já disponíveis: Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
-              <li><b>{t("Início e catálogos")}</b>{t("— “Ver todos” de um catálogo, Descobrir na pesquisa, prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
-              <li><b>{t("Tela de detalhes")}</b>{t("— escolher as seções exibidas, títulos semelhantes, comentários e desfocar episódios não assistidos.")}</li>
-              <li><b>{t("Assistidos")}</b>{t("— marcar ou desmarcar filmes e episódios como assistidos manualmente.")}</li>
-              <li><b>{t("Continuar assistindo")}</b>{t("— estilo, ordenação, ação do clique, aviso de retomada ao abrir e opções para ocultar a fileira ou os episódios futuros.")}</li>
+              <li><b>{t("Início e catálogos")}</b>{t("— “Ver todos” de um catálogo, prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
+              <li><b>{t("Tela de detalhes")}</b>{t("— escolher as seções exibidas, comentários e desfocar episódios não assistidos.")}</li>
+              <li><b>{t("Continuar assistindo")}</b>{t("— aviso de retomada ao abrir o app.")}</li>
               <li><b>{t("Fontes")}</b>{t("— seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.")}</li>
               <li><b>{t("Player")}</b>{t("— trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.")}</li>
               <li><b>{t("Próximo episódio")}</b>{t("— tocar sozinho sem escolher a fonte, pré-carregar as fontes, preferir o mesmo grupo de fontes e ordem aleatória.")}</li>
@@ -820,6 +820,9 @@ function HomeSection({ settings, catalogs, update }: {
     return pa - pb || catalogs.indexOf(a) - catalogs.indexOf(b);
   });
   const pref = (c: CatalogChoice) => home.items.find((i) => i.key === c.key);
+  const cw = settings.continueWatching;
+  const setCw = (change: Partial<ContinueWatchingSettings>) =>
+    update((s) => ({ ...s, continueWatching: { ...s.continueWatching, ...change } }), note);
 
   /** Rewrites the preference list in `order`, keeping hero-source flags. Rows not listed now (an
    *  addon that is off or did not answer) keep their saved position, as in the original. */
@@ -861,6 +864,39 @@ function HomeSection({ settings, catalogs, update }: {
         </Row>
         <Row title={t("Ocultar conteúdo ainda não lançado")} description={t("Remove dos catálogos títulos com data de lançamento futura.")}>
           <Toggle label={t("Ocultar conteúdo ainda não lançado")} checked={home.hideUnreleasedContent} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, hideUnreleasedContent: v } }), note)} />
+        </Row>
+      </div>
+      <h2 className="settings-subtitle">{t("Continuar assistindo")}</h2>
+      <div className="settings-group">
+        <Row title={t("Mostrar a seção")} description={t("Esconde a fila de Continuar assistindo na tela Início.")}>
+          <Toggle label={t("Mostrar a seção")} checked={cw.visible} onChange={(v) => setCw({ visible: v })} />
+        </Row>
+        <Row title={t("Estilo dos cartões")}>
+          <select aria-label={t("Estilo dos cartões")} value={cw.style} onChange={(e) => setCw({ style: e.target.value })}>
+            <option value="card">{t("Cartão")}</option>
+            <option value="wide">{t("Largo")}</option>
+            <option value="poster">{t("Pôster")}</option>
+          </select>
+        </Row>
+        <Row title={t("Ordenação")}>
+          <select aria-label={t("Ordenação")} value={cw.sortMode} onChange={(e) => setCw({ sortMode: e.target.value })}>
+            <option value="default">{t("Padrão")}</option>
+            <option value="streaming">{t("Estilo streaming")}</option>
+            <option value="splitUpcoming">{t("Separar próximos episódios")}</option>
+          </select>
+        </Row>
+        <Row title={t("Ao clicar")}>
+          <select aria-label={t("Ao clicar")} value={cw.clickAction} onChange={(e) => setCw({ clickAction: e.target.value })}>
+            <option value="stream">{t("Reproduzir direto")}</option>
+            <option value="details">{t("Abrir detalhes")}</option>
+            <option value="detailsForUpcoming">{t("Detalhes só nos próximos episódios")}</option>
+          </select>
+        </Row>
+        <Row title={t("Mostrar episódios ainda não exibidos")} description={t("Próximos episódios com data futura na fila.")}>
+          <Toggle label={t("Mostrar episódios ainda não exibidos")} checked={cw.showUnairedNextUp} onChange={(v) => setCw({ showUnairedNextUp: v })} />
+        </Row>
+        <Row title={t("Desfocar próximos episódios")}>
+          <Toggle label={t("Desfocar próximos episódios")} checked={cw.blurNextUp} onChange={(v) => setCw({ blurNextUp: v })} />
         </Row>
       </div>
       <h2 className="settings-subtitle">{t("Catálogos ({shown} de {total} visíveis)", { shown: ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length, total: ordered.length })}</h2>
