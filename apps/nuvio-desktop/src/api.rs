@@ -11,7 +11,7 @@ use nuvio_core::shuffle::{Picker, ShuffleSettings};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
 use nuvio_store::settings::{ContinueWatchingSettings, ProfileSettings};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::State;
 
 #[derive(Serialize)]
@@ -314,12 +314,33 @@ pub struct TrackingCredentialsView {
     pub simkl_configured: bool,
 }
 
+/// Build-time default from the gitignored local.properties, overridden by a value entered in Settings.
+fn tracking_default(key: &str) -> Option<&'static str> {
+    match key {
+        "trakt:clientId" => option_env!("NUVIO_TRAKT_CLIENT_ID"),
+        "trakt:clientSecret" => option_env!("NUVIO_TRAKT_CLIENT_SECRET"),
+        "simkl:clientId" => option_env!("NUVIO_SIMKL_CLIENT_ID"),
+        _ => None,
+    }
+    .filter(|value| !value.is_empty())
+}
+
+/// Effective credential for an OAuth flow: user value first, then the build-time default.
+pub(crate) fn tracking_value(state: &AppState, key: &str) -> Option<String> {
+    state
+        .app_store
+        .tracking_credentials(state.active_profile())
+        .ok()
+        .and_then(|map| map.get(key).cloned())
+        .filter(|value| !value.is_empty())
+        .or_else(|| tracking_default(key).map(str::to_string))
+}
+
 fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
-    let credentials = state.app_store.tracking_credentials(state.active_profile()).map_err(|e| e.to_string())?;
     Ok(TrackingCredentialsView {
-        trakt_configured: credentials.get("trakt:clientId").is_some_and(|v| !v.is_empty())
-            && credentials.get("trakt:clientSecret").is_some_and(|v| !v.is_empty()),
-        simkl_configured: credentials.get("simkl:clientId").is_some_and(|v| !v.is_empty()),
+        trakt_configured: tracking_value(state, "trakt:clientId").is_some()
+            && tracking_value(state, "trakt:clientSecret").is_some(),
+        simkl_configured: tracking_value(state, "simkl:clientId").is_some(),
     })
 }
 

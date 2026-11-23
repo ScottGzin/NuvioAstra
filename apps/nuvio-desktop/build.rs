@@ -18,7 +18,10 @@ fn main() {
     for props in &candidates {
         println!("cargo:rerun-if-changed={}", props.display());
     }
-    for key in ["NUVIO_SUPABASE_URL", "NUVIO_SUPABASE_ANON_KEY", "NUVIO_SUPABASE_FALLBACK_URL", "NUVIO_UPDATE_REPOSITORY"] {
+    for key in [
+        "NUVIO_SUPABASE_URL", "NUVIO_SUPABASE_ANON_KEY", "NUVIO_SUPABASE_FALLBACK_URL", "NUVIO_UPDATE_REPOSITORY",
+        "TRAKT_CLIENT_ID", "TRAKT_CLIENT_SECRET", "SIMKL_CLIENT_ID",
+    ] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     let file = candidates.iter().find_map(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -41,6 +44,19 @@ fn main() {
         println!("cargo:rustc-env=NUVIO_SUPABASE_URL={url}");
         println!("cargo:rustc-env=NUVIO_SUPABASE_ANON_KEY={key}");
         println!("cargo:rustc-env=NUVIO_SUPABASE_FALLBACK_URL={fallback}");
+    }
+    // Optional Trakt/Simkl OAuth app credentials from the same gitignored local.properties. They
+    // are compile-time defaults only: a user can still enter their own in Settings, and no value is
+    // ever embedded in a committed source file.
+    for (key, env_name) in [
+        ("TRAKT_CLIENT_ID", "NUVIO_TRAKT_CLIENT_ID"),
+        ("TRAKT_CLIENT_SECRET", "NUVIO_TRAKT_CLIENT_SECRET"),
+        ("SIMKL_CLIENT_ID", "NUVIO_SIMKL_CLIENT_ID"),
+    ] {
+        let from_file = value(key);
+        if !from_file.is_empty() {
+            println!("cargo:rustc-env={env_name}={from_file}");
+        }
     }
     let repository = value("NUVIO_UPDATE_REPOSITORY");
     if !repository.is_empty() {
