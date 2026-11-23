@@ -7,6 +7,7 @@
 
 pub mod auto_play;
 pub mod catalog;
+pub mod downloads;
 pub mod client;
 pub mod error;
 pub mod manifest;

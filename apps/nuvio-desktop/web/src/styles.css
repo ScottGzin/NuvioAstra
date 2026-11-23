@@ -134,6 +134,13 @@ body.playing .screen-fill { background: transparent; }
 .row-section { padding: 14px 0 6px 32px; content-visibility: auto; contain-intrinsic-size: auto 320px; }
 /* "See all" of a Home row: a full catalog grid over the Home screen. */
 /* Chapters over the player, and the hold-to-speed feedback on the forward button. */
+.downloads-section { display: flex; flex-direction: column; gap: 8px; }
+.downloads-actions { align-self: flex-end; }
+.download-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface); border-radius: 10px; }
+.download-info { flex: 1; min-width: 0; }
+.download-error { color: #e07070; }
+.download-progress { height: 4px; margin-top: 6px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.download-progress > div { height: 100%; background: var(--accent); }
 .in-player-sources-panel { width: min(820px, calc(100vw - 32px)); }
 .in-player-episodes { max-height: 180px; overflow-y: auto; margin-bottom: 10px; }
 .chapters-overlay { position: fixed; inset: 0; z-index: 72; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }

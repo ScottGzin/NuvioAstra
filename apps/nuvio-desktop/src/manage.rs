@@ -495,6 +495,7 @@ mod ipc_tests {
             addons: AddonContext::new(client.clone(), dir.clone()),
             client,
             streams: crate::streams::StreamCache::default(),
+            downloads: crate::services::downloads::Manager::new(),
             video: Mutex::new(nuvio_player::VideoConfig::default()),
             app_store: nuvio_store::nextgen::AppStore::open(&dir).unwrap(),
             progress: crate::services::progress::ProgressTracker::new(dir.clone()),

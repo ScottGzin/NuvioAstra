@@ -1,10 +1,11 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, badges, collections, debrid, discord, discover, fonts, home, livetv, mdblist, meta, parental, playback, search, tmdb};
+use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, tmdb};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
+use nuvio_core::downloads::{DownloadItem, DownloadStatus, is_supported_download_url};
 use nuvio_core::meta::MetaVideo;
 use nuvio_core::shuffle::{Picker, ShuffleSettings};
 use nuvio_store::library;
@@ -302,6 +303,117 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
         return Ok(None);
     }
     Ok(parental::fetch(&state.addons.client, &id).await)
+}
+
+// ---- Downloads (the original's DownloadsRepository) ----
+
+#[tauri::command]
+pub fn download_list(state: State<'_, AppState>) -> Result<Vec<DownloadItem>, String> {
+    let profile = state.active_profile();
+    let mut items = state.app_store.downloads(profile).map_err(|e| e.to_string())?;
+    let mut changed = false;
+    for item in items.iter_mut() {
+        if item.status == DownloadStatus::Downloading && !state.downloads.is_active(&item.id) {
+            item.status = DownloadStatus::Paused;
+            changed = true;
+        }
+    }
+    if changed {
+        state.app_store.set_downloads(profile, items.clone()).map_err(|e| e.to_string())?;
+    }
+    Ok(items)
+}
+
+/// Queues a direct stream for download. The URL and headers stay in Rust; the UI sends only the
+/// opaque stream key and the playback identity.
+#[tauri::command]
+pub fn download_from_stream(
+    state: State<'_, AppState>,
+    key: String,
+    progress: nuvio_store::library::PlaybackItem,
+) -> Result<DownloadItem, String> {
+    state.ensure_unlocked()?;
+    let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
+    let url = stream
+        .playable_direct_url()
+        .filter(|url| is_supported_download_url(url))
+        .ok_or("this source cannot be downloaded")?
+        .to_string();
+    let profile = state.active_profile();
+    let existing = state.app_store.downloads(profile).map_err(|e| e.to_string())?;
+    let item = downloads::item_from_stream(profile, &stream, &url, &progress, &existing);
+    // Same logical content replaces the previous download (with its files).
+    let dir = state.app_store.dir().join("downloads");
+    let replaced: Vec<DownloadItem> = existing.iter().filter(|old| old.logical_content_key() != item.logical_content_key()).cloned().collect();
+    for old in existing.iter().filter(|old| old.logical_content_key() == item.logical_content_key()) {
+        state.downloads.cancel(&old.id);
+        downloads::remove_files(&dir, &old.file_name);
+    }
+    let mut saved = replaced;
+    saved.push(item.clone());
+    state.app_store.set_downloads(profile, saved).map_err(|e| e.to_string())?;
+    state.downloads.set_headers(&item.id, stream.playback_request_headers());
+    state.downloads.start(state.app_store.clone(), profile, item.id.clone(), item.source_url.clone(), dir);
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn download_control(state: State<'_, AppState>, id: String, action: String) -> Result<Vec<DownloadItem>, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let dir = state.app_store.dir().join("downloads");
+    match action.as_str() {
+        "pause" => {
+            state.downloads.cancel(&id);
+            state.app_store.edit_downloads(profile, |items| {
+                if let Some(item) = items.iter_mut().find(|item| item.id == id) { item.status = DownloadStatus::Paused; }
+            }).map_err(|e| e.to_string())?;
+        }
+        "resume" | "retry" => {
+            let item = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter()
+                .find(|item| item.id == id).ok_or("download not found")?;
+            state.app_store.edit_downloads(profile, |items| {
+                if let Some(item) = items.iter_mut().find(|item| item.id == id) {
+                    item.status = DownloadStatus::Downloading;
+                    item.error_message = None;
+                }
+            }).map_err(|e| e.to_string())?;
+            state.downloads.start(state.app_store.clone(), profile, id, item.source_url, dir);
+        }
+        "remove" => {
+            state.downloads.cancel(&id);
+            if let Some(item) = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter().find(|item| item.id == id) {
+                downloads::remove_files(&dir, &item.file_name);
+            }
+            state.app_store.edit_downloads(profile, |items| items.retain(|item| item.id != id)).map_err(|e| e.to_string())?;
+        }
+        "clearCompleted" => {
+            let done: Vec<DownloadItem> = state.app_store.downloads(profile).map_err(|e| e.to_string())?
+                .into_iter().filter(|item| item.status == DownloadStatus::Completed).collect();
+            for item in &done { downloads::remove_files(&dir, &item.file_name); }
+            let ids: Vec<&str> = done.iter().map(|item| item.id.as_str()).collect();
+            state.app_store.edit_downloads(profile, |items| items.retain(|item| !ids.contains(&item.id.as_str()))).map_err(|e| e.to_string())?;
+        }
+        _ => return Err("unknown download action".into()),
+    }
+    download_list(state)
+}
+
+/// Plays a finished download from its local file, without re-contacting the addon.
+#[tauri::command]
+pub async fn download_play(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    start_seconds: Option<f64>,
+) -> Result<crate::PlayerInfo, String> {
+    let profile = state.active_profile();
+    let item = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter()
+        .find(|item| item.id == id).ok_or("download not found")?;
+    let path = item.local_file_uri.filter(|p| std::path::Path::new(p).exists()).ok_or("download is not available locally")?;
+    let settings = state.app_store.profile_settings(profile).map(|s| s.player).unwrap_or_default();
+    *state.video.lock().expect("video lock") = playback::video_config(&settings);
+    Ok(state.open(&app, path, Vec::new(), start_seconds.unwrap_or(0.0))?)
 }
 
 /// Effective shuffle settings for one title (`EpisodeShuffleRepository.settings`).
@@ -881,6 +993,7 @@ mod tests {
             addons: AddonContext::preloaded(client.clone(), loaded),
             client,
             streams: crate::streams::StreamCache::default(),
+            downloads: crate::services::downloads::Manager::new(),
             video: Mutex::new(nuvio_player::VideoConfig::default()),
             app_store: nuvio_store::nextgen::AppStore::open(&dir).unwrap(),
             progress: crate::services::progress::ProgressTracker::new(dir.clone()),

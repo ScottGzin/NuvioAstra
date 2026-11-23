@@ -50,6 +50,8 @@ pub fn kind_of(stream: &StreamItem) -> StreamKind {
 #[serde(rename_all = "camelCase")]
 pub struct StreamEntry {
     pub key: String,
+    /// Display name of the addon that served the stream.
+    pub addon_name: String,
     pub name: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
@@ -200,7 +202,7 @@ pub async fn search_in(
         .map(|(group_index, (addon_name, result))| match result {
             Err(error) => StreamGroup { addon_name, streams: vec![], error: Some(error) },
             Ok(streams) => StreamGroup {
-                addon_name,
+                addon_name: addon_name.clone(),
                 error: None,
                 streams: streams
                     .into_iter()
@@ -210,6 +212,7 @@ pub async fn search_in(
                         let kind = kind_of(&stream);
                         let entry = StreamEntry {
                             key: key.clone(),
+                            addon_name: addon_name.clone(),
                             name: stream.name.clone(),
                             title: stream.title.clone(),
                             description: stream.description.clone(),

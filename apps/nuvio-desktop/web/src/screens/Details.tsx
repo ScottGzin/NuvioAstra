@@ -484,7 +484,12 @@ export function Details({ item, onBack, onOpen }: Props) {
               <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={() => setSelected(null)}>✕</button>
             </header>
             <div className="sources-body">
-              <StreamList contentType={m.contentType} id={selected === "movie" ? m.id : selected.id} onPlay={play} />
+              <StreamList
+                contentType={m.contentType}
+                id={selected === "movie" ? m.id : selected.id}
+                onPlay={play}
+                downloadProgress={playbackItem(m, selected === "movie" ? null : selected)}
+              />
             </div>
           </aside>
         </div>

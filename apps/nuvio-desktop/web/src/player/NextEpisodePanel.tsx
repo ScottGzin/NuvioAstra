@@ -162,7 +162,7 @@ export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }:
           {starting ? (
             <div className="muted"><span className="spinner" aria-hidden /> {t("Abrindo o próximo episódio…")}</div>
           ) : (
-            <StreamList contentType={meta.contentType} id={next.id} onPlay={(stream) => void play(stream)} />
+            <StreamList contentType={meta.contentType} id={next.id} onPlay={(stream) => void play(stream)} downloadProgress={playbackItem(meta, next)} />
           )}
         </div>
       </aside>

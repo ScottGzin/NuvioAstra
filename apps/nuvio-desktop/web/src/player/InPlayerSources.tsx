@@ -70,7 +70,7 @@ export function InPlayerSources({ context, onClose, onPickEpisode }: Props) {
             </div>
           </div>
         )}
-        <StreamList contentType={meta.contentType} id={video.id} onPlay={(stream) => void play(stream)} />
+        <StreamList contentType={meta.contentType} id={video.id} onPlay={(stream) => void play(stream)} downloadProgress={playbackItem(meta, video)} />
       </div>
     </div>
   );

@@ -10,7 +10,7 @@ import type {
   UpdateStatus,
   P2pStatus,
   TorrentPrepared,
-  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, HistoryEntry, HistoryPage, HomeView, LibraryItem,
+  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
@@ -107,6 +107,12 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Direct downloads: URLs and headers stay in Rust. */
+  downloadList: () => invoke<DownloadItem[]>("download_list"),
+  downloadFromStream: (key: string, progress: PlaybackItem) => invoke<DownloadItem>("download_from_stream", { key, progress }),
+  downloadControl: (id: string, action: "pause" | "resume" | "retry" | "remove" | "clearCompleted") =>
+    invoke<DownloadItem[]>("download_control", { id, action }),
+  downloadPlay: (id: string, startSeconds: number | null) => invoke<PlayerInfo>("download_play", { id, startSeconds }),
   /** Episode shuffle settings and a random pick for one title. */
   shuffleView: (contentId: string, contentType: string) => invoke<ShuffleView>("shuffle_view", { contentId, contentType }),
   shuffleSet: (contentId: string, enabled: boolean, includeWatched: boolean) => invoke<ShuffleView>("shuffle_set", { contentId, enabled, includeWatched }),

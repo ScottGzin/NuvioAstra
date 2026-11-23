@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, errorText } from "../api";
-import type { StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup } from "../types";
+import type { PlaybackItem, StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup } from "../types";
 import { t } from "../i18n";
 import { message } from "../rustErrors";
 
@@ -15,6 +15,8 @@ interface Props {
   contentType: string;
   id: string;
   onPlay(stream: StreamEntry): void;
+  /** When given, direct sources get a download button (`PlaybackItem` stays opaque). */
+  downloadProgress?: PlaybackItem;
 }
 
 /** Text the badge rules are matched against, as `badgeMatchCandidates` in the original. */
@@ -96,7 +98,7 @@ function Badge({ filter }: { filter: StreamBadgeFilter }) {
   );
 }
 
-export function StreamList({ contentType, id, onPlay }: Props) {
+export function StreamList({ contentType, id, onPlay, downloadProgress }: Props) {
   const [groups, setGroups] = useState<StreamGroup[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -210,6 +212,15 @@ export function StreamList({ contentType, id, onPlay }: Props) {
                   </span>
                 )}
               </button>
+              {downloadProgress && stream.kind === "direct" && (
+                <button
+                  className="stream-action"
+                  title={t("Baixar fonte")}
+                  aria-label={t("Baixar fonte")}
+                  data-download={stream.key}
+                  onClick={() => void api.downloadFromStream(stream.key, downloadProgress).catch(() => {})}
+                >↓</button>
+              )}
               {external && (
                 <button
                   className="stream-action"

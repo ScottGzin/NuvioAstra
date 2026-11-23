@@ -10,6 +10,7 @@
 //!   original files are never modified.
 
 use crate::settings::ProfileSettings;
+use nuvio_core::downloads::DownloadItem;
 use crate::{LegacyStore, StoreError};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -48,6 +49,7 @@ struct SyncBase<T> {
     value: T,
 }
 
+#[derive(Clone)]
 pub struct AppStore {
     dir: PathBuf,
 }
@@ -603,6 +605,33 @@ impl ShuffleShowSettings {
     }
 }
 
+static DOWNLOADS_LOCK: Mutex<()> = Mutex::new(());
+
+impl AppStore {
+    pub fn downloads(&self, profile: i64) -> Result<Vec<DownloadItem>, StoreError> {
+        Ok(self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default().remove(&profile).unwrap_or_default())
+    }
+
+    pub fn set_downloads(&self, profile: i64, items: Vec<DownloadItem>) -> Result<(), StoreError> {
+        let _guard = DOWNLOADS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default();
+        all.insert(profile, items);
+        self.write("downloads", &all)
+    }
+
+    /// Read-modify-write under the lock so a background downloader and the UI never overwrite
+    /// each other's progress.
+    pub fn edit_downloads(&self, profile: i64, change: impl FnOnce(&mut Vec<DownloadItem>)) -> Result<Vec<DownloadItem>, StoreError> {
+        let _guard = DOWNLOADS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default();
+        let items = all.entry(profile).or_default();
+        change(items);
+        let result = items.clone();
+        self.write("downloads", &all)?;
+        Ok(result)
+    }
+}
+
 static SHUFFLE_LOCK: Mutex<()> = Mutex::new(());
 
 impl AppStore {
@@ -1038,5 +1067,16 @@ mod transaction_tests {
         assert!(app.shuffle_profile(2).unwrap().shows.is_empty());
         app.set_shuffle(1, "tt1".into(), ShuffleShowSettings { enabled: false, include_watched: true }).unwrap();
         assert!(!app.shuffle_profile(1).unwrap().shows["tt1"].include_watched);
+    }
+
+    #[test]
+    fn downloads_are_per_profile_and_editable() {
+        let app = AppStore::open(&dir("downloads-store")).unwrap();
+        let item = DownloadItem { id: "d1".into(), parent_meta_id: "tt1".into(), file_name: "a.mp4".into(), ..Default::default() };
+        app.set_downloads(1, vec![item.clone()]).unwrap();
+        assert_eq!(app.downloads(1).unwrap().len(), 1);
+        assert!(app.downloads(2).unwrap().is_empty());
+        app.edit_downloads(1, |items| items[0].downloaded_bytes = 42).unwrap();
+        assert_eq!(app.downloads(1).unwrap()[0].downloaded_bytes, 42);
     }
 }
