@@ -459,6 +459,7 @@ mod x11 {
             let img = &*image;
             let stride = img.bytes_per_line as usize;
             let (iw, ih) = (img.width as i32, img.height as i32);
+            let has_alpha = img.depth == 32;
             let data = img.data as *const u8;
             let mut bgra = vec![0u8; stride * ih as usize];
             for row in 0..ih as usize {
@@ -470,7 +471,7 @@ mod x11 {
                     *d = *s;
                     *d.add(1) = *s.add(1);
                     *d.add(2) = *s.add(2);
-                    *d.add(3) = 255;
+                    *d.add(3) = if has_alpha { *s.add(3) } else { 255 };
                 }
             }
             XDestroyImage(image);
@@ -853,13 +854,8 @@ impl Player {
                 .spawn(move || event_loop(mpv, stop, snapshot, sink))
                 .map_err(|e| PlayerError::Mpv(format!("event thread: {e}")))?
         };
-        {
-            let (mpv, stop) = (mpv.clone(), stop.clone());
-            std::thread::Builder::new()
-                .name("nuvio-overlay".into())
-                .spawn(move || overlay_loop(mpv, stop, host))
-                .ok();
-        }
+        // The WebView control strip is kept visible below the video window (see set_video_rect);
+        // capturing WebKit pixels for overlay-add is not reliable across compositors.
         let player = Self {
             mpv: Some(mpv),
             host,
@@ -1009,7 +1005,7 @@ impl Player {
         if self.pip.lock().expect("pip lock").is_some() { return Ok(()); }
         let (x, y, w, h) = rect.unwrap_or_else(|| {
             let (w, h) = x11::client_size(self.host);
-            (0.0, 0.0, w as f64, h as f64)
+            (0.0, 0.0, w as f64, (h - 120).max(200) as f64)
         });
         x11::set_rect(self.container, x as i32, y as i32, w as i32, h as i32);
         self.apply_margins(None)
@@ -1140,7 +1136,7 @@ fn error_text(code: i32) -> String {
 /// Pushes the WebView controls strip into mpv as an OSD overlay (the same technique as the
 /// original Nuvio Desktop Linux bridge): the controls are then drawn by mpv itself, above video.
 fn overlay_loop(mpv: Arc<Mpv>, stop: Arc<AtomicBool>, host: isize) {
-    const STRIP: i32 = 132;
+    const STRIP: i32 = 420;
     while !stop.load(Ordering::SeqCst) {
         // mpv recreates its GL child on file load; keep the whole tree input-transparent.
         x11::input_transparent(x11::container_of(host));
