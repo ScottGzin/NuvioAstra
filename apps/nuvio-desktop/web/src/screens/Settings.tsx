@@ -401,22 +401,6 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
-            <button className="integration-row" onClick={() => setSection("home")}>
-              <span className="integration-icon link">⌂</span>
-              <span className="integration-text">
-                <span className="setting-title">{t("Continue Watching")}</span>
-                <span className="muted small">{t("Settings for the Continue Watching section.")}</span>
-              </span>
-              <span className="integration-arrow" aria-hidden>›</span>
-            </button>
-            <button className="integration-row" onClick={() => setSection("details")}>
-              <span className="integration-icon link">▤</span>
-              <span className="integration-text">
-                <span className="setting-title">{t("Detail Page")}</span>
-                <span className="muted small">{t("Settings for the detail and episode screens.")}</span>
-              </span>
-              <span className="integration-arrow" aria-hidden>›</span>
-            </button>
           </div>
         ) : layoutPage === "streams" ? (
           <>
