@@ -11,7 +11,8 @@ import { usePlayer } from "../player/PlayerContext";
 import { PlayerControls } from "../player/PlayerControls";
 import { PlayerSurface } from "../player/PlayerSurface";
 import type { Channel, ChannelList } from "../types";
-import { locale, t } from "../i18n";
+import { addonLabel, locale, t } from "../i18n";
+import { message } from "../rustErrors";
 
 const ALL = "__all__";
 const FAVORITES = "__favorites__";
@@ -130,7 +131,7 @@ export function LiveTv() {
       const stream = groups.flatMap((g) => g.streams).find((s) => s.kind === "direct");
       if (!stream) {
         const reason = groups.find((g) => g.error)?.error;
-        setChannelError(reason ? t("O addon respondeu com erro: {error}", { error: reason }) : t("O addon não forneceu um stream reproduzível para este canal."));
+        setChannelError(reason ? t("O addon respondeu com erro: {error}", { error: message(reason) }) : t("O addon não forneceu um stream reproduzível para este canal."));
         return;
       }
       // Leaving fullscreen returns to this preview (FullPlayer uses `returnTo`).
@@ -239,7 +240,7 @@ export function LiveTv() {
               <span className="channel-logo">{c.logo ? <img src={c.logo} alt="" loading="lazy" decoding="async" /> : c.name.slice(0, 2)}</span>
               <span className="channel-text">
                 <span className="channel-name">{c.name}</span>
-                <span className="muted small">{c.addonName}</span>
+                <span className="muted small">{addonLabel(c.addonName)}</span>
               </span>
             </button>
             <button
@@ -279,7 +280,7 @@ export function LiveTv() {
                 {current.logo && <img src={current.logo} alt="" />}
                 <div>
                   <h2>{current.name}</h2>
-                  <div className="muted small">{t("Origem: {name}", { name: current.addonName })}</div>
+                  <div className="muted small">{t("Origem: {name}", { name: addonLabel(current.addonName) })}</div>
                 </div>
               </div>
               {resolving && <div className="muted">{t("Resolvendo o stream deste canal…")}</div>}

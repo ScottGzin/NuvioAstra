@@ -79,6 +79,11 @@ export function locale(): string {
   return current === "pt" ? "pt-BR" : current === "ar" ? "ar" : "en-US";
 }
 
+/** Addon names come from the addons themselves; the only one the app writes is the collection marker. */
+export function addonLabel(name: string): string {
+  return name === "Coleção" ? t("Coleção") : name;
+}
+
 /** Translates the suffix addons append to catalog names ("- Filmes" → "- Movies"). */
 export function localizeCatalogTitle(title: string): string {
   if (current === "pt") return title;

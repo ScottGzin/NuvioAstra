@@ -7,6 +7,7 @@ import { api, errorText } from "../api";
 import type { AddonPreview, AddonView, AddonsView } from "../types";
 import { typeLabel } from "./PosterCard";
 import { t } from "../i18n";
+import { message } from "../rustErrors";
 
 type Feedback = { kind: "ok" | "error" | "busy"; text: string } | null;
 
@@ -108,7 +109,7 @@ export function AddonsManager() {
 
   const remove = (a: AddonView) => {
     if (!window.confirm(t("Excluir addon?\n\n“{name}” será removido deste perfil. Favoritos, histórico e progresso de títulos vindos dele não são apagados.", { name: a.name }))) return;
-    void run(a.key, "Removendo…", () => api.addonRemove(a.key), t("{name} removido.", { name: a.name }));
+    void run(a.key, t("Removendo…"), () => api.addonRemove(a.key), t("{name} removido.", { name: a.name }));
   };
 
   const configure = async (a: AddonView) => {
@@ -204,7 +205,7 @@ export function AddonsManager() {
                 </div>
                 <div className="muted small">{a.host}{a.configured && ` · ${t("configurado")}`}</div>
                 {a.description && <p className="addon-desc">{a.description}</p>}
-                {a.error && <div className="row-error small">{a.error}</div>}
+                {a.error && <div className="row-error small">{message(a.error)}</div>}
                 <Badges addon={a} />
                 <Catalogs addon={a} />
               </div>
@@ -221,8 +222,8 @@ export function AddonsManager() {
                   <span className="knob" />
                 </button>
                 <div className="addon-buttons">
-                  <button className="icon-btn" aria-label={t("Mover {name} para cima", { name: a.name })} title={t("Mover para cima")} disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, -1), t("Ordem salva."))}>↑</button>
-                  <button className="icon-btn" aria-label={t("Mover {name} para baixo", { name: a.name })} title={t("Mover para baixo")} disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, "Reordenando…", () => api.addonMove(a.key, 1), t("Ordem salva."))}>↓</button>
+                  <button className="icon-btn" aria-label={t("Mover {name} para cima", { name: a.name })} title={t("Mover para cima")} disabled={ro || i === 0 || !!busyKey} onClick={() => void run(a.key, t("Reordenando…"), () => api.addonMove(a.key, -1), t("Ordem salva."))}>↑</button>
+                  <button className="icon-btn" aria-label={t("Mover {name} para baixo", { name: a.name })} title={t("Mover para baixo")} disabled={ro || i === view.addons.length - 1 || !!busyKey} onClick={() => void run(a.key, t("Reordenando…"), () => api.addonMove(a.key, 1), t("Ordem salva."))}>↓</button>
                   <button
                     className="icon-btn"
                     aria-label={t("Atualizar {name}", { name: a.name })}
@@ -231,7 +232,7 @@ export function AddonsManager() {
                     data-testid="addon-refresh"
                     onClick={() => void run(a.key, t("Atualizando {name}…", { name: a.name }), () => api.addonRefresh(a.key), (v) => {
                       const now = v.addons.find((x) => x.key === a.key);
-                      return now?.status === "ok" ? t("{name} atualizado (versão {version}).", { name: now.name, version: now.version }) : t("{name}: {error}", { name: a.name, error: now?.error ?? t("não foi possível atualizar") });
+                      return now?.status === "ok" ? t("{name} atualizado (versão {version}).", { name: now.name, version: now.version }) : t("{name}: {error}", { name: a.name, error: now?.error ? message(now.error) : t("não foi possível atualizar") });
                     })}
                   >
                     ⟳
@@ -239,7 +240,7 @@ export function AddonsManager() {
                   {a.configurable && (
                     <button className="icon-btn" aria-label={t("Configurar {name}", { name: a.name })} title={t("Configurar addon")} onClick={() => void configure(a)}>⚙</button>
                   )}
-                  <button className="icon-btn danger" aria-label={`Excluir ${a.name}`} title={t("Excluir addon")} disabled={ro || !!busyKey} data-testid="addon-remove" onClick={() => remove(a)}>🗑</button>
+                  <button className="icon-btn danger" aria-label={t("Excluir {name}", { name: a.name })} title={t("Excluir addon")} disabled={ro || !!busyKey} data-testid="addon-remove" onClick={() => remove(a)}>🗑</button>
                 </div>
               </div>
             </li>

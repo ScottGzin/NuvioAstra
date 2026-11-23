@@ -9,7 +9,7 @@ import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
 import type { Details as DetailsData, HistoryEntry, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
-import { t } from "../i18n";
+import { addonLabel, t } from "../i18n";
 
 interface Props {
   /** Type and id exactly as the catalog item gave them (validated by `metaRef`); `resume` when
@@ -101,7 +101,7 @@ export function Details({ item, onBack }: Props) {
   const playTrailer = async () => {
     if (!data?.trailer) return;
     setTrailerBusy(true);
-    await player.play(() => api.trailerPlay(data.trailer!.key), { title: data.meta.name, subtitle: `Trailer · ${data.trailer.name}`, view: "full" });
+    await player.play(() => api.trailerPlay(data.trailer!.key), { title: data.meta.name, subtitle: t("Trailer · {name}", { name: data.trailer.name }), view: "full" });
     setTrailerBusy(false);
   };
 
@@ -183,7 +183,7 @@ export function Details({ item, onBack }: Props) {
                 {movieEntry.completed ? t("✓ Assistido") : [t("{time} assistidos", { time: clock(movieEntry.positionMs) }), remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
-            <div className="muted small">{t("Detalhes por")} {data.addonName}</div>
+            <div className="muted small">{t("Detalhes por")} {addonLabel(data.addonName)}</div>
             <dl className="facts">
               {(
                 [

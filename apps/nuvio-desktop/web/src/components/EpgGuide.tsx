@@ -82,7 +82,7 @@ export function EpgGuide({ channelKey }: { channelKey: string }) {
               </div>
               {isNow && p.description && <div className="epg-desc">{p.description}</div>}
               {isNow && (
-                <div className="epg-progress" aria-label={`${Math.round(progress)}% exibido`}>
+                <div className="epg-progress" aria-label={t("{percent}% exibido", { percent: Math.round(progress) })}>
                   <span style={{ width: `${progress}%` }} />
                 </div>
               )}

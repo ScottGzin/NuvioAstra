@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import type { StreamEntry, StreamGroup, StreamKind } from "../types";
 import { t } from "../i18n";
+import { message } from "../rustErrors";
 
 const PENDING: Record<Exclude<StreamKind, "direct" | "torrent">, string> = {
   debrid: "Debrid — ainda não suportado nesta versão",
@@ -46,7 +47,7 @@ export function StreamList({ contentType, id, onPlay }: Props) {
         <div key={group.addonName} className="stream-group">
           <div className="stream-group-title">
             {group.addonName}
-            <span className="muted small"> · {group.error ? t("erro: {error}", { error: group.error }) : t("{count} fonte(s)", { count: group.streams.length })}</span>
+            <span className="muted small"> · {group.error ? t("erro: {error}", { error: message(group.error) }) : t("{count} fonte(s)", { count: group.streams.length })}</span>
           </div>
           {group.streams.map((s) => {
             const playable = s.kind === "direct" || s.kind === "torrent";

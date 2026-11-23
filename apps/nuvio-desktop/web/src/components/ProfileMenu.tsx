@@ -143,7 +143,7 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
                 <button key={p.index} className="profile-tile" onClick={() => setEditing({ index: p.index, name: p.name, color: p.avatarColorHex, usesPrimaryAddons: p.usesPrimaryAddons, avatarId: p.avatarId })} data-profile={p.index}>
                   <Avatar profile={p} size={64} />
                   <span>{p.name}</span>
-                  <span className="muted small">{p.index === view.active ? "Ativo" : p.index === 1 ? "Principal" : `Perfil ${p.index}`}</span>
+                  <span className="muted small">{p.index === view.active ? t("Ativo") : p.index === 1 ? t("Principal") : t("Perfil {index}", { index: p.index })}</span>
                 </button>
               ))}
               {view.profiles.length < view.max && (

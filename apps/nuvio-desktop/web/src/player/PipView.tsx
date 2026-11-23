@@ -10,6 +10,7 @@ import type { PlayerSnapshot } from "../types";
 import { formatTime, trackLabel } from "./PlayerControls";
 import { useSubtitles } from "./subtitles";
 import { t } from "../i18n";
+import { message } from "../rustErrors";
 
 const HIDE_MS = 2600;
 const DRAG_PX = 5;
@@ -133,7 +134,7 @@ export function PipView() {
       <div className="pip-chrome" inert={!visible}>
         <div className="pip-top">
           <button className="pip-round" title="Travar controles" aria-label="Travar controles" data-pip="lock" onClick={() => { setMenu(null); setLocked(true); }}>{Icons.lock}</button>
-          <button className="pip-round" title="Voltar ao Nuvio Astra" aria-label="Voltar ao Nuvio Astra" data-pip="back" onClick={() => void api.pictureInPicture(false, "").catch(() => {})}>{Icons.back}</button>
+          <button className="pip-round" title={t("Voltar ao Nuvio Astra")} aria-label={t("Voltar ao Nuvio Astra")} data-pip="back" onClick={() => void api.pictureInPicture(false, "").catch(() => {})}>{Icons.back}</button>
         </div>
         <div className="pip-bottom">
           {duration > 0 && (
@@ -214,7 +215,7 @@ export function PipView() {
                 )),
               )}
             {menu === "subs" && (subtitles.searching || subtitles.error || !subtitles.groups.length) && (
-              <span className="pip-menu-note">{subtitles.searching ? "Buscando legendas…" : subtitles.error ?? "Nenhuma legenda encontrada"}</span>
+              <span className="pip-menu-note">{subtitles.searching ? t("Buscando legendas…") : subtitles.error ? message(subtitles.error) : t("Nenhuma legenda encontrada")}</span>
             )}
             {menu === "audio" &&
               audio.map((t) => (

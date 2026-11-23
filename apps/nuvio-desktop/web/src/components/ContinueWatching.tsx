@@ -38,7 +38,7 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
           {[code && `${code}${entry.episodeTitle ? ` · ${entry.episodeTitle}` : ""}`].filter(Boolean).join("")}
         </div>
         <div className="card-sub">
-          {[entry.positionMs > 0 && `${clock(entry.positionMs)} assistidos`, left].filter(Boolean).join(" · ")}
+          {[entry.positionMs > 0 && t("{time} assistidos", { time: clock(entry.positionMs) }), left].filter(Boolean).join(" · ")}
         </div>
         <div className="card-sub">{lastWatched(entry.lastWatchedEpochMs)}</div>
       </button>

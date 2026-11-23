@@ -8,6 +8,7 @@ import { ProfileChooser } from "../components/ProfileChooser";
 import { SignInForm } from "../components/SignInForm";
 import type { ProfilesView } from "../types";
 import { t } from "../i18n";
+import { message } from "../rustErrors";
 
 type Step =
   | { name: "account" }
@@ -31,11 +32,11 @@ export function Welcome({ onDone }: { onDone(): void }) {
       const status = await api.accountConnect(confirmOther);
       setAccount(status);
       if (status.state === "needsReview") {
-        setStep({ name: "confirm", question: status.linkQuestion ?? t("Confirme para sincronizar este computador com a conta.") });
+        setStep({ name: "confirm", question: status.linkQuestion ? message(status.linkQuestion) : t("Confirme para sincronizar este computador com a conta.") });
         return;
       }
       if (status.state === "error" || status.state === "offline") {
-        setStep({ name: "failed", message: status.lastError ?? t("Não foi possível sincronizar agora.") });
+        setStep({ name: "failed", message: status.lastError ? message(status.lastError) : t("Não foi possível sincronizar agora.") });
         return;
       }
       const view = await api.profilesList();

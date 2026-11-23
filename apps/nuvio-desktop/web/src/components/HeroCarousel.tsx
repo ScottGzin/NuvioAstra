@@ -83,7 +83,7 @@ export function HeroCarousel({ items, onOpen }: Props) {
           <button className="hero-arrow next" aria-label={t("Próximo destaque")} onClick={() => go(1)}>
             <svg viewBox="0 0 24 24" aria-hidden><path d="M9 5l7 7-7 7" /></svg>
           </button>
-          <div className="hero-dots" role="tablist" aria-label="Escolher destaque">
+          <div className="hero-dots" role="tablist" aria-label={t("Escolher destaque")}>
             {items.map((item, i) => (
               <button
                 key={`${item.contentType}/${item.id}`}

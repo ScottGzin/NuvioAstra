@@ -69,10 +69,10 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
     <>
       <span className="pc-enhance-title">{t("Atraso da legenda")}</span>
       <div className="pc-delay">
-        <button className="pc-level" aria-label="Adiantar legenda" onClick={() => delay(snapshot.subDelayMs - 250)}>−0,25 s</button>
+        <button className="pc-level" aria-label={t("Adiantar legenda")} onClick={() => delay(snapshot.subDelayMs - 250)}>−{decimal(0.25, 2)} s</button>
         <output data-testid="subtitle-delay">{decimal(snapshot.subDelayMs / 1000, 2)} s</output>
-        <button className="pc-level" aria-label="Atrasar legenda" onClick={() => delay(snapshot.subDelayMs + 250)}>+0,25 s</button>
-        <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>Zerar</button>
+        <button className="pc-level" aria-label={t("Atrasar legenda")} onClick={() => delay(snapshot.subDelayMs + 250)}>+{decimal(0.25, 2)} s</button>
+        <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>{t("Zerar")}</button>
       </div>
       {style && (
         <>
@@ -83,7 +83,7 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
             <output>{style.fontSizeSp}</output>
           </label>
           <label className="pc-sub-slider">
-            <span>Altura</span>
+            <span>{t("Altura")}</span>
             <input type="range" min={0} max={200} value={style.bottomOffset} aria-label={t("Altura da legenda")} onChange={(e) => change({ bottomOffset: Number(e.target.value) })} />
             <output>{style.bottomOffset}</output>
           </label>
@@ -142,7 +142,7 @@ export function SubtitleMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
         <div className="pc-enhance-menu" data-testid="subtitle-menu">
           <div className="pc-tabs" role="tablist">
             <button role="tab" aria-selected={tab === "list"} className={`pc-tab ${tab === "list" ? "active" : ""}`} onClick={() => setTab("list")}>{t("Legendas")}</button>
-            <button role="tab" aria-selected={tab === "adjust"} className={`pc-tab ${tab === "adjust" ? "active" : ""}`} data-testid="subtitle-adjust" onClick={() => setTab("adjust")}>Ajustes</button>
+            <button role="tab" aria-selected={tab === "adjust"} className={`pc-tab ${tab === "adjust" ? "active" : ""}`} data-testid="subtitle-adjust" onClick={() => setTab("adjust")}>{t("Ajustes")}</button>
           </div>
           <div className="pc-tab-body">
             {tab === "adjust" ? (
@@ -150,7 +150,7 @@ export function SubtitleMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
             ) : (
               <>
                 <button className={`pc-level ${off && !loading ? "active" : ""}`} aria-pressed={off} data-subtitle="off" onClick={() => void choose(null)}>
-                  <b>Desativadas</b>
+                  <b>{t("Desativadas")}</b>
                 </button>
                 {groups.map((group) => (
                   <div key={group.language} className="pc-sub-group" data-language={group.language}>

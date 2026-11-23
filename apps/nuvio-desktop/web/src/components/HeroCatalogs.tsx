@@ -2,7 +2,7 @@
 
 import type { CatalogChoice, HomeCatalogSettings } from "../types";
 import { Row } from "./SettingControls";
-import { t } from "../i18n";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 const LIMIT = 2;
 
@@ -30,7 +30,7 @@ export function HeroCatalogs({ home, catalogs, onChange }: Props) {
   const chosen = inUse(home, choices);
   const name = (c: CatalogChoice) => {
     const custom = home.items.find((i) => i.key === c.key)?.customTitle ?? c.customTitle;
-    return `${custom.trim() || c.defaultTitle} · ${c.addonName}`;
+    return `${custom.trim() || localizeCatalogTitle(c.defaultTitle)} · ${addonLabel(c.addonName)}`;
   };
   const choose = (slot: number, key: string) => {
     const next = [chosen[0] ?? "", chosen[1] ?? ""];

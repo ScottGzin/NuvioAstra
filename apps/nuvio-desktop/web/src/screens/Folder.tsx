@@ -9,7 +9,7 @@ import { CatalogRow } from "../components/CatalogRow";
 import { PosterCard } from "../components/PosterCard";
 import { useWhenVisible } from "../components/useInView";
 import type { CollectionView, FolderSource, FolderView, MetaPreview } from "../types";
-import { t } from "../i18n";
+import { localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   collection: CollectionView;
@@ -145,7 +145,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
               )}
               {sources.map((s) => (
                 <button key={sourceId(s)} className={`chip ${tab === sourceId(s) ? "active" : ""}`} onClick={() => setTab(sourceId(s))} title={s.addonName}>
-                  {s.label}
+                  {localizeCatalogTitle(s.label)}
                 </button>
               ))}
             </nav>
@@ -164,7 +164,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       )}
       {folder.skippedSources > 0 && sources.length > 0 && (
         <p className="muted small folder-note">
-          {folder.skippedSources} catálogo(s) desta pasta vêm do TMDB, do Trakt ou de addons não instalados e não aparecem aqui.
+          {folder.skippedSources} {t("catálogo(s) desta pasta vêm do TMDB, do Trakt ou de addons não instalados e não aparecem aqui.")}
         </p>
       )}
     </div>

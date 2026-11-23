@@ -14,7 +14,7 @@ import { api, dataEpoch, onDataEpoch } from "../api";
 import { ResultRow } from "../components/ResultRow";
 import { invoke, listen } from "../tauri";
 import type { CatalogChoice, MetaPreview, SearchSection } from "../types";
-import { t } from "../i18n";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   onOpen(item: MetaPreview): void;
@@ -243,7 +243,7 @@ export function Search({ onOpen }: Props) {
               <option value="series">{t("Série")}</option>
             </select>
             <select aria-label={t("Fontes")} value={discoverCatalog} onChange={(e) => setDiscoverCatalog(e.target.value)}>
-              {typeCatalogs.map((c) => <option key={c.key} value={c.key}>{c.defaultTitle}</option>)}
+              {typeCatalogs.map((c) => <option key={c.key} value={c.key}>{localizeCatalogTitle(c.defaultTitle)}</option>)}
             </select>
             <select aria-label={t("Gêneros")} value={discoverGenre} onChange={(e) => setDiscoverGenre(e.target.value)}>
               <option value="">{t("All Genres")}</option>
@@ -251,17 +251,17 @@ export function Search({ onOpen }: Props) {
             </select>
           </div>
           {selectedCatalog && (
-            <div className="discover-context muted small">{selectedCatalog.addonName} · {selectedCatalog.defaultTitle}{discoverGenre ? ` · ${t(discoverGenre)}` : ""}</div>
+            <div className="discover-context muted small">{addonLabel(selectedCatalog.addonName)} · {localizeCatalogTitle(selectedCatalog.defaultTitle)}{discoverGenre ? ` · ${t(discoverGenre)}` : ""}</div>
           )}
           {discoverItems && discoverItems.length > 0 && (
             <ResultRow
-              title={discoverGenre ? t(discoverGenre) : selectedCatalog?.defaultTitle ?? t("Discover")}
+              title={discoverGenre ? t(discoverGenre) : selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover")}
               addonName={selectedCatalog?.addonName ?? ""}
               items={discoverItems}
               onOpen={open}
             />
           )}
-          {discoverItems && discoverItems.length === 0 && <div className="screen-message muted">{t("Nada encontrado para “{query}”.", { query: selectedCatalog?.defaultTitle ?? t("Discover") })}</div>}
+          {discoverItems && discoverItems.length === 0 && <div className="screen-message muted">{t("Nada encontrado para “{query}”.", { query: selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover") })}</div>}
         </div>
       )}
 
@@ -289,7 +289,7 @@ export function Search({ onOpen }: Props) {
         )
       )}
 
-      {!empty && result?.done && !result.sections.length && <div className="screen-message">Nada encontrado para “{query.trim()}”.</div>}
+      {!empty && result?.done && !result.sections.length && <div className="screen-message">{t("Nada encontrado para “{query}”.", { query: query.trim() })}</div>}
 
       {!empty &&
         shown.map(({ section }) => (

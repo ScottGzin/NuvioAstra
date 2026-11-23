@@ -6,7 +6,7 @@ import { api, errorText } from "../api";
 import type { HomeRow, MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
 import { useInView } from "./useInView";
-import { t } from "../i18n";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   row: HomeRow;
@@ -62,8 +62,8 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
   return (
     <section className="row-section" ref={ref} data-content-type={row.contentType}>
       <header className="row-header">
-        <h2>{row.title}</h2>
-        <span className="muted small">{row.addonName}</span>
+        <h2>{localizeCatalogTitle(row.title)}</h2>
+        <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
         {items && (
           <>

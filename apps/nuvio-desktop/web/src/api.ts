@@ -1,5 +1,5 @@
 import { invoke } from "./tauri";
-import { t } from "./i18n";
+import { message } from "./rustErrors";
 import type {
   EpgView,
   SubtitleFont,
@@ -207,6 +207,7 @@ async function changed<T>(reason: "profile" | "addons", call: Promise<T>): Promi
 
 export function errorText(error: unknown): string {
   const raw = typeof error === "string" ? error : error instanceof Error ? error.message : "erro desconhecido";
-  // Rust commands return Portuguese messages; t() translates the known ones, leaves others intact.
-  return t(raw);
+  // Rust commands answer in Portuguese; message() handles both the exact dictionary and the
+  // messages Rust builds with values (HTTP codes, engine output).
+  return message(raw);
 }

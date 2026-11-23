@@ -107,7 +107,7 @@ export function FullPlayer() {
       </div>
       {pip && (
         <div className="pip-placeholder" data-testid="pip-placeholder">
-          <p>Reproduzindo em picture-in-picture</p>
+          <p>{t("Reproduzindo em picture-in-picture")}</p>
           <button className="ghost" onClick={() => void togglePip()}>{t("Trazer de volta")}</button>
         </div>
       )}

@@ -8,6 +8,7 @@ import { set as setAccount, syncLabel, useAccount, when } from "../account";
 import type { SyncPreview as Preview } from "../types";
 import { SyncPreview } from "./SyncPreview";
 import { t } from "../i18n";
+import { message as rustMessage } from "../rustErrors";
 
 export function AccountPanel() {
   const account = useAccount();
@@ -64,7 +65,7 @@ export function AccountPanel() {
     const s = await api.accountConnect(false);
     setAccount(s);
     if (s.state === "needsReview") setMessage({ ok: true, text: t("Conectado. Os dados deste computador são de outra conta: confira e confirme para sincronizar.") });
-    else if (s.state === "error" || s.state === "offline") setMessage({ ok: false, text: s.lastError ?? t("Não foi possível sincronizar agora.") });
+    else if (s.state === "error" || s.state === "offline") setMessage({ ok: false, text: s.lastError ? rustMessage(s.lastError) : t("Não foi possível sincronizar agora.") });
     else setMessage({ ok: true, text: t("Conectado e sincronizado.") });
   };
 
@@ -95,7 +96,7 @@ export function AccountPanel() {
       setMessage(
         ok
           ? { ok: true, text: t("Sincronização concluída.") }
-          : { ok: false, text: s.lastError ?? t("Não foi possível sincronizar.") },
+          : { ok: false, text: s.lastError ? rustMessage(s.lastError) : t("Não foi possível sincronizar.") },
       );
       // A comparison shown in t("Ver detalhes") is refreshed; otherwise nothing more is requested.
       if (ok && preview) setPreview(await api.accountSyncPreview().catch(() => null));
@@ -155,7 +156,7 @@ export function AccountPanel() {
           {reviewing && (
             <div className="banner review" data-testid="first-sync-review">
               <p>{t("Nenhum dado foi sincronizado ainda. Confira a prévia em “Ver detalhes”; a primeira sincronização só começa quando você iniciar.")}</p>
-              {account.linkQuestion && <p data-testid="link-question">{account.linkQuestion}</p>}
+              {account.linkQuestion && <p data-testid="link-question">{rustMessage(account.linkQuestion)}</p>}
               {busy === "preview" && <p className="muted">{t("Consultando a conta (somente leitura)…")}</p>}
               {previewError && <div className="row-error">{t("Não foi possível montar a prévia: {error}", { error: previewError })}</div>}
               <div className="account-actions">
@@ -170,10 +171,10 @@ export function AccountPanel() {
             <dl className="facts account-facts">
               <div className="fact"><dt>{t("Alterações aguardando envio")}</dt><dd>{account.pending}</dd></div>
               {account.lastReport && (
-                <div className="fact"><dt>{t("Última execução")}</dt><dd>{account.lastReport.sent} enviado(s) · {account.lastReport.received} recebido(s)</dd></div>
+                <div className="fact"><dt>{t("Última execução")}</dt><dd>{t("{sent} enviado(s) · {received} recebido(s)", { sent: account.lastReport.sent, received: account.lastReport.received })}</dd></div>
               )}
             </dl>
-            {account.lastError && <div className="row-error" data-testid="sync-error">{account.lastError}</div>}
+            {account.lastError && <div className="row-error" data-testid="sync-error">{rustMessage(account.lastError)}</div>}
             <div className="account-actions">
               <button className="ghost" onClick={() => void loadPreview()} disabled={busy !== null || account.state === "syncing"} data-testid={reviewing ? "preview-refresh" : "sync-compare"}>
                 {busy === "preview" ? t("Comparando…") : reviewing ? t("Atualizar prévia") : t("Comparar com a conta")}

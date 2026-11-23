@@ -135,7 +135,7 @@ export function useSubtitles(snapshot: PlayerSnapshot | null, open: boolean) {
         await api.playerSubtitleLoad(session, choice.option.index);
         return true;
       } catch (e) {
-        if (current.current === session) setError(`Não foi possível carregar essa legenda: ${errorText(e)}`);
+        if (current.current === session) setError(t("Não foi possível carregar essa legenda: {error}", { error: errorText(e) }));
         return false;
       } finally {
         if (current.current === session) setLoading(null);

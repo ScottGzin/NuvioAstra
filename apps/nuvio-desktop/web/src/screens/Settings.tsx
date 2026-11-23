@@ -21,7 +21,8 @@ import { HeroCatalogs } from "../components/HeroCatalogs";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
 import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
-import { LANGUAGES_UI, locale, setLang, t, useLang, type Lang } from "../i18n";
+import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
+import { message } from "../rustErrors";
 
 type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "data" | "updates" | "pending";
 
@@ -204,8 +205,8 @@ export function Settings() {
           <h1>{t(SECTIONS.find((s) => s.id === section)?.label ?? "")}</h1>
           <span className={`save-status ${status.kind}`} role="status" data-testid="save-status">
             {status.kind === "saving" && t("Salvando…")}
-            {status.kind === "saved" && `✓ Salvo${status.note ? ` · ${status.note}` : ""}`}
-            {status.kind === "error" && t("Não foi possível salvar: {error}", { error: status.message })}
+            {status.kind === "saved" && `${t("✓ Salvo")}${status.note ? ` · ${status.note}` : ""}`}
+            {status.kind === "error" && t("Não foi possível salvar: {error}", { error: message(status.message) })}
           </span>
           {["home", "playback", "audio", "subtitles"].includes(section) && (
             <button className="ghost" onClick={() => resetSection(section)}>{t("Restaurar padrões")}</button>
@@ -391,7 +392,7 @@ function UpdatesSection() {
                   {u.installing && u.installing.phase !== "error" ? t("Atualizando…") : t("Atualizar agora")}
                 </button>
               </div>
-              {u.installing?.phase === "error" && <div className="row-error">{u.installing.error}</div>}
+              {u.installing?.phase === "error" && <div className="row-error">{message(u.installing.error ?? "")}</div>}
             </div>
           )}
           <p className="muted small">{t("Atualizar mantém perfis, addons, configurações, biblioteca e a sessão da conta: o instalador troca só os arquivos do programa.")}</p>
@@ -533,19 +534,19 @@ function HomeSection({ settings, catalogs, update }: {
           const title = pref(c)?.customTitle ?? c.customTitle;
           return (
             <div key={c.key} className={`catalog-pref ${enabled ? "" : "off"}`} data-key={c.key}>
-              <Toggle label={t("Mostrar {title}", { title: c.defaultTitle })} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
+              <Toggle label={t("Mostrar {title}", { title: localizeCatalogTitle(c.defaultTitle) })} checked={enabled} onChange={(v) => saveCatalogs(ordered, { key: c.key, enabled: v }, 0)} />
               <div className="catalog-pref-text">
                 <input
                   className="catalog-title-input"
                   value={title}
-                  placeholder={c.defaultTitle}
-                  aria-label={t("Nome de {title}", { title: c.defaultTitle })}
+                  placeholder={localizeCatalogTitle(c.defaultTitle)}
+                  aria-label={t("Nome de {title}", { title: localizeCatalogTitle(c.defaultTitle) })}
                   onChange={(e) => saveCatalogs(ordered, { key: c.key, customTitle: e.target.value }, 600)}
                 />
-                <span className="muted small">{c.addonName}</span>
+                <span className="muted small">{addonLabel(c.addonName)}</span>
               </div>
-              <button className="icon-btn" aria-label={`Subir ${c.defaultTitle}`} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
-              <button className="icon-btn" aria-label={`Descer ${c.defaultTitle}`} disabled={index === ordered.length - 1} onClick={() => move(index, 1)}>↓</button>
+              <button className="icon-btn" aria-label={t("Subir {title}", { title: localizeCatalogTitle(c.defaultTitle) })} disabled={index === 0} onClick={() => move(index, -1)}>↑</button>
+              <button className="icon-btn" aria-label={t("Descer {title}", { title: localizeCatalogTitle(c.defaultTitle) })} disabled={index === ordered.length - 1} onClick={() => move(index, 1)}>↓</button>
             </div>
           );
         })}

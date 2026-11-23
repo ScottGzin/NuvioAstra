@@ -116,7 +116,7 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
         {mode === "account" && (
           <>
             <h1>{t("Entre na conta Nuvio")}</h1>
-            <p className="muted">Use a conta dona de “{profile.name}”. Seus dados deste computador continuam aqui.</p>
+            <p className="muted">{t("Use a conta dona de “{name}”. Seus dados deste computador continuam aqui.", { name: profile.name })}</p>
             <SignInForm
               onSignedIn={() => {
                 setMode("pin");
