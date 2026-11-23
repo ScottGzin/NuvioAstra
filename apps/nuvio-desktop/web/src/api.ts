@@ -11,7 +11,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -107,6 +107,8 @@ export const api = {
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  streamsSettings: () => invoke<StreamsSettingsView>("streams_settings"),
+  streamsSettingsSet: (settings: StreamsSettings) => invoke<StreamsSettingsView>("streams_settings_set", { settings }),
   /** Trakt/Simkl OAuth app credentials (values never returned to the UI). */
   trackingCredentials: () => invoke<TrackingCredentialsView>("tracking_credentials"),
   trackingCredentialSet: (key: string, value: string) => invoke<TrackingCredentialsView>("tracking_credential_set", { key, value }),

@@ -205,6 +205,11 @@ export interface TrackingSyncResult { movies: number; episodes: number }
 export interface ServerConnection { id: string; provider: string; name: string; address: string; userId: string; userName: string; enabled: boolean }
 export interface ServerLibrary { id: string; name: string; kind: string }
 export type DownloadStatus = "downloading" | "paused" | "completed" | "failed" | "queued" | "preparing" | "done";
+export interface StreamsSettings {
+  showSizeBadges: boolean | null; showAddonLogo: boolean; showInPlayer: boolean;
+  playerBadgeSource: string; badgePlacement: string; backgroundMode: string; badgeUrls: string[];
+}
+export interface StreamsSettingsView { settings: StreamsSettings; importedFilters: number }
 export interface CardStyle { width: number; radius: number; landscape: boolean; hideLabels: boolean }
 export interface DebridSettings { enabled: boolean }
 export interface DownloadsFolder { folder: string; freeBytes: number | null }

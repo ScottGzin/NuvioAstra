@@ -25,6 +25,7 @@ import { CollectionsManager } from "../components/CollectionsManager";
 import { ServersPanel } from "../components/ServersPanel";
 import { PosterCardStyle } from "../components/PosterCardStyle";
 import { SourceSettings } from "../components/SourceSettings";
+import { StreamsSettingsPanel } from "../components/StreamsSettingsPanel";
 import { TrackingCredentialsPanel } from "../components/TrackingCredentialsPanel";
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
@@ -100,7 +101,7 @@ export function Settings() {
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("home");
   const [settingSearch, setSettingSearch] = useState("");
-  const [layoutPage, setLayoutPage] = useState<"menu" | "poster">("menu");
+  const [layoutPage, setLayoutPage] = useState<"menu" | "poster" | "streams">("menu");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   // Services → Integrations → TMDB (the only integration ported so far).
   const [servicePage, setServicePage] = useState<"menu" | "integrations" | "tracking" | "tmdb" | "debrid" | "mdblist" | "servers">("menu");
@@ -392,6 +393,14 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
+            <button className="integration-row" data-service="streams" onClick={() => setLayoutPage("streams")}>
+              <span className="integration-icon link">≡</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Streams")}</span>
+                <span className="muted small">{t("Stream result display and badge URL rules.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
             <button className="integration-row" onClick={() => setSection("home")}>
               <span className="integration-icon link">⌂</span>
               <span className="integration-text">
@@ -409,6 +418,14 @@ export function Settings() {
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
           </div>
+        ) : layoutPage === "streams" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setLayoutPage("menu")}>← {t("Layout")}</button>
+              <h2>{t("Streams")}</h2>
+            </div>
+            <StreamsSettingsPanel />
+          </>
         ) : (
           <>
             <div className="settings-subhead">
