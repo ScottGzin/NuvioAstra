@@ -5,6 +5,27 @@ import { useEffect } from "react";
 
 const SELECTOR = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+let navHideTimer = 0;
+/** Non-pointer input hides the mouse cursor until a real mouse movement (the original's HTPC behavior). */
+function markNavInput() {
+  document.body.classList.add("nav-input");
+  window.clearTimeout(navHideTimer);
+  navHideTimer = window.setTimeout(() => document.body.classList.remove("nav-input"), 8000);
+}
+
+/** After scrolling settles, keep the focus ring on an element actually inside the viewport. */
+function ensureVisibleFocus() {
+  const current = document.activeElement as HTMLElement | null;
+  if (!current || current === document.body) return;
+  const rect = current.getBoundingClientRect();
+  if (rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth) return;
+  const candidate = focusables().find((el) => {
+    const r = el.getBoundingClientRect();
+    return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+  });
+  candidate?.focus();
+}
+
 function focusables(): HTMLElement[] {
   return Array.from(document.querySelectorAll<HTMLElement>(SELECTOR)).filter((el) => {
     const rect = el.getBoundingClientRect();
@@ -15,7 +36,12 @@ function focusables(): HTMLElement[] {
 
 function move(direction: "up" | "down" | "left" | "right") {
   const current = document.activeElement as HTMLElement | null;
-  const items = focusables();
+  const all = focusables();
+  const onScreen = all.filter((el) => {
+    const r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+  });
+  const items = onScreen.length ? onScreen : all;
   if (items.length === 0) return;
   if (!current || !items.includes(current)) {
     items[0].focus();
@@ -64,13 +90,62 @@ export function useInputNavigation() {
       const directions: Record<string, "up" | "down" | "left" | "right"> = {
         ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
       };
+      if (event.ctrlKey || event.metaKey) {
+        const key = event.key.toLowerCase();
+        if (key === "k") {
+          event.preventDefault();
+          document.querySelector<HTMLElement>('[data-tab="search"]')?.click();
+          window.setTimeout(() => document.querySelector<HTMLInputElement>('input[aria-label="Buscar"]')?.focus(), 80);
+          markNavInput();
+          return;
+        }
+        if (key === "tab") {
+          event.preventDefault();
+          const tabs = Array.from(document.querySelectorAll<HTMLElement>("[data-tab]"));
+          const active = tabs.findIndex((el) => el === document.activeElement);
+          const next = tabs[(active + (event.shiftKey ? -1 : 1) + tabs.length) % tabs.length];
+          next?.focus();
+          markNavInput();
+          return;
+        }
+        if (key === "b") {
+          event.preventDefault();
+          document.querySelector<HTMLElement>(".sidebar")?.querySelector<HTMLElement>("button")?.focus();
+          markNavInput();
+          return;
+        }
+      }
+      if (event.key === "F10" && event.shiftKey) {
+        event.preventDefault();
+        (document.activeElement as HTMLElement | null)?.querySelector<HTMLElement>(".fav-btn")?.click();
+        markNavInput();
+        return;
+      }
       const direction = directions[event.key];
       if (!direction) return;
       event.preventDefault();
+      markNavInput();
       move(direction);
     };
+    let scrollTimer = 0;
+    const onScroll = () => {
+      window.clearTimeout(scrollTimer);
+      scrollTimer = window.setTimeout(ensureVisibleFocus, 140);
+    };
+    const onMouse = () => {
+      document.body.classList.remove("nav-input");
+      document.body.classList.remove("gamepad-active");
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("mousemove", onMouse);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("mousemove", onMouse);
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(navHideTimer);
+    };
   }, []);
 }
 
@@ -88,6 +163,7 @@ export function useGamepad() {
       const pad = Array.from(pads).find((p) => p && p.connected);
       if (!pad) { pressed.clear(); return; }
       document.body.classList.add("gamepad-active");
+      markNavInput();
       const down = (index: number) => {
         const isDown = !!pad.buttons[index]?.pressed;
         const was = pressed.has(index);
@@ -110,6 +186,11 @@ export function useGamepad() {
 
       if (down(0)) (document.activeElement as HTMLElement | null)?.click();
       if (down(1)) closeOverlay();
+      if (down(3)) {
+        document.querySelector<HTMLElement>('[data-tab="search"]')?.click();
+        window.setTimeout(() => document.querySelector<HTMLInputElement>('input[aria-label="Buscar"]')?.focus(), 80);
+      }
+      if (down(2)) (document.activeElement as HTMLElement | null)?.querySelector<HTMLElement>(".fav-btn")?.click();
       if (down(4) || down(5)) {
         const tabs = document.querySelectorAll<HTMLElement>('[data-section], .season-tabs .chip');
         if (tabs.length) tabs[0].focus();
