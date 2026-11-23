@@ -21,7 +21,7 @@ interface Props {
 }
 
 export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, onSeeAll }: Props) {
-  const [ref, inView] = useInView<HTMLElement>();
+  const [ref, inView] = useInView<HTMLElement>("1200px");
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nextSkip, setNextSkip] = useState<number | null>(null);

@@ -26,7 +26,7 @@ export const ContinueCard = memo(function ContinueCard({ entry, onResume, onRemo
     <div className={`cw-wrap ${blurred ? "cw-blurred" : ""} ${style === "wide" ? "cw-wide-card" : ""}`}>
       <button className={`cw-card ${style === "wide" ? "cw-wide-layout" : ""}`} onClick={() => onResume(entry)} data-key={entry.key} data-next-up={entry.nextUp || undefined} title={fresh ? t("Próximo episódio de {title}", { title: entry.title }) : t("Continuar {title}", { title: entry.title })}>
         <div className="cw-art">
-          {image ? <img src={image} alt="" loading="lazy" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
+          {image ? <img src={image} alt="" loading="eager" decoding="async" draggable={false} /> : <span className="card-fallback">{entry.title}</span>}
           <span className="cw-play" aria-hidden>▶</span>
           {entry.nextUp && <span className="cw-badge">{entry.airs ? t("Estreia em {date}", { date: airDate(entry.airs) }) : t("Próximo episódio")}</span>}
           {style !== "wide" && !fresh && (
