@@ -1,72 +1,57 @@
-// 4-digit PIN entry (`PinEntryDialog` of the original). The check happens in Rust
-// (`profile_unlock`: the account first, the offline hash otherwise); this only collects the digits.
+// The PIN asked before opening a protected profile. The lock at start is `screens/LockScreen`.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import type { ProfileInfo } from "../types";
+import { PinPad } from "./PinPad";
 import { Avatar } from "./ProfileMenu";
 import { t } from "../i18n";
 
 interface Props {
   profile: ProfileInfo;
   onUnlocked(): void;
-  /** Absent for the lock screen at start (no way around it). */
-  onCancel?(): void;
+  onCancel(): void;
 }
 
 export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
+  const [checking, setChecking] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
 
-  useEffect(() => input.current?.focus(), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      onCancel();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onCancel]);
 
-  const submit = async (value: string) => {
-    setBusy(true);
-    setError(null);
+  const recheck = async () => {
+    setChecking(true);
+    setNote(null);
     try {
-      const r = await api.profileUnlock(profile.index, value);
-      if (r.unlocked) onUnlocked();
-      else {
-        setError(t(r.message ?? "PIN incorreto"));
-        setPin("");
-      }
+      const view = await api.profilePinRefresh(profile.index);
+      if (view.profiles.find((p) => p.index === profile.index)?.pinEnabled === false) return onUnlocked();
+      setNote("Não deu para confirmar a remoção: é preciso estar com internet e conectado à conta dona deste perfil.");
     } catch (e) {
-      setError(errorText(e));
-      setPin("");
+      setNote(errorText(e));
     } finally {
-      setBusy(false);
-      input.current?.focus();
+      setChecking(false);
     }
   };
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={t("PIN de {name}", { name: profile.name })} data-testid="pin-dialog">
+      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={`PIN de ${profile.name}`} data-testid="pin-dialog">
         <Avatar profile={profile} size={64} />
-        <h2>{t("Insira o PIN para {name}", { name: profile.name })}</h2>
-        <div className="pin-dots" aria-hidden>
-          {[0, 1, 2, 3].map((i) => <span key={i} className={`pin-dot ${i < pin.length ? "filled" : ""} ${error ? "error" : ""}`} />)}
+        <h2>{t("Insira o PIN para")} {profile.name}</h2>
+        <PinPad profile={profile} onUnlocked={onUnlocked} />
+        {note && <p className="muted small" role="status">{note}</p>}
+        <div className="gate-actions">
+          <button className="ghost" disabled={checking} onClick={() => void recheck()}>{checking ? t("Verificando…") : "Já removi o PIN"}</button>
+          <button className="ghost" data-testid="pin-cancel" onClick={onCancel}>{t("Cancelar")}</button>
         </div>
-        <input
-          ref={input}
-          className="pin-input"
-          inputMode="numeric"
-          autoComplete="off"
-          aria-label="PIN"
-          data-testid="pin-input"
-          value={pin}
-          disabled={busy}
-          onChange={(e) => {
-            const v = e.target.value.replace(/\D/g, "").slice(0, 4);
-            setPin(v);
-            if (v.length === 4) void submit(v);
-          }}
-        />
-        {error && <div className="row-error" role="alert">{error}</div>}
-        {busy && <div className="muted small">{t("Verificando…")}</div>}
-        {onCancel && <button className="chip" onClick={onCancel}>{t("Cancelar")}</button>}
       </div>
     </div>
   );

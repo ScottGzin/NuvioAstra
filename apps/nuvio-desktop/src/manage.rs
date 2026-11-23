@@ -313,16 +313,14 @@ pub fn profiles_list(state: State<'_, AppState>) -> Result<ProfilesView, String>
 /// Switches the active profile without restarting. Main thread (closes the player window).
 #[tauri::command]
 pub fn profile_switch(state: State<'_, AppState>, index: i64) -> Result<ProfilesView, String> {
-    let protected = state.app_store.profiles().map_err(|e| e.to_string())?.get(index).is_some_and(|p| p.pin_enabled);
+    let target = state.app_store.profiles().map_err(|e| e.to_string())?.get(index).map(|p| p.pin_enabled);
+    let protected = target.ok_or("Esse perfil não existe mais.")?;
     {
         // A protected profile opens only with the PIN just validated by `profile_unlock` (backend check).
         let mut gate = state.pin_gate.lock().expect("pin gate");
         let unlocked = gate.unlocked.remove(&index);
         if protected && !unlocked && !(state.active_profile() == index && gate.locked_active.is_none()) {
             return Err("Este perfil é protegido por PIN.".into());
-        }
-        if gate.locked_active.is_some_and(|p| p != index) || protected {
-            gate.locked_active = None;
         }
     }
     if state.active_profile() != index {
@@ -332,11 +330,14 @@ pub fn profile_switch(state: State<'_, AppState>, index: i64) -> Result<Profiles
         after_profile_change(&state);
         state.request_sync();
     }
+    // Only now: a switch that failed never opens the locked profile.
+    state.pin_gate.lock().expect("pin gate").locked_active = None;
     profiles_view(&state)
 }
 
 #[tauri::command]
 pub fn profile_create(state: State<'_, AppState>, name: String, color: String, uses_primary_addons: bool) -> Result<ProfilesView, String> {
+    state.ensure_unlocked()?;
     profile_result(state.app_store.create_profile(&name, &color, uses_primary_addons))?;
     state.request_sync();
     profiles_view(&state)
@@ -344,6 +345,7 @@ pub fn profile_create(state: State<'_, AppState>, name: String, color: String, u
 
 #[tauri::command]
 pub fn profile_update(state: State<'_, AppState>, index: i64, name: String, color: String, uses_primary_addons: bool, avatar_id: Option<String>) -> Result<ProfilesView, String> {
+    state.ensure_unlocked()?;
     let before = state.app_store.profiles().map_err(|e| e.to_string())?;
     profile_result(state.app_store.update_profile(index, &name, &color, uses_primary_addons))?;
     if let Some(avatar) = avatar_id {
@@ -362,6 +364,7 @@ pub fn profile_update(state: State<'_, AppState>, index: i64, name: String, colo
 /// Deletes a profile (not 1) and its data after a verified backup. Main thread (may close the player).
 #[tauri::command]
 pub fn profile_delete(state: State<'_, AppState>, index: i64) -> Result<ProfilesView, String> {
+    state.ensure_unlocked()?;
     let was_active = state.active_profile() == index;
     if was_active {
         state.close();
@@ -401,9 +404,8 @@ mod ipc_tests {
     use std::sync::{Arc, Mutex};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
-    use tauri::webview::InvokeRequest;
 
-    /// `mock_context` ships an empty ACL; allow the commands these IPC tests exercise.
+    /// `mock_context` has an empty ACL; allow the commands these IPC tests exercise.
     fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
         let mut ctx = mock_context(noop_assets());
         for cmd in [
@@ -414,13 +416,13 @@ mod ipc_tests {
         ] {
             let authority = ctx.runtime_authority_mut();
             authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
-            authority.__allow_command(
-                cmd.into(),
-                tauri::utils::acl::ExecutionContext::Remote { url: "http://tauri.localhost/".parse().unwrap() },
-            );
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Remote {
+                url: "http://tauri.localhost/".parse().unwrap(),
+            });
         }
         ctx
     }
+    use tauri::webview::InvokeRequest;
 
     const GOOD: &str = r#"{"id":"test.addon","name":"Addon Bom","version":"1.2.0","description":"Catálogos de teste",
         "resources":["catalog","meta","stream"],"types":["movie","series"],"catalogs":[{"type":"movie","id":"top","name":"Populares"}],
@@ -499,6 +501,8 @@ mod ipc_tests {
             pending_addon: Mutex::new(None),
             account: Arc::new(nuvio_sync::Engine::new(dir.clone(), None, None)),
             sync_wake: Arc::new(tokio::sync::Notify::new()),
+            sync_signals: Default::default(),
+            pip: Default::default(),
             pin_gate: Mutex::new(Default::default()),
             p2p: Default::default(),
             p2p_prepared: Mutex::new(None),
@@ -506,6 +510,9 @@ mod ipc_tests {
             youtube: nuvio_core::youtube::Extractor::new().unwrap(),
             updates: Default::default(),
             epg: Default::default(),
+            playing: Default::default(),
+            subtitle_choice: Default::default(),
+            next_up: Default::default(),
         };
         let app = mock_builder()
             .manage(state)
@@ -584,8 +591,7 @@ mod ipc_tests {
             app.state::<AppState>().app_store.set_profile_pin_state(2, true).unwrap();
         }
         assert_eq!(call(&w, "profile_switch", json!({ "index": 2 })).unwrap_err(), "Este perfil é protegido por PIN.");
-        // Offline first unlock registers the entered PIN locally (no account needed); afterwards
-        // the same PIN verifies against the local salted digest.
+        // Offline first unlock registers the entered PIN locally; subsequent unlocks verify it.
         let unlock = call(&w, "profile_unlock", json!({ "index": 2, "pin": "1234" })).unwrap();
         assert_eq!(unlock["unlocked"], true, "offline first unlock registers the local PIN");
         let p = call(&w, "profile_switch", json!({ "index": 2 })).unwrap();

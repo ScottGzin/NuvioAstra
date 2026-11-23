@@ -17,6 +17,11 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 
+/// How close to the duration an end of file must be to be the end of the episode: a stream whose
+/// connection drops also reports one, wherever it stopped.
+const END_WINDOW_MS: i64 = 10_000;
+const END_WINDOW_FRACTION: f64 = 0.02;
+
 /// Tolerance before a position jump counts as a seek (playback itself advances ~250 ms per snapshot).
 const SEEK_JUMP_MS: i64 = 3_000;
 
@@ -28,13 +33,24 @@ struct Tracked {
     session: u64,
     profile: i64,
     item: PlaybackItem,
+    watched_percent: i64,
     position_ms: i64,
     duration_ms: i64,
     paused: bool,
     ended: bool,
+    /// The next episode was started from this one's credits.
+    finished: bool,
     observed_at_ms: i64,
     last_save_ms: Option<i64>,
     seek_at_ms: Option<i64>,
+}
+
+impl Tracked {
+    /// Completed whatever the percentage.
+    fn completed(&self) -> bool {
+        let window = END_WINDOW_MS.max((self.duration_ms as f64 * END_WINDOW_FRACTION) as i64);
+        self.finished || (self.ended && (self.duration_ms <= 0 || self.position_ms + window >= self.duration_ms))
+    }
 }
 
 pub struct Job {
@@ -75,19 +91,28 @@ impl ProgressTracker {
     }
 
     /// Starts tracking a session opened for `item`.
-    pub fn start(&self, session: u64, profile: i64, item: PlaybackItem) {
+    pub fn start(&self, session: u64, profile: i64, item: PlaybackItem, watched_percent: i64) {
         *self.current.lock().expect("tracker lock") = Some(Tracked {
             session,
             profile,
             item,
+            watched_percent,
             position_ms: 0,
             duration_ms: 0,
             paused: false,
             ended: false,
+            finished: false,
             observed_at_ms: library::now_ms(),
             last_save_ms: None,
             seek_at_ms: None,
         });
+    }
+
+    /// The user went on to the next episode from its card: the tracked one counts as finished.
+    pub fn mark_finished(&self) {
+        if let Some(t) = self.current.lock().expect("tracker lock").as_mut() {
+            t.finished = true;
+        }
     }
 
     /// Player thread, every snapshot: decides whether this moment must be saved.
@@ -120,10 +145,10 @@ impl ProgressTracker {
         let mut save = false;
         let mut flush = false;
         if s.ended && !t.ended {
-            t.ended = true;
             save = true;
             flush = true;
         }
+        t.ended = s.ended;
         if s.paused && !t.paused {
             save = true;
             flush = true;
@@ -145,7 +170,7 @@ impl ProgressTracker {
         if !save {
             return None;
         }
-        let entry = t.item.entry(t.position_ms, t.duration_ms, t.ended, now)?;
+        let entry = t.item.entry(t.position_ms, t.duration_ms, t.completed(), now, t.watched_percent)?;
         t.last_save_ms = Some(now);
         Some(Job { profile: t.profile, entry, release_info: t.item.release_info.clone(), flush })
     }
@@ -163,7 +188,7 @@ impl ProgressTracker {
             }
             t.ended |= s.ended;
         }
-        let Some(entry) = t.item.entry(t.position_ms, t.duration_ms, t.ended, library::now_ms()) else { return };
+        let Some(entry) = t.item.entry(t.position_ms, t.duration_ms, t.completed(), library::now_ms(), t.watched_percent) else { return };
         if let Ok(store) = AppStore::open(&self.dir) {
             write(&store, Job { profile: t.profile, entry, release_info: t.item.release_info, flush: true }, &self.notifier);
         }
@@ -203,7 +228,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nuvio-progress-tracker-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let tracker = ProgressTracker::new(dir.clone());
-        tracker.start(7, 1, movie());
+        tracker.start(7, 1, movie(), 90);
         let d = |s: &PlayerSnapshot, now: i64| tracker.decide(s, now).map(|j| j.entry.last_position_ms);
 
         assert_eq!(d(&snapshot(6, 50.0, 6000.0, false, false), 0), None, "other session ignored");
@@ -218,7 +243,12 @@ mod tests {
         assert_eq!(d(&snapshot(7, 900.0, 6000.0, false, false), 70_000), None);
         assert_eq!(d(&snapshot(7, 900.3, 6000.0, false, false), 70_300), None);
         assert_eq!(d(&snapshot(7, 900.8, 6000.0, false, false), 70_800), Some(900_800), "after the seek settles");
+        // A connection that drops mid-file also reports an end: not watched.
+        let dropped = tracker.decide(&snapshot(7, 901.0, 6000.0, false, true), 71_000).unwrap();
+        assert!(!dropped.entry.is_completed);
+        assert_eq!(dropped.entry.last_position_ms, 901_000);
         // End of file completes it even with zeros reported afterwards.
+        tracker.decide(&snapshot(7, 5_998.0, 6000.0, false, false), 129_000);
         let ended = tracker.decide(&snapshot(7, 0.0, 0.0, false, true), 130_000).unwrap();
         assert!(ended.entry.is_completed);
         assert_eq!(ended.entry.last_position_ms, 6_000_000);
@@ -229,7 +259,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nuvio-progress-close-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let tracker = ProgressTracker::new(dir.clone());
-        tracker.start(3, 2, movie());
+        tracker.start(3, 2, movie(), 90);
         tracker.finish(Some(&snapshot(3, 1234.5, 6000.0, false, false)));
         let store = AppStore::open(&dir).unwrap();
         let saved = store.progress(2).unwrap();

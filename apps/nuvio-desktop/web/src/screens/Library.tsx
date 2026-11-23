@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../api";
-import { ContinueCard } from "../components/ContinueWatching";
+import { ContinueCard, loadContinueWatching } from "../components/ContinueWatching";
 import { PosterCard } from "../components/PosterCard";
 import { useWhenVisible } from "../components/useInView";
 import {
@@ -26,7 +26,7 @@ const SORTS: { id: Sort; label: string }[] = [
   { id: "addedDesc", label: t("Adicionados recentemente") },
   { id: "addedAsc", label: t("Adicionados há mais tempo") },
   { id: "titleAsc", label: t("Título (A–Z)") },
-  { id: "titleDesc", label: "Título (Z–A)" },
+  { id: "titleDesc", label: t("Título (Z–A)") },
 ];
 type Kind = "all" | "movie" | "series";
 
@@ -48,7 +48,7 @@ export function Library({ onOpen, onResume, onOpenEntry }: Props) {
     <div className="library">
       <header className="library-header">
         <h1>{t("Biblioteca")}</h1>
-        <div className="season-tabs" role="tablist" aria-label="Categorias da Biblioteca">
+        <div className="season-tabs" role="tablist" aria-label={t("Categorias da Biblioteca")}>
           {SECTIONS.map((s) => (
             <button key={s.id} role="tab" aria-selected={section === s.id} className={`chip ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => select(s.id)}>
               {s.label}
@@ -72,13 +72,9 @@ function ContinueSection({ onResume }: { onResume(entry: HistoryEntry): void }) 
   const [items, setItems] = useState<HistoryEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    api.libraryContinueWatching().then((i) => !cancelled && setItems(i), (e) => !cancelled && setError(errorText(e)));
-    return () => {
-      cancelled = true;
-    };
+    return loadContinueWatching(setItems, (e) => setError(errorText(e)));
   }, [version]);
-  if (error) return <div className="row-error library-pad">{t("Não foi possível ler o progresso: {error}", { error })}</div>;
+  if (error) return <div className="row-error library-pad">{t("Não foi possível ler o progresso:")} {error}</div>;
   if (!items) return <div className="screen-message">{t("Carregando…")}</div>;
   if (!items.length) return <Empty>{t("Nada em andamento. Filmes e episódios que você começar a assistir aparecem aqui.")}</Empty>;
   return (
@@ -122,7 +118,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
   // Next batch of cards when the end of the grid comes near (keeps large libraries light).
   const more = useWhenVisible<HTMLDivElement>(() => setShown((s) => Math.min(s + FAVORITES_STEP, sorted.length)), [shown, sorted.length], "600px");
 
-  if (error) return <div className="row-error library-pad">{t("Não foi possível ler os favoritos: {error}", { error })}</div>;
+  if (error) return <div className="row-error library-pad">{t("Não foi possível ler os favoritos:")} {error}</div>;
   if (!items) return <div className="screen-message">{t("Carregando…")}</div>;
   if (!items.length) return <Empty>{t("Nenhum filme ou série salvo. Use ♡ nos cards ou nos detalhes para salvar.")}</Empty>;
   const counts = { all: items.length, movie: items.filter((i) => i.contentType === "movie").length, series: items.filter((i) => i.contentType !== "movie").length };
@@ -141,7 +137,7 @@ function FavoritesSection({ onOpen }: { onOpen(item: MetaPreview): void }) {
         </select>
       </div>
       {sorted.length === 0 ? (
-        <Empty>Nenhum item deste tipo.</Empty>
+        <Empty>{t("Nenhum item deste tipo.")}</Empty>
       ) : (
         <div className="grid library-grid">
           {sorted.slice(0, shown).map((i) => (
@@ -206,7 +202,7 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
   };
   const sentinel = useWhenVisible<HTMLDivElement>(loadMore, [items?.length, next]);
 
-  if (error) return <div className="row-error library-pad">{t("Não foi possível ler o histórico: {error}", { error })}</div>;
+  if (error) return <div className="row-error library-pad">{t("Não foi possível ler o histórico:")} {error}</div>;
   if (!items) return <div className="screen-message">{t("Carregando…")}</div>;
   if (!items.length) return <Empty>{t("Nenhuma reprodução registrada ainda.")}</Empty>;
   return (
@@ -215,7 +211,7 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
       <ul className="history-list">
         {items.map((e) => (
           <li key={e.key} className="history-item" data-key={e.key}>
-            <button className="history-open" onClick={() => onOpenEntry(e)} title="Abrir detalhes">
+            <button className="history-open" onClick={() => onOpenEntry(e)} title={t("Abrir detalhes")}>
               <div className="history-thumb">{e.poster ? <img src={e.poster} alt="" loading="lazy" decoding="async" /> : null}</div>
               <div className="history-text">
                 <div className="episode-title">{e.title}</div>
@@ -230,8 +226,8 @@ function HistorySection({ onResume, onOpenEntry }: { onResume(e: HistoryEntry): 
                 )}
               </div>
             </button>
-            {e.inProgress && <button className="chip" onClick={() => onResume(e)} data-testid="history-resume">▶ Continuar</button>}
-            <button className="icon-btn" aria-label={`Remover ${e.title} do histórico`} title="Remover do histórico" data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
+            {e.inProgress && <button className="chip" onClick={() => onResume(e)} data-testid="history-resume">{t("▶ Continuar")}</button>}
+            <button className="icon-btn" aria-label={`Remover ${e.title} do histórico`} title={t("Remover do histórico")} data-testid="history-remove" onClick={() => void removeHistory(e.key)}>✕</button>
           </li>
         ))}
       </ul>

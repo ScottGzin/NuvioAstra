@@ -7,6 +7,7 @@
 //! the catalog type off. Items are not loaded here: the UI asks for each row's page lazily.
 
 use super::addons::media_type_label;
+use super::collections::CollectionView;
 use nuvio_core::manifest::AddonManifest;
 use nuvio_store::HomeCatalogSettings;
 use serde::Serialize;
@@ -20,6 +21,9 @@ pub struct HomeRow {
     pub content_type: String,
     pub catalog_id: String,
     pub supports_pagination: bool,
+    /// Set for a collection row (key `collection_<id>`): its folders instead of a catalog.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection: Option<CollectionView>,
 }
 
 /// Local date `YYYY-MM-DD` (`CurrentDateProvider.todayIsoDate`).
@@ -76,9 +80,9 @@ pub struct CatalogChoice {
 }
 
 /// Every Home-eligible catalog in the profile's order (saved order first, new catalogs after).
-pub fn catalog_choices(manifests: &[AddonManifest], settings: &HomeCatalogSettings) -> Vec<CatalogChoice> {
+pub fn catalog_choices(manifests: &[AddonManifest], settings: &HomeCatalogSettings, collections: &[CollectionView]) -> Vec<CatalogChoice> {
     let all_visible = HomeCatalogSettings { items: Vec::new(), ..settings.clone() };
-    let mut choices: Vec<(i64, usize, CatalogChoice)> = home_rows(manifests, Some(&all_visible))
+    let mut choices: Vec<(i64, usize, CatalogChoice)> = home_rows(manifests, Some(&all_visible), collections)
         .into_iter()
         .enumerate()
         .map(|(index, row)| {
@@ -101,7 +105,32 @@ pub fn catalog_choices(manifests: &[AddonManifest], settings: &HomeCatalogSettin
     choices.into_iter().map(|(_, _, c)| c).collect()
 }
 
-pub fn home_rows(manifests: &[AddonManifest], settings: Option<&HomeCatalogSettings>) -> Vec<HomeRow> {
+/// `HERO_SOURCE_SELECTION_LIMIT` of `HomeCatalogSettingsRepository`.
+pub const HERO_SOURCE_LIMIT: usize = 2;
+
+/// Catalogs whose items feed the hero, at most two, hidden rows included, collections never: the
+/// chosen ones that exist. Nothing chosen (or none of them installed any more): `normalizePreferences`,
+/// so the first in the saved order with `heroSourceEnabled` (on unless turned off).
+pub fn hero_sources(manifests: &[AddonManifest], settings: &HomeCatalogSettings) -> Vec<String> {
+    let catalogs = catalog_choices(manifests, settings, &[]);
+    if let Some(chosen) = &settings.hero_catalogs {
+        let installed: Vec<String> =
+            chosen.iter().filter(|key| catalogs.iter().any(|c| c.key == **key)).take(HERO_SOURCE_LIMIT).cloned().collect();
+        if chosen.is_empty() || !installed.is_empty() {
+            return installed;
+        }
+    }
+    catalogs
+        .into_iter()
+        .filter(|c| settings.items.iter().find(|p| p.key == c.key).is_none_or(|p| p.hero_source_enabled))
+        .take(HERO_SOURCE_LIMIT)
+        .map(|c| c.key)
+        .collect()
+}
+
+/// Catalog rows then collection rows (`buildCollectionDefinitions`), ordered by the saved
+/// preferences; collections marked "fixar no topo" come first (`enforcePinnedCollectionsAtTop`).
+pub fn home_rows(manifests: &[AddonManifest], settings: Option<&HomeCatalogSettings>, collections: &[CollectionView]) -> Vec<HomeRow> {
     let default_settings = HomeCatalogSettings::default();
     let settings = settings.unwrap_or(&default_settings);
     let mut seen = std::collections::HashSet::new();
@@ -131,8 +160,18 @@ pub fn home_rows(manifests: &[AddonManifest], settings: Option<&HomeCatalogSetti
                 content_type: catalog.content_type.clone(),
                 catalog_id: catalog.id.clone(),
                 supports_pagination: catalog.supports_pagination(),
+                collection: None,
             })
         })
+        .chain(collections.iter().map(|c| HomeRow {
+            key: format!("collection_{}", c.id),
+            title: c.title.clone(),
+            addon_name: "Coleção".into(),
+            content_type: "collection".into(),
+            catalog_id: String::new(),
+            supports_pagination: false,
+            collection: Some(c.clone()),
+        }))
         .enumerate()
         .collect();
 
@@ -151,7 +190,7 @@ pub fn home_rows(manifests: &[AddonManifest], settings: Option<&HomeCatalogSetti
             }
         })
         .collect();
-    rows.sort_by_key(|(order, index, _)| (*order, *index));
+    rows.sort_by_key(|(order, index, row)| (!row.collection.as_ref().is_some_and(|c| c.pin_to_top), *order, *index));
     rows.into_iter().map(|(_, _, row)| row).collect()
 }
 
@@ -174,7 +213,7 @@ mod tests {
 
     #[test]
     fn default_rows_skip_required_extras_and_use_type_labels() {
-        let rows = home_rows(&[manifest()], None);
+        let rows = home_rows(&[manifest()], None, &[]);
         assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Top - Filmes", "New - Séries", "Channels - TV"]);
         assert!(rows[2].supports_pagination);
     }
@@ -190,8 +229,40 @@ mod tests {
             ],
             ..Default::default()
         };
-        let rows = home_rows(&[manifest()], Some(&settings));
+        let rows = home_rows(&[manifest()], Some(&settings), &[]);
         assert_eq!(rows.iter().map(|r| r.title.as_str()).collect::<Vec<_>>(), vec!["Channels", "Mais vistos"]);
+    }
+
+    #[test]
+    fn collections_follow_the_saved_order_and_pinned_ones_lead() {
+        let stored = serde_json::json!([
+            {"id":"c1","title":"Estúdios","folders":[{"id":"f","title":"F","sources":[{"addonId":"a","type":"movie","catalogId":"top"}]}]},
+            {"id":"c2","title":"Fixa","pinToTop":true,"folders":[{"id":"g","title":"G"}]},
+            {"id":"c3","title":"Oculta","folders":[{"id":"h","title":"H"}]}
+        ]);
+        let collections = crate::services::collections::views(&stored, &[manifest()], true);
+        let settings = HomeCatalogSettings {
+            items: vec![
+                HomeCatalogPreference { key: "collection_c1".into(), order: 0, ..Default::default() },
+                HomeCatalogPreference { key: "a:movie:top".into(), order: 1, hero_source_enabled: false, ..Default::default() },
+                HomeCatalogPreference { key: "collection_c3".into(), enabled: false, ..Default::default() },
+            ],
+            ..Default::default()
+        };
+        let rows = home_rows(&[manifest()], Some(&settings), &collections);
+        let keys: Vec<_> = rows.iter().map(|r| r.key.as_str()).collect();
+        assert_eq!(keys, vec!["collection_c2", "collection_c1", "a:movie:top", "a:series:new", "a:tv:ch"]);
+        assert_eq!(hero_sources(&[manifest()], &settings), vec!["a:series:new", "a:tv:ch"], "turned off one skipped, two at most");
+        let hidden = HomeCatalogSettings {
+            items: vec![HomeCatalogPreference { key: "a:movie:top".into(), enabled: false, ..Default::default() }],
+            ..Default::default()
+        };
+        assert_eq!(hero_sources(&[manifest()], &hidden), vec!["a:movie:top", "a:series:new"], "a hidden row still feeds the hero");
+        let chosen = |keys: &[&str]| HomeCatalogSettings { hero_catalogs: Some(keys.iter().map(|k| k.to_string()).collect()), ..settings.clone() };
+        assert_eq!(hero_sources(&[manifest()], &chosen(&["gone:movie:x", "a:tv:ch", "a:movie:top"])), vec!["a:tv:ch", "a:movie:top"], "the choice wins over flags and order");
+        assert!(hero_sources(&[manifest()], &chosen(&[])).is_empty(), "none chosen");
+        assert_eq!(hero_sources(&[manifest()], &chosen(&["gone:movie:x"])), vec!["a:series:new", "a:tv:ch"], "chosen addon removed");
+        assert_eq!(rows[1].collection.as_ref().unwrap().folders[0].sources[0].key, "a:movie:top");
     }
 
     #[test]

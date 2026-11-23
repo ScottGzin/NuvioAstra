@@ -164,6 +164,20 @@ impl LegacyStore {
         self.json("nuvio_home_catalog_settings", &format!("home_catalog_settings_{profile_index}"))
     }
 
+    /// Collections of a profile (`CollectionStorage`: store `nuvio_collections`, key
+    /// `collections_<profile>`, the JSON array the account also keeps as `collections_json`).
+    pub fn collections(&self, profile_index: i64) -> Result<Option<serde_json::Value>, StoreError> {
+        self.json("nuvio_collections", &format!("collections_{profile_index}"))
+    }
+
+    /// The PIN hash Nuvio keeps for offline checks (`ProfilePinCacheStorage`): (salt, digest, profile date).
+    pub fn pin_cache(&self, profile_index: i64) -> Result<Option<(String, String, String)>, StoreError> {
+        let Some(saved) = self.json::<serde_json::Value>("nuvio_profile_pin_cache", &format!("profile_pin_{profile_index}"))? else { return Ok(None) };
+        let text = |name: &str| saved.get(name).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let (salt, digest) = (text("salt"), text("digest"));
+        Ok((!salt.is_empty() && !digest.is_empty()).then(|| (salt, digest, text("profileUpdatedAt"))))
+    }
+
     /// Favorite live TV channel keys (`LiveTvFavoritesStorage`: store `nuvio_live_tv`, key
     /// `live_tv_favorite_keys_<profile>`, JSON array of `addon:<id>:<manifestUrl>|<type>|<metaId>`).
     pub fn live_tv_favorites(&self, profile_index: i64) -> Result<Vec<String>, StoreError> {
@@ -289,6 +303,9 @@ pub struct HomeCatalogSettings {
     pub show_catalog_type: bool,
     pub hide_unreleased_content: bool,
     pub items: Vec<HomeCatalogPreference>,
+    /// Catalogs of the hero, in order (`Some([])`: none). `None`: never chosen, so the original's
+    /// rule over `hero_source_enabled` decides. Local, as in the original (see `hero.rs`).
+    pub hero_catalogs: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, serde::Serialize, PartialEq)]
@@ -304,7 +321,7 @@ pub struct HomeCatalogPreference {
 /// Kotlin defaults: hero on, catalog type shown, unreleased content visible.
 impl Default for HomeCatalogSettings {
     fn default() -> Self {
-        Self { hero_enabled: true, show_catalog_type: true, hide_unreleased_content: false, items: Vec::new() }
+        Self { hero_enabled: true, show_catalog_type: true, hide_unreleased_content: false, items: Vec::new(), hero_catalogs: None }
     }
 }
 
@@ -314,8 +331,10 @@ impl Default for HomeCatalogPreference {
     }
 }
 
+mod hero;
 pub mod library;
 mod properties;
+pub mod next_up;
 pub mod nextgen;
 pub mod profiles;
 pub mod settings;

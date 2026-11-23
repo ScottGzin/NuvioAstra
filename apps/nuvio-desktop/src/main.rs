@@ -15,9 +15,11 @@ mod bench;
 mod capture;
 mod manage;
 mod p2p;
+mod pip;
 mod selftest;
 mod services;
 mod streams;
+mod watching;
 mod trailer;
 mod updater;
 mod uitest;
@@ -48,6 +50,9 @@ pub struct AppState {
     pub account: Arc<nuvio_sync::Engine>,
     /// Wakes the background sync (local changes, profile switch).
     pub sync_wake: Arc<tokio::sync::Notify>,
+    pub sync_signals: Arc<account::SyncSignals>,
+    /// The picture-in-picture window while it exists (`pip.rs`).
+    pub pip: Mutex<Option<tauri::WebviewWindow>>,
     pub pin_gate: Mutex<account::PinGate>,
     /// P2P session (original's Nuvio Engine) of torrent streams.
     pub p2p: Arc<nuvio_p2p::P2pService>,
@@ -61,6 +66,11 @@ pub struct AppState {
     pub updates: updater::UpdateState,
     /// Program guides of the live channels opened (memory only, bounded).
     pub epg: services::epg::EpgStore,
+    /// The movie or episode playing (subtitles, skip buttons).
+    pub playing: Mutex<Option<Arc<watching::Playing>>>,
+    pub subtitle_choice: Mutex<Option<watching::Choice>>,
+    /// Episode lists behind "next episode" in Continue watching.
+    pub next_up: services::next_up::Lists,
 }
 
 #[derive(Debug, Deserialize)]
@@ -116,8 +126,20 @@ impl AppState {
         self.close();
         let session = self.session.fetch_add(1, Ordering::SeqCst) + 1;
         let emitter = app.clone();
+        let profile = self.active_profile();
+        let saved_changes = std::sync::atomic::AtomicU32::new(0);
         let sink: nuvio_player::SnapshotSink = Arc::new(move |snapshot: &PlayerSnapshot| {
-            emitter.state::<AppState>().progress.observe(snapshot);
+            let state = emitter.state::<AppState>();
+            state.progress.observe(snapshot);
+            if saved_changes.swap(snapshot.auto_changes, Ordering::SeqCst) != snapshot.auto_changes {
+                // Only what the watchdog lowered.
+                let (motion, enhancement, picture) = match snapshot.auto_reason {
+                    Some("motion") => (Some(snapshot.motion), None, None),
+                    Some("effects") => (None, None, Some(snapshot.picture)),
+                    _ => (None, Some(snapshot.enhancement), None),
+                };
+                services::playback::save_improvements(&state.app_store, profile, motion, enhancement, picture);
+            }
             let _ = emitter.emit("player-state", snapshot);
         });
         let load = LoadRequest {
@@ -137,6 +159,7 @@ impl AppState {
 
     /// Main thread (destroys the video container).
     pub fn close(&self) {
+        *self.playing.lock().expect("playing lock") = None;
         // Take it out first so shutdown (which joins threads) runs without holding the lock.
         let player = self.player.lock().expect("player lock").take();
         // Last position of a tracked title (close, switch to another title, app exit).
@@ -145,7 +168,9 @@ impl AppState {
             self.progress.finish(Some(&snapshot));
             p2p::on_player_closed(self, snapshot.session);
         }
+        // Dropping moves the video back out of the PiP window, which can then go.
         drop(player);
+        pip::close_window(self);
     }
 
     /// Active profile (NextGen `profiles.json`; changed by `profile_switch`).
@@ -189,6 +214,7 @@ fn stream_play(
     key: String,
     start_seconds: Option<f64>,
     progress: Option<nuvio_store::library::PlaybackItem>,
+    previous_finished: Option<bool>,
 ) -> Result<PlayerInfo, String> {
     let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
     let torrent = match streams::kind_of(&stream) {
@@ -206,9 +232,22 @@ fn stream_play(
     // The active profile's player settings (Settings → Reprodução / Áudio / Legendas).
     let profile = state.active_profile();
     let settings = state.app_store.profile_settings(profile).map(|s| s.player).unwrap_or_default();
-    *state.video.lock().expect("video lock") = services::playback::video_config(&settings);
+    // Only movies and episodes (they carry `progress`) get the picture improvements.
+    *state.video.lock().expect("video lock") = match progress {
+        Some(_) => services::playback::video_config(&settings),
+        None => services::playback::video_config_unenhanced(&settings),
+    };
     let headers = if torrent { Vec::new() } else { stream.playback_request_headers() };
+    if previous_finished == Some(true) {
+        state.progress.mark_finished();
+    }
+    let source_url = url.clone();
     let info = state.open(&app, url, headers, start_seconds.unwrap_or(0.0))?;
+    let parent_id = progress.as_ref().map(|item| item.parent_meta_id.clone());
+    if let Some(item) = &progress {
+        let playing = watching::Playing::new(info.session, item, &stream, &source_url);
+        *state.playing.lock().expect("playing lock") = Some(Arc::new(playing));
+    }
     if torrent {
         state.p2p_session.store(info.session, Ordering::SeqCst);
     }
@@ -216,13 +255,15 @@ fn stream_play(
         // Display names only (no URL): which addon and source were used last time.
         item.provider_name = Some(stream.addon_name.clone());
         item.last_stream_title = stream.name.clone().or_else(|| stream.title.clone());
-        state.progress.start(info.session, profile, item);
+        state.progress.start(info.session, profile, item, settings.watched_percent);
     }
 
+    let font = services::fonts::mpv_font(&state.app_store, &settings.subtitle.font_id);
     let device = services::playback::device_languages();
     let audio = services::playback::audio_targets(&settings, &device);
-    let subtitles = services::playback::subtitle_targets(&settings, &device);
-    for command in services::playback::startup_commands(&settings, &audio) {
+    let subtitles = watching::subtitle_languages(&state, parent_id.as_deref(), services::playback::subtitle_targets(&settings, &device));
+    let wanted: Vec<String> = subtitles.iter().filter(|language| *language != "forced").cloned().collect();
+    for command in services::playback::startup_commands(&settings, &audio, font) {
         let _ = state.with_player(|p| p.execute(&command).map_err(|e| e.to_string()));
     }
     let handle = app.clone();
@@ -239,6 +280,11 @@ fn stream_play(
             subtitles,
             std::time::Duration::from_secs(20),
         );
+        if parent_id.is_some() && !wanted.is_empty() {
+            // The selection above takes a moment to show in the player's state.
+            std::thread::sleep(std::time::Duration::from_millis(700));
+            tauri::async_runtime::spawn(watching::select_from_addons(handle.clone(), session, wanted));
+        }
     });
     Ok(info)
 }
@@ -282,7 +328,18 @@ fn app_mode() -> &'static str {
 
 #[tauri::command]
 fn player_command(state: tauri::State<'_, AppState>, command: PlayerCommand) -> Result<(), String> {
-    state.with_player(|p| p.execute(&command).map_err(|e| e.to_string()))
+    state.with_player(|p| p.execute(&command).map_err(|e| e.to_string()))?;
+    if let PlayerCommand::SetSubtitleTrack { id } = &command {
+        watching::track_chosen(&state, id);
+    }
+    let (motion, enhancement, picture) = match &command {
+        PlayerCommand::SetMotion { motion } => (Some(*motion), None, None),
+        PlayerCommand::SetEnhancement { enhancement } => (None, Some(*enhancement), None),
+        PlayerCommand::SetPicture { picture } => (None, None, Some(*picture)),
+        _ => return Ok(()),
+    };
+    services::playback::save_improvements(&state.app_store, state.active_profile(), motion, enhancement, picture);
+    Ok(())
 }
 
 /// `rect` in CSS pixels of the webview; `None` = whole window. `scale` = devicePixelRatio.
@@ -311,32 +368,8 @@ fn player_video_config(state: tauri::State<'_, AppState>, config: VideoConfig) {
     *state.video.lock().expect("video lock") = config;
 }
 
-/// Picture-in-picture on/off. Main thread.
-#[tauri::command]
-fn player_picture_in_picture(app: AppHandle, state: tauri::State<'_, AppState>, enabled: bool, title: Option<String>) -> Result<(), String> {
-    set_picture_in_picture(&app, &state, enabled, title.as_deref().unwrap_or("Nuvio Astra"))
-}
-
 pub fn set_picture_in_picture(app: &AppHandle, state: &AppState, enabled: bool, title: &str) -> Result<(), String> {
-    state.with_player(|p| {
-        if enabled {
-            let handle = app.clone();
-            // Closing the PiP window restores the video into the main window (on the main thread).
-            let on_close = Box::new(move || {
-                let inner = handle.clone();
-                let _ = handle.run_on_main_thread(move || {
-                    let state = inner.state::<AppState>();
-                    let _ = state.with_player(|p| p.exit_picture_in_picture().map_err(|e| e.to_string()));
-                    let _ = inner.emit("player-pip", false);
-                });
-            });
-            p.enter_picture_in_picture(title, on_close).map_err(|e| e.to_string())
-        } else {
-            p.exit_picture_in_picture().map_err(|e| e.to_string())
-        }
-    })?;
-    let _ = app.emit("player-pip", enabled);
-    Ok(())
+    pip::set(app, state, enabled, title)
 }
 
 #[tauri::command]
@@ -449,6 +482,8 @@ fn main() {
                     services::addons::legacy_store().ok().and_then(|l| l.profiles().ok().flatten()).map(|p| p.user_id).filter(|u| !u.is_empty()),
                 )),
                 sync_wake: Arc::new(tokio::sync::Notify::new()),
+                sync_signals: Default::default(),
+                pip: Default::default(),
                 pin_gate: Mutex::new(account::PinGate {
                     locked_active: store.profiles().ok().and_then(|p| p.get(p.active).filter(|x| x.pin_enabled).map(|x| x.index)),
                     ..Default::default()
@@ -460,6 +495,9 @@ fn main() {
                 youtube: nuvio_core::youtube::Extractor::new().expect("HTTP client"),
                 updates: Default::default(),
                 epg: Default::default(),
+                playing: Mutex::new(None),
+                subtitle_choice: Mutex::new(None),
+                next_up: Default::default(),
             }
         })
         // Official Tauri 2 updater: public key from tauri.conf.json, endpoint set per build.
@@ -473,7 +511,23 @@ fn main() {
             player_snapshot,
             player_close,
             player_video_config,
-            player_picture_in_picture,
+            account::app_ready,
+            account::welcome_needed,
+            account::welcome_done,
+            account::account_connect,
+            account::profile_pin_refresh,
+            watching::player_subtitles,
+            watching::player_subtitle_load,
+            watching::player_subtitle_style,
+            watching::player_moments,
+            api::library_next_up,
+            pip::player_picture_in_picture,
+            pip::pip_ready,
+            pip::pip_drag,
+            api::subtitle_fonts,
+            api::subtitle_font_import,
+            api::subtitle_font_remove,
+            api::subtitle_font_data,
             window_set_fullscreen,
             api::app_bootstrap,
             api::home_rows,
@@ -537,7 +591,9 @@ fn main() {
             uitest::uitest_player_property,
             uitest::uitest_store_counts,
             uitest::uitest_process_resources,
-            uitest::uitest_native_libraries
+            uitest::uitest_native_libraries,
+            uitest::uitest_seed_collections,
+            uitest::uitest_break_display_sync
         ])
         .setup(move |app| {
             let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -575,13 +631,11 @@ fn main() {
             }
             make_webview_transparent(&window)?;
             let handle = app.handle().clone();
-            let wake = app.state::<AppState>().sync_wake.clone();
-            app.state::<AppState>().progress.set_notifier(move |flush| {
+            let signals = app.state::<AppState>().sync_signals.clone();
+            app.state::<AppState>().progress.set_notifier(move |_flush| {
                 let _ = handle.emit("library-changed", ());
-                // Progress goes to the account on pause / end / seek / close, like the original.
-                if flush {
-                    wake.notify_one();
-                }
+                // Every saved position goes to the account, like the original.
+                signals.progress.notify_one();
             });
             if selftest.is_none() && uitest::requested().is_none() {
                 account::start_loop(app.handle().clone());
@@ -608,9 +662,30 @@ fn main() {
                     Ok(())
                 });
             }
+            // Back to the app: what other devices changed is fetched.
+            tauri::WindowEvent::Focused(true) => {
+                let app = window.app_handle().clone();
+                app.state::<AppState>().sync_signals.focus.notify_one();
+                // Coming back from Nuvio: its hero choice shows at once.
+                tauri::async_runtime::spawn_blocking(move || account::follow_nuvio(&app));
+            }
+            // Alt+F4 on PiP: back to the main window (the container must leave it first).
+            tauri::WindowEvent::CloseRequested { api, .. } if window.label() == pip::LABEL => {
+                api.prevent_close();
+                let app = window.app_handle();
+                let state = app.state::<AppState>();
+                if pip::set(app, &state, false, "").is_err() {
+                    pip::close_window(&state);
+                }
+            }
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if window.label() == "main" && uitest::requested().is_none() && account::send_before_close(window) {
+                    api.prevent_close();
+                }
+            }
             // Release the player (mpv threads, windows, GPU resources) before the app exits.
             // The P2P session (peers, listening socket, engine threads) ends with the app.
-            tauri::WindowEvent::Destroyed => {
+            tauri::WindowEvent::Destroyed if window.label() == "main" => {
                 let state = window.app_handle().state::<AppState>();
                 state.close();
                 state.p2p.stop();

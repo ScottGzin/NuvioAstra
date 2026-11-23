@@ -3,6 +3,8 @@
 
 pub mod crypto;
 pub mod engine;
+mod home;
+mod preferences;
 pub mod remote;
 
 pub use engine::{AccountError, Avatar, Compare, Engine, PinResult, Preview, ProfilePreview, Report, Status};

@@ -1,7 +1,7 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, home, livetv, meta, playback, search};
+use crate::services::{addons, collections, fonts, home, livetv, meta, playback, search};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::CatalogPage;
@@ -33,6 +33,8 @@ pub async fn app_bootstrap(state: State<'_, AppState>) -> Result<Bootstrap, Stri
 #[serde(rename_all = "camelCase")]
 pub struct HomeView {
     pub hero_enabled: bool,
+    /// Catalog keys whose first page feeds the hero (may include catalogs hidden from Home).
+    pub hero_sources: Vec<String>,
     pub rows: Vec<home::HomeRow>,
 }
 
@@ -42,12 +44,18 @@ pub struct HomeView {
 pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
     let loaded = state.addons.loaded().await?;
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home;
-    Ok(HomeView { hero_enabled: settings.hero_enabled, rows: home::home_rows(&loaded.manifests, Some(&settings)) })
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type);
+    Ok(HomeView {
+        hero_enabled: settings.hero_enabled,
+        hero_sources: home::hero_sources(&loaded.manifests, &settings),
+        rows: home::home_rows(&loaded.manifests, Some(&settings), &collections),
+    })
 }
 
-/// One page of a catalog identified by its home key `<manifestId>:<type>:<catalogId>`.
+/// One page of a catalog identified by its home key `<manifestId>:<type>:<catalogId>`; `genre`
+/// for the catalogs of a collection folder filtered by genre.
 #[tauri::command]
-pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<u32>) -> Result<CatalogPage, String> {
+pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<u32>, genre: Option<String>) -> Result<CatalogPage, String> {
     let loaded = state.addons.loaded().await?;
     let mut parts = key.splitn(3, ':');
     let (manifest_id, content_type, catalog_id) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
@@ -55,7 +63,7 @@ pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<
     let mut page = state
         .addons
         .client
-        .fetch_catalog_page(manifest, content_type, catalog_id, None, skip)
+        .fetch_catalog_page(manifest, content_type, catalog_id, genre.as_deref().filter(|g| !g.trim().is_empty()), skip)
         .await
         .map_err(|e| e.to_string())?;
     // `hideUnreleasedContent` (Settings → Início); paging still follows the raw page size.
@@ -215,7 +223,8 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
             pin_enabled: false,
         });
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
-    let catalogs = home::catalog_choices(&loaded.manifests, &settings.home);
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type);
+    let catalogs = home::catalog_choices(&loaded.manifests, &settings.home, &collections);
     Ok(SettingsView {
         profile,
         settings,
@@ -228,13 +237,70 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
     })
 }
 
-/// Saves the active profile's settings (validated into the original's ranges) and returns what
-/// was stored. Player settings apply from the next playback; Home settings on the next Home load.
+/// Saves settings (validated into the original's ranges) and returns what was stored. Player
+/// settings apply from the next playback; Home settings on the next Home load.
+///
+/// `previous`: what the editor had loaded; only what differs from it is written, so a screen left
+/// open never undoes what the account sent. `profile`: the profile being edited (a save still
+/// waiting when the profile is switched must not land on the new one). The change is then sent.
 #[tauri::command]
-pub async fn settings_set(state: State<'_, AppState>, settings: ProfileSettings) -> Result<ProfileSettings, String> {
+pub async fn settings_set(state: State<'_, AppState>, settings: ProfileSettings, previous: Option<ProfileSettings>, profile: Option<i64>) -> Result<ProfileSettings, String> {
     state.ensure_unlocked()?;
-    let profile = state.active_profile();
-    state.app_store.set_profile_settings(profile, settings).map_err(|e| e.to_string())
+    let active = state.active_profile();
+    let profile = profile.unwrap_or(active);
+    let mut settings = settings;
+    if let Some(before) = previous.as_ref().filter(|p| profile == active && settings.home.items.is_empty() && !p.home.items.is_empty()) {
+        // "Restaurar padrões" of Início: the default order is written out (`resetToDefaults`
+        // normalizes it), or the account would keep the old one.
+        if let Ok(loaded) = state.addons.loaded().await {
+            let views = collections::views(&collections::stored(&state.app_store, profile), &loaded.manifests, before.home.show_catalog_type);
+            settings.home.items = home::catalog_choices(&loaded.manifests, &settings.home, &views)
+                .into_iter()
+                .zip(0..)
+                .map(|(choice, order)| nuvio_store::HomeCatalogPreference { key: choice.key, order, ..Default::default() })
+                .collect();
+        }
+    }
+    let saved = match &previous {
+        Some(previous) => state.app_store.edit_profile_settings(profile, previous, &settings),
+        None => state.app_store.set_profile_settings(profile, settings),
+    }
+    .map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(saved)
+}
+
+// ---- Subtitle fonts (services::fonts)
+
+#[tauri::command]
+pub async fn subtitle_fonts(state: State<'_, AppState>) -> Result<fonts::FontList, String> {
+    Ok(fonts::list(&state.app_store))
+}
+
+/// Opens the Windows file dialog. `None` = cancelled.
+#[tauri::command]
+pub async fn subtitle_font_import<R: tauri::Runtime>(window: tauri::WebviewWindow<R>, state: State<'_, AppState>) -> Result<Option<fonts::Font>, String> {
+    #[cfg(windows)]
+    {
+        let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or_default();
+        let picked = tauri::async_runtime::spawn_blocking(move || fonts::choose_file(owner)).await.map_err(|e| e.to_string())?;
+        picked.map(|path| fonts::import(&state.app_store, &path)).transpose()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, state);
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn subtitle_font_remove(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    fonts::remove(&state.app_store, &id)
+}
+
+#[tauri::command]
+pub async fn subtitle_font_data(state: State<'_, AppState>, id: String) -> Result<tauri::ipc::Response, String> {
+    fonts::data(&state.app_store, &id).map(tauri::ipc::Response::new)
 }
 
 // ---- Library (saved items, Continue watching, history), active profile only ----
@@ -282,9 +348,30 @@ pub async fn library_remove_favorite(state: State<'_, AppState>, content_type: S
 #[tauri::command]
 pub async fn library_continue_watching(state: State<'_, AppState>) -> Result<Vec<library::HistoryEntry>, String> {
     state.ensure_unlocked()?;
+    continue_watching(&state, state.active_profile())
+}
+
+/// In progress + next episodes whose lists are known (nothing is asked to the addons).
+fn continue_watching(state: &AppState, profile: i64) -> Result<Vec<library::HistoryEntry>, String> {
+    let progress = state.app_store.progress(profile).map_err(|e| e.to_string())?;
+    let seeds = state.app_store.next_up_seeds(profile, &progress).map_err(|e| e.to_string())?;
+    let next = state.next_up.cards(profile, &seeds, &progress, library::now_ms());
+    let current = library::continue_watching(&progress, library::CONTINUE_WATCHING_LIMIT).iter().map(library::HistoryEntry::from_progress).collect();
+    Ok(nuvio_store::next_up::merge(current, next, library::CONTINUE_WATCHING_LIMIT))
+}
+
+/// Asks the addons for the episode lists behind the next episodes and returns the completed row.
+#[tauri::command]
+pub async fn library_next_up(state: State<'_, AppState>) -> Result<Vec<library::HistoryEntry>, String> {
+    state.ensure_unlocked()?;
     let profile = state.active_profile();
     let progress = state.app_store.progress(profile).map_err(|e| e.to_string())?;
-    Ok(library::continue_watching(&progress, library::CONTINUE_WATCHING_LIMIT).iter().map(library::HistoryEntry::from_progress).collect())
+    let seeds = state.app_store.next_up_seeds(profile, &progress).map_err(|e| e.to_string())?;
+    if !seeds.is_empty() {
+        let loaded = state.addons.loaded().await?;
+        state.next_up.refresh(&state.addons.client, &loaded.manifests, profile, &seeds).await;
+    }
+    continue_watching(&state, profile)
 }
 
 #[derive(Serialize)]
@@ -315,7 +402,19 @@ pub async fn library_history(state: State<'_, AppState>, offset: usize, limit: u
 pub async fn library_remove_history<R: tauri::Runtime>(app: tauri::AppHandle<R>, state: State<'_, AppState>, key: String) -> Result<bool, String> {
     state.ensure_unlocked()?;
     let profile = state.active_profile();
-    let removed = state.app_store.remove_history(profile, &key).map_err(|e| e.to_string())?;
+    let removed = match key.strip_prefix("next:") {
+        // A next episode has nothing stored: the series leaves the row until more of it is watched.
+        Some(series) => state.app_store.dismiss_next_up(profile, series).map_err(|e| e.to_string())?,
+        None => {
+            let started = state.app_store.progress(profile).map_err(|e| e.to_string())?.into_iter().find(|e| e.key() == key && e.in_progress());
+            let removed = state.app_store.remove_history(profile, &key).map_err(|e| e.to_string())?;
+            // Without this the episode just removed would return as that series' next one.
+            if let Some(entry) = started.filter(|_| removed) {
+                state.app_store.dismiss_next_up(profile, &entry.parent_meta_id).map_err(|e| e.to_string())?;
+            }
+            removed
+        }
+    };
     if removed {
         use tauri::Emitter;
         let _ = app.emit("library-changed", ());
@@ -441,6 +540,8 @@ mod tests {
             pending_addon: Mutex::new(None),
             account: std::sync::Arc::new(nuvio_sync::Engine::new(dir.clone(), None, None)),
             sync_wake: std::sync::Arc::new(tokio::sync::Notify::new()),
+            sync_signals: Default::default(),
+            pip: Default::default(),
             pin_gate: Mutex::new(Default::default()),
             p2p: Default::default(),
             p2p_prepared: Mutex::new(None),
@@ -448,6 +549,9 @@ mod tests {
             youtube: nuvio_core::youtube::Extractor::new().unwrap(),
             updates: Default::default(),
             epg: Default::default(),
+            playing: Default::default(),
+            subtitle_choice: Default::default(),
+            next_up: Default::default(),
         };
         let app = mock_builder()
             .manage(state)
@@ -571,7 +675,7 @@ mod tests {
                 "videoId": format!("tt0200:1:{episode}"), "title": "Série Teste", "seasonNumber": 1, "episodeNumber": episode
             }))
             .unwrap();
-            state.progress.start(session, 1, item);
+            state.progress.start(session, 1, item, 90);
             state.progress.finish(Some(&nuvio_player::PlayerSnapshot { session, loaded: true, time_pos: pos, duration: 2400.0, ..Default::default() }));
             // History sorts by millisecond timestamp: keep the two finishes distinct.
             std::thread::sleep(std::time::Duration::from_millis(5));

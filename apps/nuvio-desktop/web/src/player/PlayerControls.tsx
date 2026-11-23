@@ -8,6 +8,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { PlayerSnapshot, ResizeMode, Track } from "../types";
+import { EnhanceMenu } from "./EnhanceMenu";
+import { reachedEnd } from "./episodes";
 import { t } from "../i18n";
 
 export function formatTime(seconds: number): string {
@@ -18,7 +20,7 @@ export function formatTime(seconds: number): string {
   return (h ? `${h}:${String(m).padStart(2, "0")}` : `${m}`) + `:${String(r).padStart(2, "0")}`;
 }
 
-function trackLabel(t: Track): string {
+export function trackLabel(t: Track): string {
   return (t.external ? "📄 " : "") + ([t.title, t.lang, t.codec].filter(Boolean).join(" · ") || `#${t.id}`);
 }
 
@@ -38,6 +40,7 @@ const Icons = {
   pip: svg(<><rect x="3" y="5" width="18" height="14" rx="2.5" /><rect x="12" y="11" width="6.5" height="5.5" rx="1.2" /></>),
   fullscreen: svg(<><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></>),
   exitFullscreen: svg(<><path d="M9 4v5H4" /><path d="M15 4v5h5" /><path d="M9 20v-5H4" /><path d="M15 20v-5h5" /></>),
+  next: svg(<><path d="M5.5 5v14l10-7z" /><path d="M19 5v14" /></>),
   close: svg(<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>),
 };
 
@@ -50,9 +53,13 @@ interface Props {
   /** Shown as an ✕ only when given (embedded preview); the full player closes with ← / Esc. */
   onClose?(): void;
   onPictureInPicture?(): void;
+  /** Full player: the subtitle menu, instead of the plain list of the file's tracks. */
+  subtitles?: ReactNode;
+  /** A series with a following episode: opens its sources. */
+  next?: { label: string; disabled: boolean; open(): void };
 }
 
-export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture }: Props) {
+export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next }: Props) {
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
   const [mode, setMode] = useState<ResizeMode>("fit");
   const duration = s?.duration ?? 0;
@@ -72,7 +79,7 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
       : s.buffering || !s.loaded
         ? t("Carregando…")
         : s.ended
-          ? t("Fim")
+          ? reachedEnd(s) || live ? t("Fim") : "A transmissão parou antes do fim. Seu ponto ficou salvo."
           : null;
 
   const pct = (v: number) => `${(v * 100).toFixed(3)}%`;
@@ -143,6 +150,11 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
         {/* Live: play/pause, volume, then the AO VIVO mark. */}
         {live && <span className="pc-live-volume">{volumeControl}</span>}
         {live && <span className="live-dot">{t("AO VIVO")}</span>}
+        {next && (
+          <button className="pc-btn pc-next" aria-label="Próximo episódio" title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
+            {Icons.next}<span>Próximo episódio</span>
+          </button>
+        )}
         <span className="spacer" />
         <div className="pc-panel">
           {!live && volumeControl}
@@ -151,7 +163,8 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
               {audio.map((t) => <option key={t.id} value={String(t.id)}>{trackLabel(t)}</option>)}
             </select>
           )}
-          {subs.length > 0 && (
+          {subtitles}
+          {!subtitles && subs.length > 0 && (
             <select className="pc-select" aria-label={t("Legenda")} value={s?.sid && s.sid !== "no" ? s.sid : "no"} onChange={(e) => void api.playerCommand({ type: "setSubtitleTrack", id: e.target.value })}>
               <option value="no">{t("Sem legenda")}</option>
               {subs.map((t) => <option key={t.id} value={String(t.id)}>{trackLabel(t)}</option>)}
@@ -170,11 +183,12 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             }}>
               <option value="fit">{t("Ajustar")}</option>
               <option value="fill">{t("Preencher")}</option>
-              <option value="zoom">Zoom</option>
+              <option value="zoom">{t("Zoom")}</option>
               <option value="stretch">{t("Esticar")}</option>
             </select>
           )}
-          {onPictureInPicture && <button className="pc-icon" aria-label="Picture-in-picture" onClick={onPictureInPicture}>{Icons.pip}</button>}
+          {!live && s && <EnhanceMenu key={`enhance-${s.session}`} snapshot={s} />}
+          {onPictureInPicture && <button className="pc-icon" aria-label={t("Picture-in-picture")} onClick={onPictureInPicture}>{Icons.pip}</button>}
           {onClose && <button className="pc-icon" aria-label={t("Fechar")} onClick={onClose}>{Icons.close}</button>}
           <button className="pc-icon" aria-label={fullscreen ? t("Sair da tela cheia") : t("Tela cheia")} onClick={onToggleFullscreen}>
             {fullscreen ? Icons.exitFullscreen : Icons.fullscreen}

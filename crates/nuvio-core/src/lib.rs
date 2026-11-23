@@ -10,7 +10,9 @@ pub mod client;
 pub mod error;
 pub mod manifest;
 pub mod meta;
+pub mod skip;
 pub mod stream;
+pub mod subtitle;
 pub mod url;
 pub mod youtube;
 

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { listen } from "../tauri";
 import type { PlayerSnapshot } from "../types";
 import { PlayerControls } from "./PlayerControls";
+import { t } from "../i18n";
 
 type Rect = [number, number, number, number] | null;
 
@@ -35,7 +36,7 @@ export function SelftestView() {
       {rect && (
         <aside className="selftest-side">
           <div className="brand">Nuvio Astra</div>
-          <p className="muted">Autoteste do player (libmpv + WebView2)</p>
+          <p className="muted">{t("Autoteste do player (libmpv + WebView2)")}</p>
         </aside>
       )}
       <div className="hole selftest-hole" style={style}>

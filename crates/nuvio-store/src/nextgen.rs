@@ -15,11 +15,15 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// 1: backup + Live TV favorites. 2: + per-profile settings (player and home).
 /// 3: + per-profile library (saved items), watch progress and watched marks.
 /// 4: + profiles (list, active profile) and each profile's installed addons with enabled state.
 pub const MIGRATION_VERSION: u32 = 4;
+
+/// `settings.json` holds every profile and is written by the UI, the player and the sync.
+static SETTINGS_LOCK: Mutex<()> = Mutex::new(());
 
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> StoreError + '_ {
     move |source| StoreError::Io { path: path.to_path_buf(), source }
@@ -36,6 +40,12 @@ pub fn default_app_dir() -> Result<PathBuf, StoreError> {
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
         .ok_or(StoreError::DataDirNotFound)?;
     Ok(base.join("NuvioNextGen"))
+}
+
+#[derive(Serialize, Deserialize)]
+struct SyncBase<T> {
+    account: String,
+    value: T,
 }
 
 pub struct AppStore {
@@ -95,6 +105,77 @@ impl AppStore {
         fs::rename(&tmp, &path).map_err(io(&path))
     }
 
+    /// Collections of a profile as the account sent them (`collections_json`, kept as is: the Home
+    /// reads the fields it knows and ignores the rest). `None` = never received on this computer.
+    pub fn collections(&self, profile: i64) -> Result<Option<serde_json::Value>, StoreError> {
+        self.read(&format!("collections-{profile}"))
+    }
+
+    pub fn set_collections(&self, profile: i64, value: &serde_json::Value) -> Result<(), StoreError> {
+        self.write(&format!("collections-{profile}"), value)
+    }
+
+    /// The preferences of kind `kind` (`home`, `player`) both this computer and `account` last
+    /// agreed on: a difference from them is a local change still to send.
+    pub fn sync_base<T: DeserializeOwned>(&self, kind: &str, profile: i64, account: &str) -> Result<Option<T>, StoreError> {
+        let Some(doc) = self.read::<SyncBase<serde_json::Value>>(&format!("sync-base-{kind}-{profile}"))? else { return Ok(None) };
+        if doc.account != account {
+            return Ok(None);
+        }
+        Ok(serde_json::from_value(doc.value).ok())
+    }
+
+    pub fn set_sync_base<T: Serialize>(&self, kind: &str, profile: i64, account: &str, value: &T) -> Result<(), StoreError> {
+        self.write(&format!("sync-base-{kind}-{profile}"), &SyncBase { account: account.to_string(), value })
+    }
+
+    /// Copy of every profile's settings, made once, before the account's preferences first replace
+    /// them on this computer (`settings-before-sync.json`).
+    pub fn keep_settings_before_sync(&self) -> Result<(), StoreError> {
+        const NAME: &str = "settings-before-sync";
+        if self.path(NAME).exists() {
+            return Ok(());
+        }
+        self.write(NAME, &self.all_settings()?)
+    }
+
+    /// A deleted profile: what it agreed on with the account no longer counts.
+    pub fn forget_sync_bases(&self, profile: i64) -> Result<(), StoreError> {
+        for kind in ["home", "player"] {
+            let name = format!("sync-base-{kind}-{profile}");
+            if self.path(&name).exists() {
+                self.write(&name, &SyncBase { account: String::new(), value: () })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Saves an edit made over `previous` (what the editor had loaded): only what the edit changed
+    /// is written, so a screen that was open never undoes what the sync brought meanwhile.
+    pub fn edit_profile_settings(&self, profile: i64, previous: &ProfileSettings, edited: &ProfileSettings) -> Result<ProfileSettings, StoreError> {
+        fn overlay(current: &mut serde_json::Value, previous: &serde_json::Value, edited: &serde_json::Value) {
+            use serde_json::Value;
+            if previous == edited {
+                return;
+            }
+            match (current, previous, edited) {
+                (Value::Object(current), Value::Object(previous), Value::Object(edited)) => {
+                    for (key, value) in edited {
+                        overlay(current.entry(key.clone()).or_insert(Value::Null), previous.get(key).unwrap_or(&Value::Null), value);
+                    }
+                }
+                (slot, _, _) => *slot = edited.clone(),
+            }
+        }
+        let json = |settings: &ProfileSettings| serde_json::to_value(settings).unwrap_or_default();
+        let (previous, edited_json) = (json(previous), json(edited));
+        self.update_profile_settings(profile, |current| {
+            let mut value = json(current);
+            overlay(&mut value, &previous, &edited_json);
+            *current = serde_json::from_value(value).unwrap_or_else(|_| edited.clone());
+        })
+    }
+
     /// Favorite live TV channel keys per profile.
     pub fn live_tv_favorites(&self) -> Result<BTreeMap<i64, Vec<String>>, StoreError> {
         Ok(self.read("livetv-favorites")?.unwrap_or_default())
@@ -118,8 +199,16 @@ impl AppStore {
 
     /// Validates (original ranges) and saves one profile's settings; other profiles untouched.
     pub fn set_profile_settings(&self, profile: i64, settings: ProfileSettings) -> Result<ProfileSettings, StoreError> {
-        let settings = settings.sanitized();
+        self.update_profile_settings(profile, |current| *current = settings)
+    }
+
+    /// Read-modify-write of one profile's settings under their lock.
+    pub fn update_profile_settings(&self, profile: i64, change: impl FnOnce(&mut ProfileSettings)) -> Result<ProfileSettings, StoreError> {
+        let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut all = self.all_settings()?;
+        let mut settings = all.remove(&profile).unwrap_or_default();
+        change(&mut settings);
+        let settings = settings.sanitized();
         all.insert(profile, settings.clone());
         self.write("settings", &all)?;
         Ok(settings)

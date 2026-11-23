@@ -14,7 +14,7 @@ pub async fn trailer_play(app: AppHandle, state: State<'_, AppState>, key: Strin
     eprintln!("[trailer] {} {}p{}", source.mode, source.height, if source.audio_url.is_some() { " + áudio separado" } else { "" });
     let profile = state.active_profile();
     let settings = state.app_store.profile_settings(profile).map(|s| s.player).unwrap_or_default();
-    *state.video.lock().expect("video lock") = crate::services::playback::video_config(&settings);
+    *state.video.lock().expect("video lock") = crate::services::playback::video_config_unenhanced(&settings);
     // Windows are created on the main thread.
     crate::selftest::on_main(&app, move |app| {
         let state = app.state::<AppState>();

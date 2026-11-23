@@ -7,28 +7,34 @@ import {
   AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon,
   PendingLine as PendingIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
 } from "../components/SidebarIcons";
-import { api, errorText } from "../api";
+import { api, errorText, onRemoteSettingsChanged } from "../api";
 import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";
 import { checkForUpdates, installUpdate, useUpdates } from "../updates";
 import { Avatar } from "../components/ProfileMenu";
-import { LANGUAGES, languageLabel } from "../languages";
+import { LANGUAGES } from "../languages";
 import { P2P_CONSENT_TEXT, megabytes } from "../components/TorrentStart";
-import { getLang, LANGUAGES_UI, locale, setLang, t, useLang, type Lang } from "../i18n";
-import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
+import { ANIME_MODES, ENHANCEMENTS, MOTIONS } from "../player/EnhanceMenu";
+import { Row, Toggle } from "../components/SettingControls";
+import { SubtitleAppearance } from "../components/SubtitleAppearance";
+import { HeroCatalogs } from "../components/HeroCatalogs";
+import { WatchingSettings } from "../components/WatchingSettings";
+import { refreshLibraryViews } from "../library";
+import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
+import { LANGUAGES_UI, setLang, t, useLang, type Lang } from "../i18n";
 
 type Section = "account" | "home" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "data" | "updates" | "pending";
 
 const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
-  { id: "account", label: "Conta", icon: <AccountIcon /> },
-  { id: "home", label: "Início", icon: <HomeIcon /> },
-  { id: "addons", label: "Addons", icon: <AddonsIcon /> },
-  { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
-  { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
-  { id: "audio", label: "Áudio", icon: <AudioIcon /> },
-  { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
-  { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
-  { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
+  { id: "account", label: t("Conta"), icon: <AccountIcon /> },
+  { id: "home", label: t("Início"), icon: <HomeIcon /> },
+  { id: "addons", label: t("Addons"), icon: <AddonsIcon /> },
+  { id: "playback", label: t("Reprodução"), icon: <PlaybackIcon /> },
+  { id: "p2p", label: t("Torrent / P2P"), icon: <P2pIcon /> },
+  { id: "audio", label: t("Áudio"), icon: <AudioIcon /> },
+  { id: "subtitles", label: t("Legendas"), icon: <SubtitlesIcon /> },
+  { id: "data", label: t("Perfil e dados"), icon: <ProfileDataIcon /> },
+  { id: "updates", label: t("Atualizações"), icon: <UpdatesIcon /> },
   { id: "pending", label: t("Ainda não disponível"), icon: <PendingIcon /> },
 ];
 
@@ -36,59 +42,13 @@ type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: st
 
 // ---------- small controls ----------
 
-function Row({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return (
-    <div className="setting-row">
-      <div className="setting-text">
-        <div className="setting-title">{title}</div>
-        {description && <div className="muted small">{description}</div>}
-      </div>
-      <div className="setting-control">{children}</div>
-    </div>
-  );
-}
-
-function Toggle({ checked, onChange, label }: { checked: boolean; onChange(v: boolean): void; label: string }) {
-  return (
-    <button role="switch" aria-checked={checked} aria-label={label} className={`switch ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}>
-      <span className="knob" />
-    </button>
-  );
-}
-
-function Slider({ value, min, max, onChange, unit, label }: { value: number; min: number; max: number; onChange(v: number): void; unit?: string; label: string }) {
-  return (
-    <span className="slider">
-      <input type="range" min={min} max={max} value={value} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} />
-      <output>{value}{unit}</output>
-    </span>
-  );
-}
-
-/** `#AARRGGBB` ⇄ color input (`#rrggbb`) + optional opacity. */
-function ColorField({ value, onChange, withOpacity, label }: { value: string; onChange(v: string): void; withOpacity?: boolean; label: string }) {
-  const alpha = value.slice(1, 3);
-  const rgb = `#${value.slice(3, 9).toLowerCase()}`;
-  const opacity = Math.round((parseInt(alpha, 16) / 255) * 100);
-  const hex2 = (n: number) => Math.round(n).toString(16).padStart(2, "0").toUpperCase();
-  return (
-    <span className="color-field">
-      <input type="color" value={rgb} aria-label={label} onChange={(e) => onChange(`#${alpha}${e.target.value.slice(1).toUpperCase()}`)} />
-      {withOpacity && (
-        <Slider label={`${label} — opacidade`} value={opacity} min={0} max={100} unit="%" onChange={(o) => onChange(`#${hex2((o / 100) * 255)}${value.slice(3)}`)} />
-      )}
-    </span>
-  );
-}
-
 function LanguageSelect({ value, onChange, special, label }: { value: string | null; onChange(v: string | null): void; special: [string, string][]; label: string }) {
   const known = LANGUAGES.some(([c]) => c.toLowerCase() === (value ?? "").toLowerCase()) || special.some(([c]) => c === (value ?? ""));
-  const uiLang = getLang();
   return (
     <select aria-label={label} value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
       {special.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
       {!known && value && <option value={value}>{value}</option>}
-      {LANGUAGES.map(([code]) => <option key={code} value={code}>{languageLabel(code, uiLang)}</option>)}
+      {LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
     </select>
   );
 }
@@ -106,11 +66,17 @@ export function Settings() {
   const pending = useRef<{ next: ProfileSettings; note?: string } | null>(null);
   /** Latest settings, including changes not rendered yet (several quick changes in a row). */
   const draftRef = useRef<ProfileSettings | null>(null);
+  /** What the draft was based on: only the difference from it is saved. */
+  const baseRef = useRef<ProfileSettings | null>(null);
+  const profileRef = useRef<number | undefined>(undefined);
+  const saving = useRef(false);
 
   useEffect(() => {
     api.settingsGet().then(
       (v) => {
         setView(v);
+        baseRef.current = v.settings;
+        profileRef.current = v.profile.index;
         draftRef.current = v.settings;
         setDraft(v.settings);
       },
@@ -118,23 +84,50 @@ export function Settings() {
     );
   }, []);
 
+  // The account sent something: shown at once. An edit still waiting keeps the screen as it is;
+  // its save writes only that edit and returns both.
+  useEffect(
+    () =>
+      onRemoteSettingsChanged(() => {
+        api.settingsGet().then((v) => {
+          setView(v);
+          if (pending.current || saving.current) return;
+          baseRef.current = v.settings;
+          draftRef.current = v.settings;
+          setDraft(v.settings);
+        }, () => {});
+      }),
+    [],
+  );
+
   const flush = useCallback(async () => {
     const job = pending.current;
-    if (!job) return;
+    if (!job || saving.current) return; // a running save sends it when it ends
     pending.current = null;
+    saving.current = true;
     setStatus({ kind: "saving" });
+    let ok = false;
     try {
-      const saved = await api.settingsSet(job.next);
-      // Rust may have corrected a value (ranges of the original): show what was stored, unless
-      // the user changed something else meanwhile (that change is saved next).
+      const watchedBefore = baseRef.current?.player.watchedPercent;
+      const saved = await api.settingsSet(job.next, baseRef.current, profileRef.current);
+      if (saved.player.watchedPercent !== watchedBefore) refreshLibraryViews();
+      ok = true;
+      // Rust may have corrected a value or kept one the account sent: show what was stored, unless
+      // the user changed something else meanwhile (that change is based on `job.next`, saved next).
       if (draftRef.current === job.next) {
+        baseRef.current = saved;
         draftRef.current = saved;
         setDraft(saved);
+      } else {
+        baseRef.current = job.next;
       }
       if (!pending.current) setStatus({ kind: "saved", note: job.note });
     } catch (e) {
       setStatus({ kind: "error", message: errorText(e) });
+    } finally {
+      saving.current = false;
     }
+    if (ok && pending.current) void flush();
   }, []);
 
   // Leaving the page (or the app tab) never drops a change still waiting for its debounce.
@@ -174,7 +167,7 @@ export function Settings() {
     update((s) => {
       switch (what) {
         case "home": return { ...s, home: { ...d.home } };
-        case "playback": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr } };
+        case "playback": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr, motionSmoothing: d.player.motionSmoothing, videoEnhancement: d.player.videoEnhancement, picture: { ...d.player.picture }, skipSegmentsEnabled: d.player.skipSegmentsEnabled, autoSkipSegments: [...d.player.autoSkipSegments], nextEpisodeThresholdMode: d.player.nextEpisodeThresholdMode, nextEpisodeThresholdPercent: d.player.nextEpisodeThresholdPercent, nextEpisodeThresholdMinutes: d.player.nextEpisodeThresholdMinutes, watchedPercent: d.player.watchedPercent } };
         case "audio": return { ...s, player: { ...s.player, preferredAudioLanguage: d.player.preferredAudioLanguage, secondaryPreferredAudioLanguage: d.player.secondaryPreferredAudioLanguage } };
         case "subtitles": return { ...s, player: { ...s.player, preferredSubtitleLanguage: d.player.preferredSubtitleLanguage, secondaryPreferredSubtitleLanguage: d.player.secondaryPreferredSubtitleLanguage, subtitle: { ...d.player.subtitle } } };
         default: return s;
@@ -182,7 +175,7 @@ export function Settings() {
     }, t("Padrões restaurados."), 0);
   };
 
-  if (error) return <div className="screen-message">{t("Não foi possível abrir as configurações: {error}", { error })}</div>;
+  if (error) return <div className="screen-message">{t("Não foi possível abrir as configurações:")} {error}</div>;
   if (!view || !draft) return <div className="screen-message">{t("Carregando configurações…")}</div>;
   const p = draft.player;
   const sub = p.subtitle;
@@ -200,14 +193,14 @@ export function Settings() {
         {SECTIONS.map((s) => (
           <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => setSection(s.id)}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
-            <span>{t(s.label)}</span>
+            <span>{s.label}</span>
           </button>
         ))}
       </nav>
 
       <div className="settings-body" key={section}>
         <header className="settings-header">
-          <h1>{t(SECTIONS.find((s) => s.id === section)?.label ?? "")}</h1>
+          <h1>{SECTIONS.find((s) => s.id === section)?.label}</h1>
           <span className={`save-status ${status.kind}`} role="status" data-testid="save-status">
             {status.kind === "saving" && t("Salvando…")}
             {status.kind === "saved" && `✓ Salvo${status.note ? ` · ${status.note}` : ""}`}
@@ -231,23 +224,39 @@ export function Settings() {
               <select aria-label={t("Modo de imagem padrão")} data-setting="resizeMode" value={p.resizeMode} onChange={(e) => player((x) => ({ ...x, resizeMode: e.target.value as ResizeModeName }))}>
                 <option value="Fit">{t("Ajustar")}</option>
                 <option value="Fill">{t("Preencher")}</option>
-                <option value="Zoom">Zoom</option>
+                <option value={t("Zoom")}>{t("Zoom")}</option>
                 <option value="Stretch">{t("Esticar")}</option>
               </select>
             </Row>
-            <Row title={t("Decodificação de vídeo")} description="Prioridade do decodificador (libmpv).">
+            <Row title={t("Decodificação de vídeo")} description={t("Prioridade do decodificador (libmpv).")}>
               <select aria-label={t("Decodificação de vídeo")} data-setting="decoderPriority" value={p.decoderPriority} onChange={(e) => player((x) => ({ ...x, decoderPriority: Number(e.target.value) }))}>
                 <option value={1}>{t("Hardware, com software como reserva (padrão)")}</option>
                 <option value={0}>{t("Somente hardware")}</option>
                 <option value={2}>{t("Somente software")}</option>
               </select>
             </Row>
-            <Row title="NVIDIA RTX Video Super Resolution" description={t("Requer placa NVIDIA RTX e driver compatível; sem efeito em outras placas.")}>
+            <Row title="Melhorar imagem" description="Filmes e episódios. O Anime4K muda bastante em 480p e 720p e é sutil em 1080p numa tela 1080p. Se a placa não aguentar, o nível cai sozinho.">
+              <select aria-label="Melhorar imagem" data-setting="videoEnhancement" value={p.videoEnhancement} onChange={(e) => player((x) => ({ ...x, videoEnhancement: e.target.value as EnhancementName }))}>
+                {ENHANCEMENTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Row>
+            <Row title="Modo do Anime4K" description={`${ANIME_MODES.find((m) => m.value === p.picture.mode)?.hint ?? ""} Efeitos de traço, nitidez e cores ficam no botão Melhorar imagem, dentro do player.`}>
+              <select aria-label="Modo do Anime4K" data-setting="animeMode" value={p.picture.mode} onChange={(e) => player((x) => ({ ...x, picture: { ...x.picture, mode: e.target.value as AnimeModeName } }))}>
+                {ANIME_MODES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Row>
+            <Row title="Movimento do vídeo" description="“Sem tremidas” ajusta os 24 quadros ao monitor. “Fluido” mistura quadros vizinhos e pode deixar rastros. Com qualquer um dos dois, a saída HDR (inclusive RTX Video HDR) vira SDR.">
+              <select aria-label="Movimento do vídeo" data-setting="motionSmoothing" value={p.motionSmoothing} onChange={(e) => player((x) => ({ ...x, motionSmoothing: e.target.value as MotionName }))}>
+                {MOTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </Row>
+            <Row title="NVIDIA RTX Video Super Resolution" description="Requer placa NVIDIA RTX e driver compatível; sem efeito em outras placas. Nos níveis Anime, o Anime4K fica no lugar dela.">
               <Toggle label="NVIDIA RTX Video Super Resolution" checked={p.nvidiaRtxSuperResolution} onChange={(v) => player((x) => ({ ...x, nvidiaRtxSuperResolution: v }))} />
             </Row>
-            <Row title="NVIDIA RTX Video HDR" description="Converte SDR em HDR em telas HDR com placa RTX.">
+            <Row title="NVIDIA RTX Video HDR" description={t("Converte SDR em HDR em telas HDR com placa RTX.")}>
               <Toggle label="NVIDIA RTX Video HDR" checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
             </Row>
+            <WatchingSettings value={p} onChange={player} />
           </div>
         )}
 
@@ -273,34 +282,9 @@ export function Settings() {
             <Row title={t("Idioma de legenda secundário")}>
               <LanguageSelect label={t("Idioma de legenda secundário")} value={p.secondaryPreferredSubtitleLanguage} special={[["", t("Nenhum")]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredSubtitleLanguage: v }))} />
             </Row>
-            <div className="subtitle-preview" aria-hidden>
-              <span
-                style={{
-                  color: `#${sub.textColor.slice(3)}`,
-                  opacity: parseInt(sub.textColor.slice(1, 3), 16) / 255,
-                  fontSize: `${Math.max(11, sub.fontSizeSp)}px`,
-                  fontWeight: sub.bold ? 700 : 400,
-                  background: `rgba(${parseInt(sub.backgroundColor.slice(3, 5), 16)},${parseInt(sub.backgroundColor.slice(5, 7), 16)},${parseInt(sub.backgroundColor.slice(7, 9), 16)},${parseInt(sub.backgroundColor.slice(1, 3), 16) / 255})`,
-                  WebkitTextStroke: sub.outlineEnabled ? `${sub.outlineWidth / 2}px #${sub.outlineColor.slice(3)}` : undefined,
-                  bottom: `${8 + sub.bottomOffset / 5}px`,
-                }}
-              >{t("Exemplo de legenda")}
-              </span>
-            </div>
-            <Row title="Tamanho"><Slider label="Tamanho da legenda" value={sub.fontSizeSp} min={6} max={40} onChange={(v) => subtitle((s) => ({ ...s, fontSizeSp: v }))} /></Row>
-            <Row title={t("Distância da borda inferior")}><Slider label={t("Distância da borda inferior")} value={sub.bottomOffset} min={0} max={200} onChange={(v) => subtitle((s) => ({ ...s, bottomOffset: v }))} /></Row>
-            <Row title="Cor do texto"><ColorField label="Cor do texto" value={sub.textColor} onChange={(v) => subtitle((s) => ({ ...s, textColor: v }))} /></Row>
-            <Row title="Negrito"><Toggle label="Negrito" checked={sub.bold} onChange={(v) => subtitle((s) => ({ ...s, bold: v }))} /></Row>
-            <Row title="Contorno"><Toggle label="Contorno" checked={sub.outlineEnabled} onChange={(v) => subtitle((s) => ({ ...s, outlineEnabled: v }))} /></Row>
-            {sub.outlineEnabled && (
-              <>
-                <Row title="Cor do contorno"><ColorField label="Cor do contorno" value={sub.outlineColor} onChange={(v) => subtitle((s) => ({ ...s, outlineColor: v }))} /></Row>
-                <Row title="Espessura do contorno"><Slider label="Espessura do contorno" value={sub.outlineWidth} min={1} max={5} onChange={(v) => subtitle((s) => ({ ...s, outlineWidth: v }))} /></Row>
-              </>
-            )}
-            <Row title="Fundo"><ColorField label="Cor de fundo" withOpacity value={sub.backgroundColor} onChange={(v) => subtitle((s) => ({ ...s, backgroundColor: v }))} /></Row>
+            <SubtitleAppearance value={sub} onChange={subtitle} />
             <Row title={t("Remover descrições para surdos (SDH)")} description={t("Oculta trechos como [música] e (risos).")}>
-              <Toggle label="Remover SDH" checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
+              <Toggle label={t("Remover SDH")} checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
             </Row>
           </div>
         )}
@@ -311,7 +295,7 @@ export function Settings() {
               <img src="./nuvio-astra-128.png" alt="" width={56} height={56} draggable={false} />
               <div>
                 <div className="about-name">Nuvio Astra</div>
-                <div className="muted small">{t("Versão {version} · Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados", { version: view.appVersion })}</div>
+                <div className="muted small">{t("Versão")} {view.appVersion} · Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados</div>
               </div>
             </div>
             <Row title={t("Idioma da interface")} description={t("Aplicado imediatamente a todo o aplicativo.")}>
@@ -322,7 +306,7 @@ export function Settings() {
             <Row title={t("Perfil ativo")} description={t("Cada perfil tem suas próprias configurações, como no Nuvio original.")}>
               <span>{view.profile.name}</span>
             </Row>
-            <Row title="Pasta de dados do Nuvio Astra" description={t("Gravação atômica com cópia .bak para recuperação. O nome técnico da pasta foi mantido para preservar os dados existentes.")}>
+            <Row title={t("Pasta de dados do Nuvio Astra")} description={t("Gravação atômica com cópia .bak para recuperação. O nome técnico da pasta foi mantido para preservar os dados existentes.")}>
               <code className="path">{view.dataDir}</code>
             </Row>
             {view.migration && (
@@ -332,7 +316,7 @@ export function Settings() {
                     versão {view.migration.version} · {view.migration.backupFiles} arquivos em backup · {view.migration.profiles} perfis · configurações de {view.migration.settingsProfiles ?? 0} perfil(is)
                   </span>
                 </Row>
-                <Row title="Backup verificado"><code className="path">{view.migration.backupDir}</code></Row>
+                <Row title={t("Backup verificado")}><code className="path">{view.migration.backupDir}</code></Row>
               </>
             )}
           </div>
@@ -344,16 +328,25 @@ export function Settings() {
           <div className="settings-group">
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
             <ul className="pending-list">
-              <li><b>Tela de detalhes</b> {t("— escolher as seções exibidas, títulos semelhantes.")}</li>
-              <li><b>{t("Continuar assistindo")}</b> {t("— estilo, ordenação e ação do clique (a fileira em si já funciona).")}</li>
-              <li><b>{t("Fontes e reprodução automática")}</b> {t("— autoplay, filtros por regex, troca automática de fontes, reutilizar o último link.")}</li>
-              <li><b>{t("Próximo episódio e pular introdução/créditos")}</b> {t("— próximo episódio automático, AnimeSkip, IntroDB.")}</li>
-              <li><b>{t("Legendas")}</b> {t("— legendas dos addons e sincronização automática.")}</li>
-              <li><b>Buffer e cache do player</b>, <b>áudio avançado</b> {t("(amplificação, downmix).")}</li>
-              <li><b>Debrid</b> — Real-Debrid, Premiumize, TorBox.</li>
-              <li><b>{t("Integrações")}</b> — Trakt, Simkl, MDBList, TMDB; <b>{t("servidores de mídia")}</b> (Plex, Jellyfin/Emby, Silo).</li>
-              <li><b>Plugins</b>, avatares exclusivos de membros, Watch Party e entrar com outro dispositivo (QR).</li>
-              <li>{t("Sincronizar as preferências do player com outros aparelhos, credenciais de provedores, coleções; Discord Rich Presence, idioma do aplicativo.")}</li>
+              <li><b>Início e catálogos</b> — “Ver todos” de um catálogo, Descobrir na pesquisa, prévia ao passar o mouse e fonte de pôsteres personalizada.</li>
+              <li><b>Tela de detalhes</b> — escolher as seções exibidas, títulos semelhantes, comentários e desfocar episódios não assistidos.</li>
+              <li><b>{t("Assistidos")}</b> — marcar ou desmarcar filmes e episódios como assistidos manualmente.</li>
+              <li><b>{t("Continuar assistindo")}</b> — estilo, ordenação, ação do clique, aviso de retomada ao abrir e opções para ocultar a fileira ou os episódios futuros.</li>
+              <li><b>{t("Fontes")}</b> — seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas, links externos e fontes do YouTube.</li>
+              <li><b>Player</b> — trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.</li>
+              <li><b>Próximo episódio</b> — tocar sozinho sem escolher a fonte, pré-carregar as fontes, preferir o mesmo grupo de fontes e ordem aleatória.</li>
+              <li><b>Pular introdução e créditos</b> — Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.</li>
+              <li><b>{t("Legendas")}</b> — sincronização automática com o áudio.</li>
+              <li><b>{t("Áudio")}</b> — ajuste de atraso no player, amplificação e downmix.</li>
+              <li><b>Buffer e cache</b> — ajustes de buffer e cache em disco para streams HTTP.</li>
+              <li><b>Downloads</b> — baixar filmes e episódios para assistir depois.</li>
+              <li><b>Debrid</b> — Real-Debrid, Premiumize, TorBox e biblioteca na nuvem.</li>
+              <li><b>{t("Integrações")}</b> — Trakt, Simkl, MDBList, TMDB e Discord Rich Presence.</li>
+              <li><b>Servidores de mídia</b> — Plex, Jellyfin, Emby e Silo.</li>
+              <li><b>Plugins e Watch Party</b> — plugins de fontes e assistir junto com outras pessoas.</li>
+              <li><b>Coleções</b> — criar e editar no app e pastas com catálogos do TMDB ou do Trakt.</li>
+              <li><b>Conta e perfis</b> — entrar com outro dispositivo (QR), sincronizar chaves de serviços e avatares exclusivos de membros.</li>
+              <li><b>Aplicativo</b> — idioma do app e busca dentro das Configurações.</li>
             </ul>
           </div>
         )}
@@ -367,7 +360,7 @@ export function Settings() {
 function UpdatesSection() {
   const u = useUpdates();
   const s = u.status;
-  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString(locale(), { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
+  const when = u.lastCheck ? new Date(u.lastCheck).toLocaleString("pt-BR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : null;
   return (
     <div className="settings-group" data-testid="updates-settings">
       <Row title={t("Versão instalada")} description={s?.repository ? `Atualizações publicadas em github.com/${s.repository}` : undefined}>
@@ -436,7 +429,7 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
         <Toggle label={t("Streaming P2P")} checked={settings.enabled} onChange={enable} />
       </Row>
       <Row title={t("Enviar dados (upload)")} description={t("Compartilha com outros peers as partes já baixadas enquanto o vídeo toca.")}>
-        <Toggle label="Enviar dados" checked={settings.enableUpload} onChange={(v) => update((s) => ({ ...s, enableUpload: v }))} />
+        <Toggle label={t("Enviar dados")} checked={settings.enableUpload} onChange={(v) => update((s) => ({ ...s, enableUpload: v }))} />
       </Row>
       <Row title={t("Ocultar estatísticas do torrent")} description={t("Peers, velocidade e progresso sobre o player.")}>
         <Toggle label={t("Ocultar estatísticas")} checked={settings.hideTorrentStats} onChange={(v) => update((s) => ({ ...s, hideTorrentStats: v }))} />
@@ -450,16 +443,16 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
       </Row>
       <Row title={t("Tamanho do cache")} description={t("Espaço em disco para partes já baixadas (reaproveitadas ao assistir de novo).")}>
         <select aria-label={t("Tamanho do cache")} value={settings.cacheSize} onChange={(e) => update((s) => ({ ...s, cacheSize: e.target.value as P2pCacheName }))}>
-          <option value={t("NONE")}>Sem cache</option>
-          <option value={t("GB_2")}>2 GB (padrão)</option>
-          <option value={t("GB_5")}>5 GB</option>
-          <option value={t("GB_10")}>10 GB</option>
+          <option value={t("NONE")}>{t("Sem cache")}</option>
+          <option value={t("GB_2")}>{t("2 GB (padrão)")}</option>
+          <option value={t("GB_5")}>{t("5 GB")}</option>
+          <option value={t("GB_10")}>{t("10 GB")}</option>
         </select>
       </Row>
-      <Row title="Cache em uso" description={t("Não pode ser limpo durante uma reprodução P2P.")}>
+      <Row title={t("Cache em uso")} description={t("Não pode ser limpo durante uma reprodução P2P.")}>
         <span className="account-actions" style={{ marginTop: 0 }}>
           <span>{cache === null ? "—" : megabytes(cache)}</span>
-          <button className="ghost" disabled={busy} onClick={() => void clear()}>{busy ? "Limpando…" : t("Limpar cache")}</button>
+          <button className="ghost" disabled={busy} onClick={() => void clear()}>{busy ? t("Limpando…") : t("Limpar cache")}</button>
         </span>
       </Row>
       {message && <div className="addon-feedback ok" role="status">{message}</div>}
@@ -474,7 +467,7 @@ function HomeSection({ settings, catalogs, update }: {
   catalogs: CatalogChoice[];
   update(change: (s: ProfileSettings) => ProfileSettings, note?: string, delay?: number): void;
 }) {
-  const note = "A tela Início é atualizada.";
+  const note = t("A tela Início é atualizada.");
   const home = settings.home;
   // Current order: saved preferences first (by order), then catalogs without one.
   const ordered = [...catalogs].sort((a, b) => {
@@ -484,18 +477,19 @@ function HomeSection({ settings, catalogs, update }: {
   });
   const pref = (c: CatalogChoice) => home.items.find((i) => i.key === c.key);
 
-  /** Rewrites the preference list for every catalog, in `order`, keeping hero-source flags. */
+  /** Rewrites the preference list in `order`, keeping hero-source flags. Rows not listed now (an
+   *  addon that is off or did not answer) keep their saved position, as in the original. */
   const saveCatalogs = (order: CatalogChoice[], patch?: { key: string; enabled?: boolean; customTitle?: string }, delay?: number) =>
     update(
       (s) => ({
         ...s,
         home: {
           ...s.home,
-          items: order.map((c, index) => {
+          items: [...order.map((c, index) => {
             const old = s.home.items.find((i) => i.key === c.key);
             const base = { key: c.key, customTitle: old?.customTitle ?? c.customTitle, enabled: old?.enabled ?? c.enabled, heroSourceEnabled: old?.heroSourceEnabled ?? true, order: index };
             return patch && patch.key === c.key ? { ...base, ...(patch.enabled !== undefined && { enabled: patch.enabled }), ...(patch.customTitle !== undefined && { customTitle: patch.customTitle }) } : base;
-          }),
+          }), ...s.home.items.filter((i) => !order.some((c) => c.key === i.key))],
         },
       }),
       note,
@@ -512,10 +506,13 @@ function HomeSection({ settings, catalogs, update }: {
   return (
     <>
       <div className="settings-group">
-        <Row title="Destaque no topo" description={t("Mostra o título em destaque no início da tela.")}>
-          <Toggle label="Destaque no topo" checked={home.heroEnabled} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, heroEnabled: v } }), note)} />
+        <Row title={t("Destaque no topo")} description={t("Mostra o título em destaque no início da tela.")}>
+          <Toggle label={t("Destaque no topo")} checked={home.heroEnabled} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, heroEnabled: v } }), note)} />
         </Row>
-        <Row title={t("Mostrar o tipo no nome do catálogo")} description="Ex.: “Em Alta - Filmes”.">
+        {home.heroEnabled && (
+          <HeroCatalogs home={home} catalogs={ordered} onChange={(heroCatalogs) => update((s) => ({ ...s, home: { ...s.home, heroCatalogs } }), note, 0)} />
+        )}
+        <Row title={t("Mostrar o tipo no nome do catálogo")} description={t("Ex.: “Em Alta - Filmes”.")}>
           <Toggle label={t("Mostrar o tipo no nome do catálogo")} checked={home.showCatalogType} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, showCatalogType: v } }), note)} />
         </Row>
         <Row title={t("Ocultar conteúdo ainda não lançado")} description={t("Remove dos catálogos títulos com data de lançamento futura.")}>
@@ -523,6 +520,7 @@ function HomeSection({ settings, catalogs, update }: {
         </Row>
       </div>
       <h2 className="settings-subtitle">Catálogos ({ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length} de {ordered.length} {t("visíveis)")}</h2>
+      <p className="muted small">Com uma conta Nuvio, a ordem, os nomes e o que fica visível sincronizam sozinhos com os outros aparelhos.</p>
       <div className="settings-group catalogs">
         {ordered.map((c, index) => {
           const enabled = pref(c)?.enabled ?? c.enabled;

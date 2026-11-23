@@ -12,6 +12,8 @@ use nuvio_core::url::build_resource_url;
 use nuvio_store::{default_legacy_data_dir, LegacyStore};
 use serde::Serialize;
 use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 /// What the player can do with a stream in this stage.
@@ -65,21 +67,31 @@ pub struct StreamGroup {
     pub error: Option<String>,
 }
 
+/// Searches whose keys still work: the Details list stays playable while the player searches the
+/// next episode, and a key never means a stream of another search.
+const KEPT_SEARCHES: usize = 6;
+
 #[derive(Default)]
 pub struct StreamCache {
-    by_key: Mutex<HashMap<String, StreamItem>>,
+    searches: Mutex<VecDeque<HashMap<String, StreamItem>>>,
+    last_search: AtomicU64,
 }
 
 impl StreamCache {
     pub fn get(&self, key: &str) -> Option<StreamItem> {
-        self.by_key.lock().expect("stream cache lock").get(key).cloned()
+        self.searches.lock().expect("stream cache lock").iter().find_map(|search| search.get(key).cloned())
     }
     /// Drops the keys of the last search (profile switch: no stream of another profile is playable).
     pub fn clear(&self) {
-        self.by_key.lock().expect("stream cache lock").clear();
+        self.searches.lock().expect("stream cache lock").clear();
     }
-    fn replace(&self, items: HashMap<String, StreamItem>) {
-        *self.by_key.lock().expect("stream cache lock") = items;
+    fn next_search(&self) -> u64 {
+        self.last_search.fetch_add(1, Ordering::Relaxed) + 1
+    }
+    fn keep(&self, items: HashMap<String, StreamItem>) {
+        let mut searches = self.searches.lock().expect("stream cache lock");
+        searches.push_front(items);
+        searches.truncate(KEPT_SEARCHES);
     }
 }
 
@@ -134,7 +146,7 @@ pub async fn search(
 }
 
 /// Searches streams for one title in the given addons (those that serve `stream` for it), in order.
-/// The previous search's streams are replaced in `cache` (keys are only valid for the last search).
+/// The streams go to `cache`, which keeps the last few searches.
 pub async fn search_in(
     client: &AddonClient,
     cache: &StreamCache,
@@ -166,6 +178,7 @@ pub async fn search_in(
         responses.push((name.to_string(), parse_streams(payload, name, "uitest:p2p", None).map_err(|e| e.to_string())));
     }
 
+    let search = cache.next_search();
     let mut cached = HashMap::new();
     let groups = responses
         .into_iter()
@@ -179,7 +192,7 @@ pub async fn search_in(
                     .into_iter()
                     .enumerate()
                     .map(|(i, stream)| {
-                        let key = format!("{group_index}:{i}");
+                        let key = format!("{search}:{group_index}:{i}");
                         let entry = StreamEntry {
                             key: key.clone(),
                             name: stream.name.clone(),
@@ -195,7 +208,7 @@ pub async fn search_in(
             },
         })
         .collect();
-    cache.replace(cached);
+    cache.keep(cached);
     groups
 }
 

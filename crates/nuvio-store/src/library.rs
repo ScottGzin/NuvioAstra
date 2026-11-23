@@ -23,8 +23,10 @@ use crate::StoreError;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
-pub const COMPLETION_FRACTION: f64 = 0.90;
-pub const COMPLETION_PERCENT: f32 = 90.0;
+/// The original's fixed rule, and the default of "Considerar assistido".
+pub const COMPLETION_PERCENT: i64 = 90;
+/// With 100 %, the last frames: a file rarely reports exactly its duration.
+const END_TOLERANCE: f64 = 0.0005;
 pub const PROGRESS_STORE_THRESHOLD_MS: i64 = 1_000;
 pub const MIN_REAL_CONTENT_DURATION_MS: i64 = 121_000;
 pub const CONTINUE_WATCHING_LIMIT: usize = 20;
@@ -55,9 +57,9 @@ pub fn should_store(position_ms: i64, duration_ms: i64) -> bool {
     !is_short_placeholder(duration_ms) && position_ms >= PROGRESS_STORE_THRESHOLD_MS
 }
 
-/// `isProgressComplete`: ended, or at least 90 % watched (never for placeholder clips; closing the
-/// player is not "ended").
-pub fn is_complete(position_ms: i64, duration_ms: i64, ended: bool) -> bool {
+/// `isProgressComplete`: ended, or at least `percent` watched (90 in the original, the profile's
+/// choice here). Never for placeholder clips; closing the player is not "ended".
+pub fn is_complete(position_ms: i64, duration_ms: i64, ended: bool, percent: i64) -> bool {
     if is_short_placeholder(duration_ms) {
         return false;
     }
@@ -67,7 +69,8 @@ pub fn is_complete(position_ms: i64, duration_ms: i64, ended: bool) -> bool {
     if duration_ms <= 0 {
         return false;
     }
-    position_ms as f64 / duration_ms as f64 >= COMPLETION_FRACTION
+    let needed = if percent >= 100 { 1.0 - END_TOLERANCE } else { percent as f64 / 100.0 };
+    position_ms as f64 / duration_ms as f64 >= needed
 }
 
 /// `buildWatchProgressKey`.
@@ -80,6 +83,10 @@ pub fn progress_key(parent_meta_id: &str, season: Option<i32>, episode: Option<i
 
 fn poster_shape() -> String {
     "Poster".into()
+}
+
+fn completion_percent() -> i64 {
+    COMPLETION_PERCENT
 }
 
 /// A saved movie/series (`LibraryItem`, display fields only). Reads the original's JSON too
@@ -163,6 +170,10 @@ pub struct ProgressEntry {
     pub progress_percent: Option<f32>,
     #[serde(default)]
     pub progress_key: Option<String>,
+    /// "Considerar assistido" of the profile it was read for. Never stored: positions are what is
+    /// kept and synced, so changing the setting also reclassifies what was watched before.
+    #[serde(skip, default = "completion_percent")]
+    pub watched_percent: i64,
 }
 
 impl ProgressEntry {
@@ -179,9 +190,15 @@ impl ProgressEntry {
 
     /// `isEffectivelyCompleted`.
     pub fn effectively_completed(&self) -> bool {
+        if let Some(percent) = self.percent() {
+            return self.is_completed || percent >= self.watched_percent as f32;
+        }
+        // A known position decides alone: finishing stores the position at the end, and a flag
+        // computed with the original's 90 % must not outweigh a higher choice.
+        if self.last_position_ms > 0 && self.duration_ms >= MIN_REAL_CONTENT_DURATION_MS {
+            return is_complete(self.last_position_ms, self.duration_ms, false, self.watched_percent);
+        }
         self.is_completed
-            || self.percent().is_some_and(|p| p >= COMPLETION_PERCENT)
-            || (self.duration_ms > 0 && is_complete(self.last_position_ms, self.duration_ms, false))
     }
 
     /// `normalizedCompletion` + `withResolvedProgressKey` (position kept as reported).
@@ -344,6 +361,10 @@ pub fn dedupe_library(items: impl IntoIterator<Item = LibraryItem>) -> Vec<Libra
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryEntry {
+    /// A next episode (not started), shown after the previous one was finished.
+    pub next_up: bool,
+    /// Release date of a next episode that is not out yet.
+    pub airs: Option<String>,
     /// Progress key of the movie/episode (used to remove it).
     pub key: String,
     pub meta_id: String,
@@ -366,6 +387,8 @@ pub struct HistoryEntry {
 impl HistoryEntry {
     pub fn from_progress(e: &ProgressEntry) -> Self {
         Self {
+            next_up: false,
+            airs: None,
             key: e.key(),
             meta_id: e.parent_meta_id.clone(),
             meta_type: e.parent_meta_type.clone(),
@@ -387,6 +410,8 @@ impl HistoryEntry {
 
     fn from_watched(w: &WatchedItem) -> Self {
         Self {
+            next_up: false,
+            airs: None,
             key: progress_key(&w.id, w.season, w.episode),
             meta_id: w.id.clone(),
             meta_type: w.content_type.clone(),
@@ -475,10 +500,10 @@ pub struct PlaybackItem {
 
 impl PlaybackItem {
     /// `WatchProgressRepository.upsert`: `None` when the position is not worth storing yet.
-    pub fn entry(&self, position_ms: i64, duration_ms: i64, ended: bool, at_epoch_ms: i64) -> Option<ProgressEntry> {
+    pub fn entry(&self, position_ms: i64, duration_ms: i64, ended: bool, at_epoch_ms: i64, watched_percent: i64) -> Option<ProgressEntry> {
         let position_ms = position_ms.max(0);
         let duration_ms = duration_ms.max(0);
-        let completed = is_complete(position_ms, duration_ms, ended);
+        let completed = is_complete(position_ms, duration_ms, ended, watched_percent);
         if !completed && !should_store(position_ms, duration_ms) {
             return None;
         }
@@ -504,6 +529,7 @@ impl PlaybackItem {
                 is_completed: completed,
                 progress_percent: None,
                 progress_key: None,
+                watched_percent,
             }
             .normalized(),
         )
@@ -548,11 +574,22 @@ impl AppStore {
     }
 
     pub fn progress(&self, profile: i64) -> Result<Vec<ProgressEntry>, StoreError> {
-        Ok(self.read::<ProgressDoc>(&progress_doc(profile))?.unwrap_or_default().entries)
+        let percent = self.watched_percent(profile);
+        let mut entries = self.read::<ProgressDoc>(&progress_doc(profile))?.unwrap_or_default().entries;
+        for entry in &mut entries {
+            entry.watched_percent = percent;
+            entry.is_completed = entry.effectively_completed();
+        }
+        Ok(entries)
     }
 
     pub fn watched(&self, profile: i64) -> Result<Vec<WatchedItem>, StoreError> {
         Ok(self.read::<WatchedDoc>(&watched_doc(profile))?.unwrap_or_default().items)
+    }
+
+    /// "Considerar assistido" of a profile (the original's 90 % when the settings cannot be read).
+    pub fn watched_percent(&self, profile: i64) -> i64 {
+        self.profile_settings(profile).map_or(COMPLETION_PERCENT, |s| s.player.watched_percent)
     }
 
     /// Stores one playback position. An older report than the stored one is ignored (saves may
@@ -563,6 +600,7 @@ impl AppStore {
         let entry = entry.normalized();
         let key = entry.key();
         let mut entries = self.progress(profile)?;
+        let entry = ProgressEntry { watched_percent: self.watched_percent(profile), ..entry }.normalized();
         if let Some(i) = entries.iter().position(|e| e.key() == key) {
             if entries[i].last_updated_epoch_ms > entry.last_updated_epoch_ms {
                 return Ok(None);
@@ -623,6 +661,23 @@ impl AppStore {
     pub(crate) fn import_library(&self, profile: i64, items: Vec<LibraryItem>) -> Result<(), StoreError> {
         self.write(&library_doc(profile), &LibraryDoc { items: dedupe_library(items) })
     }
+    /// Titles and artwork for entries that came from the account, which keeps only ids and
+    /// positions (`enrichWatchProgressEntry`). Not a change to send: positions and dates stay.
+    pub fn enrich_progress(&self, profile: i64, meta_id: &str, enrich: impl Fn(&mut ProgressEntry)) -> Result<bool, StoreError> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut entries = self.progress(profile)?;
+        let mut changed = false;
+        for entry in entries.iter_mut().filter(|e| e.parent_meta_id == meta_id) {
+            let before = entry.clone();
+            enrich(entry);
+            changed |= *entry != before;
+        }
+        if changed {
+            self.import_progress(profile, entries)?;
+        }
+        Ok(changed)
+    }
+
     pub(crate) fn import_progress(&self, profile: i64, entries: Vec<ProgressEntry>) -> Result<(), StoreError> {
         self.write(&progress_doc(profile), &ProgressDoc { entries: dedupe_progress(entries) })
     }
@@ -670,17 +725,19 @@ mod tests {
         assert!(should_store(1_000, 3_600_000));
         assert!(should_store(5_000, 0), "unknown duration still stores");
         assert!(!should_store(60_000, 120_000), "placeholder clip");
-        assert!(is_complete(3_240_000, 3_600_000, false), "90 %");
-        assert!(!is_complete(3_239_000, 3_600_000, false));
-        assert!(is_complete(10_000, 3_600_000, true), "ended");
-        assert!(!is_complete(119_000, 120_000, true), "placeholder never completes");
-        assert!(!is_complete(10_000, 0, false));
+        assert!(is_complete(3_240_000, 3_600_000, false, 90), "90 %");
+        assert!(!is_complete(3_239_000, 3_600_000, false, 90));
+        assert!(is_complete(10_000, 3_600_000, true, 90), "ended");
+        assert!(!is_complete(119_000, 120_000, true, 90), "placeholder never completes");
+        assert!(!is_complete(10_000, 0, false, 90));
+        assert!(!is_complete(3_480_000, 3_600_000, false, 97), "97 % is not reached at 96.7 %");
+        assert!(is_complete(3_492_000, 3_600_000, false, 97) && !is_complete(3_590_000, 3_600_000, false, 100) && is_complete(3_599_000, 3_600_000, false, 100));
         assert_eq!(progress_key("tt1", Some(2), Some(3)), "tt1_s2e3");
         assert_eq!(progress_key("tt1", None, None), "tt1");
-        assert!(item("movie", "tt1", None, None).entry(500, 3_600_000, false, 1).is_none());
-        let closed = item("movie", "tt1", None, None).entry(600_000, 3_600_000, false, 1).unwrap();
+        assert!(item("movie", "tt1", None, None).entry(500, 3_600_000, false, 1, 90).is_none());
+        let closed = item("movie", "tt1", None, None).entry(600_000, 3_600_000, false, 1, 90).unwrap();
         assert!(!closed.is_completed, "closing the player does not complete");
-        let ended = item("movie", "tt1", None, None).entry(3_590_000, 3_600_000, true, 1).unwrap();
+        let ended = item("movie", "tt1", None, None).entry(3_590_000, 3_600_000, true, 1, 90).unwrap();
         assert!(ended.is_completed && ended.last_position_ms == 3_600_000);
     }
 
@@ -688,9 +745,9 @@ mod tests {
     fn episodes_keep_separate_progress_and_continue_watching_follows_series_rule() {
         let dir = temp("cw");
         let store = AppStore::open(&dir).unwrap();
-        let e1 = item("series", "tt9", Some(1), Some(1)).entry(600_000, 2_400_000, false, 1_000).unwrap();
-        let e2 = item("series", "tt9", Some(1), Some(2)).entry(300_000, 2_400_000, false, 2_000).unwrap();
-        let movie = item("movie", "tt5", None, None).entry(1_200_000, 6_000_000, false, 1_500).unwrap();
+        let e1 = item("series", "tt9", Some(1), Some(1)).entry(600_000, 2_400_000, false, 1_000, 90).unwrap();
+        let e2 = item("series", "tt9", Some(1), Some(2)).entry(300_000, 2_400_000, false, 2_000, 90).unwrap();
+        let movie = item("movie", "tt5", None, None).entry(1_200_000, 6_000_000, false, 1_500, 90).unwrap();
         for e in [e1, e2, movie] {
             store.record_progress(1, e, None).unwrap();
         }
@@ -704,7 +761,7 @@ mod tests {
         assert_eq!(resume_for(&all, "tt9").unwrap().key(), "tt9_s1e2");
 
         // Completing the latest episode: the series leaves Continue watching and the episode is watched.
-        let done = item("series", "tt9", Some(1), Some(2)).entry(2_200_000, 2_400_000, false, 3_000).unwrap();
+        let done = item("series", "tt9", Some(1), Some(2)).entry(2_200_000, 2_400_000, false, 3_000, 90).unwrap();
         store.record_progress(1, done, None).unwrap();
         let all = store.progress(1).unwrap();
         assert_eq!(continue_watching(&all, 20).iter().map(|e| e.key()).collect::<Vec<_>>(), vec!["tt5"]);
@@ -714,14 +771,14 @@ mod tests {
         assert_eq!((watched[0].season, watched[0].episode), (Some(1), Some(2)));
 
         // Replaying the same episode updates its entry (no duplicate) and its date.
-        let again = item("series", "tt9", Some(1), Some(1)).entry(900_000, 2_400_000, false, 4_000).unwrap();
+        let again = item("series", "tt9", Some(1), Some(1)).entry(900_000, 2_400_000, false, 4_000, 90).unwrap();
         store.record_progress(1, again, None).unwrap();
         let all = store.progress(1).unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].key(), "tt9_s1e1");
         assert_eq!(all[0].last_updated_epoch_ms, 4_000);
         // A late (older) save does not overwrite a newer one.
-        let stale = item("series", "tt9", Some(1), Some(1)).entry(100_000, 2_400_000, false, 3_500).unwrap();
+        let stale = item("series", "tt9", Some(1), Some(1)).entry(100_000, 2_400_000, false, 3_500, 90).unwrap();
         assert!(store.record_progress(1, stale, None).unwrap().is_none());
         assert_eq!(store.progress(1).unwrap()[0].last_position_ms, 900_000);
 

@@ -11,7 +11,7 @@
 //! default decoder) do not depend on the user's settings.
 
 use super::language_aliases::LANGUAGE_CODE_ALIASES;
-use nuvio_player::{DecoderPriority, PlayerCommand, PlayerSnapshot, ResizeMode, SubtitleStyle, VideoConfig};
+use nuvio_player::{DecoderPriority, Enhancement, Motion, Picture, PlayerCommand, PlayerSnapshot, ResizeMode, SubtitleStyle, VideoConfig};
 use nuvio_store::settings::PlayerSettings;
 use std::time::{Duration, Instant};
 
@@ -116,7 +116,35 @@ pub fn video_config(settings: &PlayerSettings) -> VideoConfig {
         },
         nvidia_rtx_super_resolution: settings.nvidia_rtx_super_resolution,
         nvidia_rtx_hdr: settings.nvidia_rtx_hdr,
+        motion: Motion::from_name(&settings.motion_smoothing),
+        enhancement: Enhancement::from_name(&settings.video_enhancement),
+        picture: picture(settings),
     }
+}
+
+/// The player menu and the watchdog both save in the profile (as the choice for the next videos).
+pub fn save_improvements(store: &nuvio_store::nextgen::AppStore, profile: i64, motion: Option<Motion>, enhancement: Option<Enhancement>, picture: Option<Picture>) {
+    let result = store.update_profile_settings(profile, |settings| {
+        // The two structs share their camelCase names.
+        if let Some(value) = picture.and_then(|p| serde_json::to_value(p).ok()).and_then(|v| serde_json::from_value(v).ok()) {
+            settings.player.picture = value;
+        }
+        if let Some(motion) = motion {
+            settings.player.motion_smoothing = motion.name().into();
+        }
+        if let Some(enhancement) = enhancement {
+            settings.player.video_enhancement = enhancement.name().into();
+        }
+    });
+    if let Err(error) = result {
+        eprintln!("[player] improvements not saved: {error}");
+    }
+}
+
+/// Live TV and trailers: the video as it comes. `display-resample` follows the display's clock,
+/// which would drift from a live stream's.
+pub fn video_config_unenhanced(settings: &PlayerSettings) -> VideoConfig {
+    VideoConfig { motion: Motion::Off, enhancement: Enhancement::Off, picture: Picture::default(), ..video_config(settings) }
 }
 
 pub fn resize_mode(settings: &PlayerSettings) -> ResizeMode {
@@ -128,7 +156,12 @@ pub fn resize_mode(settings: &PlayerSettings) -> ResizeMode {
     }
 }
 
-pub fn subtitle_style(settings: &PlayerSettings) -> SubtitleStyle {
+fn picture(settings: &PlayerSettings) -> Picture {
+    serde_json::to_value(&settings.picture).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default()
+}
+
+/// `font`: `fonts::mpv_font` of the chosen id.
+pub fn subtitle_style(settings: &PlayerSettings, font: (String, Option<String>)) -> SubtitleStyle {
     let s = &settings.subtitle;
     SubtitleStyle {
         text_color: s.text_color.clone(),
@@ -140,15 +173,25 @@ pub fn subtitle_style(settings: &PlayerSettings) -> SubtitleStyle {
         font_size_sp: s.font_size_sp as f64,
         bottom_offset: s.bottom_offset,
         strip_sdh: s.strip_sdh,
+        shadow_enabled: s.shadow_enabled,
+        shadow_opacity: s.shadow_opacity,
+        shadow_size: s.shadow_size as f64,
+        italic: s.italic,
+        spacing: s.spacing as f64,
+        blur: s.blur as f64,
+        align: s.align.clone(),
+        override_ass: s.override_ass,
+        font: font.0,
+        fonts_dir: font.1,
         ..SubtitleStyle::default()
     }
 }
 
 /// Commands applied right after the session opens.
-pub fn startup_commands(settings: &PlayerSettings, audio: &[String]) -> Vec<PlayerCommand> {
+pub fn startup_commands(settings: &PlayerSettings, audio: &[String], font: (String, Option<String>)) -> Vec<PlayerCommand> {
     let mut commands = vec![
         PlayerCommand::SetResizeMode { mode: resize_mode(settings) },
-        PlayerCommand::ApplySubtitleStyle { style: subtitle_style(settings) },
+        PlayerCommand::ApplySubtitleStyle { style: subtitle_style(settings, font) },
     ];
     if !audio.is_empty() {
         commands.push(PlayerCommand::SetAudioLanguages { languages: audio.to_vec() });

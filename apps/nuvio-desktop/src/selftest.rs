@@ -495,7 +495,7 @@ fn play_and_check(
 
     // External subtitle add (selected) then remove (original: removeExternalSubtitles).
     if let Some(sub) = external_subtitle {
-        let _ = command(app, PlayerCommand::AddSubtitle { url: sub });
+        let _ = command(app, PlayerCommand::AddSubtitle { url: sub, title: None, lang: None });
         let loaded = wait_for(app, Duration::from_secs(6), |s| s.tracks.iter().any(|t| t.kind == "sub" && t.external && t.selected));
         std::thread::sleep(Duration::from_millis(800));
         visual(&mut r, window, dir, &format!("{id}-subtitle"), video_region(window, false), "video visible: with external subtitle");

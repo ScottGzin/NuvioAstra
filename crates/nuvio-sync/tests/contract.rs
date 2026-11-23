@@ -31,7 +31,7 @@ fn fav(id: &str) -> LibraryItem {
 
 fn play(store: &AppStore, profile: i64, id: &str, pos: i64, at: i64) {
     let item: PlaybackItem = serde_json::from_value(json!({ "contentType": "movie", "parentMetaId": id, "parentMetaType": "movie", "videoId": id, "title": id })).unwrap();
-    store.record_progress(profile, item.entry(pos, 6_000_000, false, at).unwrap(), None).unwrap();
+    store.record_progress(profile, item.entry(pos, 6_000_000, false, at, 90).unwrap(), None).unwrap();
 }
 
 fn rt() -> tokio::runtime::Runtime {
@@ -133,12 +133,29 @@ fn first_sync_merges_both_origins_then_incremental_only() {
         mk.remote_library_upsert(1, "tt-pending", "Versão antiga da conta");
         mk.remote_progress(1, "tt-remote-play", 300_000, 4_000);
         mk.addons.insert(1, vec![json!({ "url": "https://remote.test/manifest.json", "name": "R", "enabled": true, "sort_order": 0 })]);
+        mk.collections.insert(1, json!([{ "id": "c1", "title": "Estúdios", "folders": [{ "id": "f1", "title": "Marvel", "focusGifUrl": "https://img.test/m.gif" }] }]));
+        mk.home.insert(1, json!({ "items": [
+            { "key": "r:movie:top", "order": 0 },
+            { "key": "collection_c1", "is_collection": true, "collection_id": "c1", "order": 1 },
+            { "key": "r:series:new", "order": 2 }
+        ]}));
     }
     rt().block_on(async {
         let e = engine(&base, &d, Some(USER));
         e.sign_in(EMAIL, PASSWORD).await.unwrap();
         let report = e.sync(1, true).await.unwrap();
         assert!(report.failed.is_empty(), "{:?}", report.failed);
+
+        // Collections: read from the account and kept as they are; never pushed.
+        assert_eq!(store.collections(1).unwrap().unwrap()[0]["folders"][0]["focusGifUrl"], "https://img.test/m.gif");
+        assert!(report.changed.contains(&"collections".to_string()), "{:?}", report.changed);
+        assert!(!m.lock().unwrap().calls.iter().any(|c| c == "sync_push_collections"));
+
+        // Home layout: the account's order, read only.
+        let order = |store: &AppStore| store.profile_settings(1).unwrap().home.items.iter().map(|p| p.key.clone()).collect::<Vec<_>>();
+        assert_eq!(order(&store), ["r:movie:top", "collection_c1", "r:series:new"]);
+        assert!(report.changed.contains(&"home".to_string()), "{:?}", report.changed);
+        assert!(!m.lock().unwrap().calls.iter().any(|c| c.starts_with("sync_push_home") || c.starts_with("sync_push_profile_settings")), "a first sync only adopts");
 
         // Local: union, no duplicates.
         let keys: Vec<String> = store.favorites(1).unwrap().iter().map(|i| i.key()).collect();
@@ -474,18 +491,225 @@ fn first_sync_waits_for_the_reviewed_preview_which_is_read_only_and_exact() {
     });
 }
 
+fn desktop_blob() -> Value {
+    json!({ "version": 4, "unknown_top": "keep", "features": {
+        "theme_settings": { "selected_theme": { "type": "string", "value": "OCEAN" } },
+        "poster_card_style_settings_payload": "{\"widthDp\":140}",
+        "debrid_settings": { "debrid_enabled": { "type": "boolean", "value": true } },
+        "player_settings": {
+            "skip_intro_enabled": { "type": "boolean", "value": false },
+            "hold_to_speed_value": { "type": "float", "value": 2.5 },
+            "subtitle_appearance": { "type": "string", "value": "{\"fontId\":\"inter\"}" },
+            "preferred_audio_language": { "type": "string", "value": "ja" },
+            "subtitle_font_size_sp": { "type": "int", "value": 22 }
+        }
+    }})
+}
+
+#[test]
+fn preferences_sync_both_ways_between_computers_without_losing_the_rest() {
+    let (base, m) = mock::start();
+    let (da, db) = (dir("prefs-a"), dir("prefs-b"));
+    let (a, b) = (AppStore::open(&da).unwrap(), AppStore::open(&db).unwrap());
+    a.update_profile_settings(1, |s| s.player.preferred_audio_language = "en".into()).unwrap();
+    {
+        let mut mk = m.lock().unwrap();
+        seed_profiles(&mut mk);
+        mk.blobs.insert(1, desktop_blob());
+        mk.home.insert(1, json!({ "show_catalog_type": true, "future": [1, 2], "items": [
+            { "key": "x:movie:top", "order": 0, "enabled": true, "extra": "keep" },
+            { "key": "collection_c1", "is_collection": true, "collection_id": "c1", "order": 1 },
+            { "key": "server:plex:movies", "order": 2 }
+        ]}));
+    }
+    rt().block_on(async {
+        let ea = engine(&base, &da, Some(USER));
+        ea.sign_in(EMAIL, PASSWORD).await.unwrap();
+        // The mock keeps a single session: the second computer uses the same one.
+        std::fs::copy(da.join("account.dat"), db.join("account.dat")).unwrap();
+        let eb = engine(&base, &db, Some(USER));
+        ea.sync(1, true).await.unwrap();
+        assert_eq!(a.profile_settings(1).unwrap().player.preferred_audio_language, "ja", "first sync: the account's");
+        assert!(da.join("settings-before-sync.json").exists(), "what was here is kept");
+        assert_eq!(m.lock().unwrap().blobs[&1], desktop_blob(), "nothing written by a first sync");
+
+        eb.sync(1, true).await.unwrap();
+        assert_eq!(b.profile_settings(1).unwrap().player.subtitle.font_size_sp, 22);
+
+        // Each computer changes another field before either syncs.
+        a.update_profile_settings(1, |s| s.player.subtitle.bold = true).unwrap();
+        a.update_profile_settings(1, |s| {
+            for row in s.home.items.iter_mut() {
+                match row.key.as_str() {
+                    "collection_c1" => row.order = 0,
+                    "x:movie:top" => row.order = 1,
+                    _ => {}
+                }
+            }
+        })
+        .unwrap();
+        b.update_profile_settings(1, |s| {
+            s.player.preferred_audio_language = "pt".into();
+            s.player.motion_smoothing = "fluid".into();
+            s.home.items.iter_mut().find(|r| r.key == "x:movie:top").unwrap().custom_title = "Em alta".into();
+        })
+        .unwrap();
+        assert!(ea.status().pending > 0 && eb.status().pending > 0, "waiting to be sent");
+
+        ea.sync(1, false).await.unwrap();
+        eb.sync(1, false).await.unwrap();
+        ea.sync(1, false).await.unwrap();
+
+        for store in [&a, &b] {
+            let s = store.profile_settings(1).unwrap();
+            assert!(s.player.subtitle.bold);
+            assert_eq!(s.player.preferred_audio_language, "pt");
+            let row = |key: &str| s.home.items.iter().find(|r| r.key == key).unwrap();
+            assert_eq!((row("collection_c1").order, row("x:movie:top").order), (0, 1));
+            assert_eq!(row("x:movie:top").custom_title, "Em alta");
+        }
+        assert_eq!((ea.status().pending, eb.status().pending), (0, 0));
+        assert_eq!(a.profile_settings(1).unwrap().player.motion_smoothing, "off", "Astra-only options stay on each computer");
+
+        // The account: exactly the original blob plus the two changed fields.
+        let mut expected = desktop_blob();
+        expected["features"]["player_settings"]["subtitle_bold"] = json!({ "type": "boolean", "value": true });
+        expected["features"]["player_settings"]["preferred_audio_language"] = json!({ "type": "string", "value": "pt" });
+        assert_eq!(m.lock().unwrap().blobs[&1], expected);
+        let home = m.lock().unwrap().home[&1].clone();
+        assert_eq!(home["future"], json!([1, 2]));
+        let items = home["items"].as_array().unwrap();
+        assert_eq!(items.len(), 3);
+        assert!(items.contains(&json!({ "key": "server:plex:movies", "order": 2 })), "{home}");
+        assert!(items.iter().any(|i| i["extra"] == "keep" && i["custom_title"] == "Em alta"));
+
+        // Settled: no more writes.
+        m.lock().unwrap().calls.clear();
+        ea.sync(1, false).await.unwrap();
+        eb.sync(1, false).await.unwrap();
+        assert!(!m.lock().unwrap().calls.iter().any(|c| c.starts_with("sync_push_")), "{:?}", m.lock().unwrap().calls);
+
+        // The account clears a field: the default here, not sent back.
+        m.lock().unwrap().blobs.get_mut(&1).unwrap()["features"]["player_settings"].as_object_mut().unwrap().remove("subtitle_bold");
+        ea.sync(1, false).await.unwrap();
+        assert!(!a.profile_settings(1).unwrap().player.subtitle.bold);
+        assert!(m.lock().unwrap().blobs[&1]["features"]["player_settings"].get("subtitle_bold").is_none());
+
+        // An editor opened before that sync saves only its own edit.
+        let mut opened = a.profile_settings(1).unwrap();
+        opened.player.subtitle.bold = true; // what it still shows
+        let mut edited = opened.clone();
+        edited.player.resize_mode = "Zoom".into();
+        let saved = a.edit_profile_settings(1, &opened, &edited).unwrap();
+        assert_eq!((saved.player.resize_mode.as_str(), saved.player.subtitle.bold), ("Zoom", false));
+    });
+}
+
+#[test]
+fn failed_preference_push_waits_and_a_missing_blob_is_never_created() {
+    let (base, m) = mock::start();
+    let d = dir("prefs-retry");
+    let store = AppStore::open(&d).unwrap();
+    {
+        let mut mk = m.lock().unwrap();
+        seed_profiles(&mut mk);
+        mk.home.insert(1, json!({ "items": [{ "key": "x:movie:top", "order": 0 }] }));
+    }
+    rt().block_on(async {
+        let e = engine(&base, &d, Some(USER));
+        e.sign_in(EMAIL, PASSWORD).await.unwrap();
+        e.sync(1, true).await.unwrap();
+
+        store.update_profile_settings(1, |s| { s.player.subtitle.bold = true; s.home.items[0].enabled = false; }).unwrap();
+        m.lock().unwrap().failing.push("sync_push_home_catalog_settings".into());
+        let report = e.sync(1, false).await.unwrap();
+        assert!(!report.failed.is_empty());
+        assert!(!m.lock().unwrap().blobs.contains_key(&1), "no partial blob");
+        assert_eq!(e.status().pending, 1, "the Home change waits");
+        assert!(!store.profile_settings(1).unwrap().home.items[0].enabled, "and is not undone");
+
+        m.lock().unwrap().failing.clear();
+        e.sync(1, false).await.unwrap();
+        assert_eq!(m.lock().unwrap().home[&1]["items"][0]["enabled"], false);
+        assert_eq!(e.status().pending, 0);
+
+        // A saved position goes out by itself, without reading the account.
+        play(&store, 1, "tt-minute", 120_000, 9_000);
+        m.lock().unwrap().calls.clear();
+        assert_eq!(e.push_pending(1).await.unwrap().sent, 1);
+        assert_eq!(m.lock().unwrap().calls, vec!["sync_push_watch_progress".to_string()]);
+    });
+}
+
+#[test]
+fn opening_receives_every_profile_before_anything_is_sent() {
+    let (base, m) = mock::start();
+    let d = dir("receive-first");
+    let store = AppStore::open(&d).unwrap();
+    {
+        let mut mk = m.lock().unwrap();
+        seed_profiles(&mut mk);
+        mk.profiles.push(json!({ "profile_index": 2, "name": "Bia", "avatar_color_hex": "#43A047", "pin_enabled": false, "updated_at": "2026-01-01T00:00:00Z" }));
+    }
+    rt().block_on(async {
+        let e = engine(&base, &d, None);
+        e.sign_in(EMAIL, PASSWORD).await.unwrap();
+        e.sync(1, true).await.unwrap();
+        // Closed with an older position waiting; another device went further meanwhile.
+        play(&store, 1, "tt-movie", 600_000, 5_000);
+        m.lock().unwrap().remote_progress(1, "tt-movie", 2_700_000, 8_000);
+        m.lock().unwrap().remote_progress(2, "tt-other", 900_000, 8_000);
+
+        let reopened = engine(&base, &d, None);
+        assert_eq!(reopened.push_pending(1).await.unwrap_err(), AccountError::Busy, "nothing goes out before receiving");
+        m.lock().unwrap().calls.clear();
+        reopened.sync(1, false).await.unwrap();
+        {
+            let mk = m.lock().unwrap();
+            let pull = mk.calls.iter().position(|c| c.starts_with("sync_pull_watch_progress")).unwrap();
+            let push = mk.calls.iter().position(|c| c == "sync_push_watch_progress").unwrap_or(usize::MAX);
+            assert!(pull < push, "{:?}", mk.calls);
+            assert_eq!(mk.progress[&(1, "tt-movie".to_string())]["position"], 2_700_000, "the newer one was not overwritten");
+        }
+        assert_eq!(store.progress(1).unwrap().iter().find(|p| p.key() == "tt-movie").unwrap().last_position_ms, 2_700_000);
+        assert_eq!(store.progress(2).unwrap().iter().find(|p| p.key() == "tt-other").unwrap().last_position_ms, 900_000, "also the profiles not on screen");
+        assert_eq!(reopened.status().pending, 0);
+    });
+}
+
+#[test]
+fn pin_removed_elsewhere_is_followed_and_another_account_never_opens_a_profile() {
+    let (base, m) = mock::start();
+    rt().block_on(async {
+        seed_profiles(&mut m.lock().unwrap());
+        // Profiles copied from the original, with a PIN, no session yet.
+        let d = dir("pin-removed");
+        let store = AppStore::open(&d).unwrap();
+        store.set_profile_pin_state(1, true).unwrap();
+        store.create_profile("Local", "#1E88E5", false).unwrap().unwrap();
+        store.set_profile_pin_state(1, true).unwrap();
+        let e = engine(&base, &d, Some("someone-else"));
+        e.sign_in(EMAIL, PASSWORD).await.unwrap();
+        assert_eq!(e.refresh_pin(1).await, None, "another account says nothing about this PIN");
+        assert!(!e.verify_pin(1, "1234").await.unlocked);
+        assert!(store.profiles().unwrap().get(1).unwrap().pin_enabled);
+
+        let owner = engine(&base, &d, Some(USER));
+        assert_eq!(owner.refresh_pin(1).await, Some(false));
+        assert!(!store.profiles().unwrap().get(1).unwrap().pin_enabled, "removed on the account");
+    });
+}
+
 #[test]
 fn offline_first_unlock_registers_a_local_pin() {
     let d = dir("offline-pin");
-    // A profile imported from the legacy app has PIN enabled but no local cache.
     let store = AppStore::open(&d).unwrap();
     store.create_profile("Protegido", "#112233", false).unwrap().unwrap();
     store.set_profile_pin_state(2, true).unwrap();
     let e = engine("http://127.0.0.1:1", &d, None);
     let rt = rt();
-    let first = rt.block_on(e.verify_pin(2, "6969"));
-    assert!(first.unlocked, "first offline unlock registers the entered PIN");
-    assert!(!rt.block_on(e.verify_pin(2, "0000")).unlocked, "wrong PIN is rejected afterwards");
+    assert!(rt.block_on(e.verify_pin(2, "6969")).unlocked, "first offline unlock registers the PIN");
+    assert!(!rt.block_on(e.verify_pin(2, "0000")).unlocked, "wrong PIN rejected afterwards");
     assert!(rt.block_on(e.verify_pin(2, "6969")).unlocked, "the registered PIN keeps working");
     let cache = std::fs::read_to_string(d.join("pin-cache.json")).unwrap();
     assert!(!cache.contains("6969"), "PIN never stored in clear");

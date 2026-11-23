@@ -6,6 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { api, errorText } from "../api";
 import { listen } from "../tauri";
 import type { PlayerInfo, PlayerSnapshot } from "../types";
+import type { EpisodeContext } from "./episodes";
 
 /** `embedded`: video inside a screen area (Live TV preview). `full`: the whole window. */
 export type PlayerView = "embedded" | "full";
@@ -18,6 +19,10 @@ export interface PlayerSession {
   view: PlayerView;
   /** View to return to when leaving `full` (Live TV fullscreen → preview); `null` closes. */
   returnTo: PlayerView | null;
+  /** An episode of a series: what "next episode" needs. */
+  episode?: EpisodeContext;
+  /** Played by the P2P engine. */
+  torrent?: boolean;
 }
 
 interface PlayerApi {
@@ -77,6 +82,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, []);
+
+  // UI test (`--uitest`, phase `enhance`): plays a synthetic source through this same session.
+  useEffect(() => {
+    const onTest = (e: Event) => void play((e as CustomEvent<() => Promise<PlayerInfo>>).detail, { title: "Teste", view: "full" });
+    window.addEventListener("uitest-play", onTest);
+    return () => window.removeEventListener("uitest-play", onTest);
+  }, [play]);
 
   const close = useCallback(async () => {
     await api.playerClose().catch(() => {});

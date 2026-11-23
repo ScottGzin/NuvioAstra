@@ -7,6 +7,7 @@ import { api } from "../api";
 import { megabytes, speed } from "../components/TorrentStart";
 import { listen } from "../tauri";
 import type { P2pStatus } from "../types";
+import { t } from "../i18n";
 
 export function P2pStats() {
   const [status, setStatus] = useState<P2pStatus | null>(null);
@@ -20,7 +21,7 @@ export function P2pStats() {
 
   if (!status) return null;
   if (status.state === "error") {
-    return <div className="p2p-stats error" role="alert" data-testid="p2p-stats">P2P: {status.error ?? "erro no torrent"}</div>;
+    return <div className="p2p-stats error" role="alert" data-testid="p2p-stats">P2P: {status.error ?? t("erro no torrent")}</div>;
   }
   if (status.state !== "streaming" || hidden) return null;
   return (

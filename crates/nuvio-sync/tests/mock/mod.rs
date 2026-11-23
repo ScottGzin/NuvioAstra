@@ -32,6 +32,12 @@ pub struct Mock {
     /// (event id, profile, kind, op, row)
     pub events: Vec<(i64, i64, &'static str, &'static str, Value)>,
     pub addons: BTreeMap<i64, Vec<Value>>,
+    /// `collections_json` per profile (`sync_pull_collections`); absent = no row.
+    pub collections: BTreeMap<i64, Value>,
+    /// `settings_json` per profile (`sync_pull_home_catalog_settings`); absent = no row.
+    pub home: BTreeMap<i64, Value>,
+    /// `settings_json` of the `desktop` blob per profile (`sync_pull_profile_settings_blob`).
+    pub blobs: BTreeMap<i64, Value>,
     pub pins: BTreeMap<i64, String>,
     pub pin_failures: BTreeMap<i64, u32>,
     pub origins: Vec<String>,
@@ -186,6 +192,36 @@ impl Mock {
                         self.event(profile, "watched", "delete", row);
                     }
                 }
+                Value::Null
+            }
+            "sync_pull_collections" => match self.collections.get(&profile) {
+                Some(c) => json!([{ "profile_id": profile, "collections_json": c, "updated_at": "2026-11-22T00:00:00Z" }]),
+                None => json!([]),
+            },
+            "sync_pull_home_catalog_settings" => {
+                assert_eq!(p["p_platform"], "home_catalog_shared");
+                match self.home.get(&profile) {
+                    Some(h) => json!([{ "profile_id": profile, "settings_json": h }]),
+                    None => json!([]),
+                }
+            }
+            "sync_push_home_catalog_settings" => {
+                assert_eq!(p["p_platform"], "home_catalog_shared");
+                assert!(p["p_origin_client_id"].is_string() && p["p_settings_json"]["items"].is_array());
+                self.home.insert(profile, p["p_settings_json"].clone());
+                Value::Null
+            }
+            "sync_pull_profile_settings_blob" => {
+                assert_eq!(p["p_platform"], "desktop");
+                match self.blobs.get(&profile) {
+                    Some(b) => json!([{ "profile_id": profile, "settings_json": b }]),
+                    None => json!([]),
+                }
+            }
+            "sync_push_profile_settings_blob" => {
+                assert_eq!(p["p_platform"], "desktop");
+                assert!(p["p_origin_client_id"].is_string());
+                self.blobs.insert(profile, p["p_settings_json"].clone());
                 Value::Null
             }
             "sync_push_addons" => {

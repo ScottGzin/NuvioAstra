@@ -293,7 +293,7 @@ impl RemoteProgress {
     }
 
     /// `ProgressSyncRecord.toWatchProgressEntry`: display fields from the local entry when known.
-    pub fn to_entry(&self, cached: Option<&ProgressEntry>) -> ProgressEntry {
+    pub fn to_entry(&self, cached: Option<&ProgressEntry>, watched_percent: i64) -> ProgressEntry {
         ProgressEntry {
             content_type: self.content_type.clone(),
             parent_meta_id: self.content_id.clone(),
@@ -312,7 +312,8 @@ impl RemoteProgress {
             last_updated_epoch_ms: self.last_watched,
             provider_name: cached.and_then(|c| c.provider_name.clone()),
             last_stream_title: cached.and_then(|c| c.last_stream_title.clone()),
-            is_completed: library::is_complete(self.position, self.duration, false),
+            is_completed: library::is_complete(self.position, self.duration, false, watched_percent),
+            watched_percent,
             progress_percent: None,
             progress_key: Some(self.key()),
         }
@@ -422,13 +423,14 @@ impl AppStore {
     pub fn apply_progress_snapshot(&self, profile: i64, server: Vec<RemoteProgress>, cursor: i64) -> Result<MergeStats, StoreError> {
         let _g = library::LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let local = self.progress(profile)?;
+        let percent = self.watched_percent(profile);
         let p = self.sync_state()?.profiles.get(&profile).cloned().unwrap_or_default();
         let first_link = !p.progress.initialized;
         let local_by_key: BTreeMap<String, ProgressEntry> = local.iter().map(|e| (e.key(), e.clone())).collect();
         let received = server.len();
         let mut merged: BTreeMap<String, ProgressEntry> = BTreeMap::new();
         for r in &server {
-            let candidate = r.to_entry(local_by_key.get(&r.key()));
+            let candidate = r.to_entry(local_by_key.get(&r.key()), percent);
             match merged.get(&candidate.key()) {
                 Some(existing) if !fresher(&candidate, existing) => {}
                 _ => {
@@ -473,6 +475,7 @@ impl AppStore {
     pub fn apply_progress_delta(&self, profile: i64, events: Vec<RemoteEvent<RemoteProgress>>) -> Result<MergeStats, StoreError> {
         let _g = library::LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let local = self.progress(profile)?;
+        let percent = self.watched_percent(profile);
         let p = self.sync_state()?.profiles.get(&profile).cloned().unwrap_or_default();
         let mut items: BTreeMap<String, ProgressEntry> = local.iter().map(|e| (e.key(), e.clone())).collect();
         let mut events = events;
@@ -491,7 +494,7 @@ impl AppStore {
                     if e.item.video_id.trim().is_empty() {
                         continue;
                     }
-                    let updated = e.item.to_entry(current.as_ref());
+                    let updated = e.item.to_entry(current.as_ref(), percent);
                     match &current {
                         Some(cur) if dirty && fresher(cur, &updated) => {}
                         Some(cur) if *cur == updated => cleared.push(key),
@@ -789,7 +792,7 @@ mod tests {
     #[test]
     fn progress_rules_keep_the_fresher_dirty_entry() {
         let s = store("prog");
-        let mine = rp("tt1", 900_000, 2_000).to_entry(None);
+        let mine = rp("tt1", 900_000, 2_000).to_entry(None, 90);
         s.record_progress(1, mine, None).unwrap(); // dirty, newer
         s.apply_progress_snapshot(1, vec![rp("tt1", 100_000, 1_000), rp("tt2", 50_000, 1_000)], 7).unwrap();
         let p = s.progress(1).unwrap();

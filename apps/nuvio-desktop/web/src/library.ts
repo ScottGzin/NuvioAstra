@@ -23,6 +23,11 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
+/** A setting that changes what counts as watched: the rows are read again. */
+export function refreshLibraryViews() {
+  emit();
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

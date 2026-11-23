@@ -11,13 +11,15 @@ use crate::crypto;
 use crate::remote::{now_s, Remote, RemoteError, ServerConfig, Session, SignUp};
 use nuvio_store::library::{LibraryItem, WatchedItem};
 use nuvio_store::nextgen::AppStore;
+use nuvio_store::HomeCatalogSettings;
 use nuvio_store::profiles::{Profile, MAX_PROFILES};
+use nuvio_store::settings::PlayerSettings;
 use nuvio_store::sync_state::{fresher, MergeStats, RemoteEvent, RemoteProgress};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 
 const SESSION_FILE: &str = "account.dat";
@@ -33,7 +35,7 @@ pub struct Report {
     pub received: usize,
     /// Entities that could not be synced in this run (pt-BR names), with the reason.
     pub failed: Vec<String>,
-    /// Kinds of local data changed by what the account sent (`profiles`, `addons`, `library`, `progress`, `watched`).
+    /// Kinds of local data changed by what the account sent (`profiles`, `addons`, `library`, `progress`, `watched`, `collections`, `home`, `settings`).
     pub changed: Vec<String>,
 }
 
@@ -196,6 +198,9 @@ pub struct Engine {
     /// Account id stored with the original app's profiles (`StoredProfilePayload.userId`), if any.
     legacy_owner: Option<String>,
     client_id: String,
+    /// A run received the account's data since the app opened or signed in: until then nothing
+    /// waiting here is sent alone, and that run reads every profile.
+    received: AtomicBool,
     /// Account id of the current session (to tell whether its first sync was confirmed).
     account_user: Mutex<Option<String>>,
     /// Addon names of the account's lists (manifest url → name), so a list sent back never blanks
@@ -242,6 +247,7 @@ impl Engine {
             generation: AtomicU64::new(0),
             legacy_owner,
             client_id,
+            received: AtomicBool::new(false),
             account_user: Mutex::new(account_user),
             addon_names: Mutex::new(BTreeMap::new()),
         }
@@ -254,7 +260,8 @@ impl Engine {
     pub fn status(&self) -> Status {
         let mut s = self.status.lock().expect("status").clone();
         let state = self.st().sync_state().unwrap_or_default();
-        s.pending = state.pending_count();
+        let preferences = state.linked_user_id.as_deref().map_or(0, |account| self.preference_changes(&self.st(), account).len());
+        s.pending = state.pending_count() + preferences;
         s.last_sync_epoch_ms = state.last_sync_epoch_ms;
         let user = self.account_user.lock().expect("account user").clone();
         let confirmed = user.is_some() && state.linked_user_id == user;
@@ -339,6 +346,7 @@ impl Engine {
     }
 
     async fn start_session(&self, session: Session) {
+        self.received.store(false, Ordering::SeqCst);
         self.save_session(Some(&session));
         self.set_status(|s| {
             s.signed_in = true;
@@ -475,13 +483,15 @@ impl Engine {
             s.link_question = None;
         });
         let mut report = Report { profile: active_profile, ..Default::default() };
-        let result = self.run_steps(&st, active_profile, generation, &mut report, first_link).await;
+        let everything = first_link || !self.received.load(Ordering::SeqCst);
+        let result = self.run_steps(&st, active_profile, generation, &mut report, everything).await;
         let cancelled = self.generation.load(Ordering::SeqCst) != generation;
         report.finished_at_epoch_ms = nuvio_store::library::now_ms();
         match result {
             Ok(()) if !cancelled => {
                 if report.failed.is_empty() {
-                    let pulled: Vec<i64> = if first_link { st.profiles()?.profiles.iter().map(|p| p.index).collect() } else { vec![active_profile] };
+                    self.received.store(true, Ordering::SeqCst);
+                    let pulled: Vec<i64> = if everything { st.profiles()?.profiles.iter().map(|p| p.index).collect() } else { vec![active_profile] };
                     st.update_sync_state(|s| {
                         s.last_sync_epoch_ms = report.finished_at_epoch_ms;
                         for p in &pulled {
@@ -513,32 +523,24 @@ impl Engine {
         }
     }
 
-    async fn run_steps(&self, st: &AppStore, active: i64, generation: u64, report: &mut Report, first_link: bool) -> Result<(), AccountError> {
+    /// The account's data is received and merged first; only then what waits here is sent.
+    /// `everything`: every profile (first run since the app opened, or first link).
+    async fn run_steps(&self, st: &AppStore, active: i64, generation: u64, report: &mut Report, everything: bool) -> Result<(), AccountError> {
         let alive = || self.generation.load(Ordering::SeqCst) == generation;
 
-        // 1. Profiles: local deletions, local changes, then the account's list. Before the first
-        // link the whole-list push waits for the join (it would replace the account's list).
+        // 1. Profiles: local deletions, the account's list (a local change waiting survives it),
+        // then that change. Before the first link the whole-list push waits for the join (it would
+        // replace the account's list).
         let state = st.sync_state()?;
         for (&index, &rev) in &state.profile_deletes {
             self.call("sync_delete_profile_data", self.with_origin(json!({ "p_profile_id": index }))).await?;
+            st.forget_sync_bases(index)?;
             st.update_sync_state(|s| {
                 if s.profile_deletes.get(&index) == Some(&rev) {
                     s.profile_deletes.remove(&index);
                 }
             })?;
             report.sent += 1;
-        }
-        if state.profiles_dirty > 0 && state.profiles_linked {
-            let local = st.profiles()?;
-            let payload: Vec<Value> = local.profiles.iter().map(profile_push).collect();
-            self.step(report, "perfis", self.call("sync_push_profiles", self.with_origin(json!({ "p_client_max_profiles": MAX_PROFILES, "p_profiles": payload })))).await?;
-            let rev = state.profiles_dirty;
-            st.update_sync_state(|s| {
-                if s.profiles_dirty == rev {
-                    s.profiles_dirty = 0;
-                }
-            })?;
-            report.sent += local.profiles.len();
         }
         if let Some(rows) = self.step(report, "perfis", self.call("sync_pull_profiles", json!({}))).await? {
             if !alive() {
@@ -549,7 +551,7 @@ impl Engine {
             note(report, "profiles", &stats);
             self.sync_pin_cache(st)?;
             let after = st.sync_state()?;
-            if after.profiles_dirty > 0 && !state.profiles_linked {
+            if after.profiles_dirty > 0 {
                 let local = st.profiles()?;
                 let payload: Vec<Value> = local.profiles.iter().map(profile_push).collect();
                 if self.step(report, "perfis", self.call("sync_push_profiles", self.with_origin(json!({ "p_client_max_profiles": MAX_PROFILES, "p_profiles": payload })))).await?.is_some() {
@@ -564,18 +566,16 @@ impl Engine {
             }
         }
 
-        // 2. Pending local changes of every profile.
+        // 2. The account's data, then what waits here: every profile when the app opens (and on the
+        // first link, so the whole computer is joined at once), afterwards the active one.
         let profiles: Vec<i64> = st.profiles()?.profiles.iter().map(|p| p.index).collect();
-        for &profile in &profiles {
-            if !alive() {
-                return Ok(());
-            }
-            self.push_profile(st, profile, report).await?;
+        let active = st.profiles()?.get(active).map_or_else(|| profiles.first().copied().unwrap_or(1), |p| p.index);
+        // The profile on screen first.
+        let mut pulled = vec![active];
+        if everything {
+            pulled.extend(profiles.iter().copied().filter(|&p| p != active));
         }
-
-        // 3. The account's data: the active profile (as the original); on the first link every
-        // profile, so the whole computer is joined with the account in the run the user confirmed.
-        let pulled: Vec<i64> = if first_link { st.profiles()?.profiles.iter().map(|p| p.index).collect() } else { vec![active] };
+        let account = st.sync_state()?.linked_user_id.unwrap_or_default();
         let mut addon_profiles = BTreeSet::new();
         for &profile in &pulled {
             if !alive() {
@@ -594,7 +594,25 @@ impl Engine {
             self.pull_library(st, profile, report, &alive).await?;
             self.pull_progress(st, profile, report, &alive).await?;
             self.pull_watched(st, profile, report, &alive).await?;
-            // Items queued for upload by a first link go out in the same run.
+            self.pull_collections(st, profile, report, &alive).await?;
+            self.sync_home(st, profile, &account, report, &alive).await?;
+            self.sync_player_settings(st, profile, &account, report, &alive).await?;
+            // What changed here, and what the merge above queued.
+            self.push_profile(st, profile, report).await?;
+        }
+
+        // 3. What changed in the other profiles (preferences merge with the account's first).
+        for profile in self.preference_changes(st, &account).into_iter().filter(|p| !pulled.contains(p)) {
+            if !alive() {
+                return Ok(());
+            }
+            self.sync_home(st, profile, &account, report, &alive).await?;
+            self.sync_player_settings(st, profile, &account, report, &alive).await?;
+        }
+        for &profile in profiles.iter().filter(|p| !pulled.contains(p)) {
+            if !alive() {
+                return Ok(());
+            }
             self.push_profile(st, profile, report).await?;
         }
         Ok(())
@@ -669,6 +687,149 @@ impl Engine {
             report.sent += data.library_upserts.len() + data.library_deletes.len() + data.progress_upserts.len() + data.progress_deletes.len() + data.watched_upserts.len() + data.watched_deletes.len() + usize::from(push_addons);
         }
         Ok(())
+    }
+
+    /// `CollectionSyncService.pullFromServer`: read only (Astra has no collection editor, so nothing
+    /// is pushed). No row = the account has no collections for the profile: the local copy stays.
+    async fn pull_collections(&self, st: &AppStore, profile: i64, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
+        let Some(rows) = self.step(report, "coleções", self.call("sync_pull_collections", json!({ "p_profile_id": profile }))).await? else { return Ok(()) };
+        let Some(row) = rows.as_array().and_then(|a| a.first()).cloned() else { return Ok(()) };
+        if !alive() {
+            return Ok(());
+        }
+        let remote = match row.get("collections_json") {
+            Some(v) if v.is_array() => v.clone(),
+            // A JSON string (older rows) or null.
+            Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_array).unwrap_or_else(|| json!([])),
+            _ => json!([]),
+        };
+        if st.collections(profile)?.as_ref() != Some(&remote) {
+            st.set_collections(profile, &remote)?;
+            report.received += remote.as_array().map_or(0, Vec::len);
+            mark_changed(report, "collections");
+        }
+        Ok(())
+    }
+
+    /// Profiles whose preferences changed here since the account last agreed on them.
+    fn preference_changes(&self, st: &AppStore, account: &str) -> Vec<i64> {
+        let Ok(profiles) = st.profiles() else { return Vec::new() };
+        let changed = |profile: i64| -> Option<bool> {
+            let now = st.profile_settings(profile).ok()?;
+            let home: Option<HomeCatalogSettings> = st.sync_base("home", profile, account).ok()?;
+            let player: Option<PlayerSettings> = st.sync_base("player", profile, account).ok()?;
+            Some(home.is_some_and(|b| crate::home::differs(&now.home, &b)) || player.is_some_and(|b| crate::preferences::differs(&now.player, &b)))
+        };
+        profiles.profiles.iter().map(|p| p.index).filter(|&p| changed(p) == Some(true)).collect()
+    }
+
+    /// `HomeCatalogSettingsSyncService` (pull, merge, push): see `home.rs`.
+    async fn sync_home(&self, st: &AppStore, profile: i64, account: &str, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
+        let params = json!({ "p_profile_id": profile, "p_platform": crate::home::PLATFORM });
+        let Some(rows) = self.step(report, "ordem do Início", self.call("sync_pull_home_catalog_settings", params)).await? else { return Ok(()) };
+        if !alive() {
+            return Ok(());
+        }
+        let remote = blob_of(&rows);
+        let base: Option<HomeCatalogSettings> = st.sync_base("home", profile, account)?;
+        let nothing = json!({});
+        let theirs = remote.unwrap_or(&nothing);
+        if base.is_none() && remote.is_some() {
+            st.keep_settings_before_sync()?;
+        }
+        let mut changed = false;
+        let merged = st
+            .update_profile_settings(profile, |settings| {
+                let merged = crate::home::merge(&settings.home, base.as_ref(), theirs);
+                changed = merged != settings.home;
+                settings.home = merged;
+            })?
+            .home;
+        if changed {
+            report.received += 1;
+            mark_changed(report, "home");
+        }
+        // What the account has now; what differs from it is this computer's to send.
+        let agreed = match &base {
+            Some(base) => crate::home::merge(base, Some(base), theirs),
+            None => merged.clone(),
+        };
+        st.set_sync_base("home", profile, account, &agreed)?;
+        if !crate::home::differs(&merged, &agreed) || !alive() {
+            return Ok(());
+        }
+        let params = self.with_origin(json!({ "p_profile_id": profile, "p_platform": crate::home::PLATFORM, "p_settings_json": crate::home::payload(remote, &merged) }));
+        if self.step(report, "ordem do Início", self.call("sync_push_home_catalog_settings", params)).await?.is_some() {
+            st.set_sync_base("home", profile, account, &merged)?;
+            report.sent += 1;
+        }
+        Ok(())
+    }
+
+    /// `ProfileSettingsSync` (pull, merge, push of the changed fields only): see `preferences.rs`.
+    async fn sync_player_settings(&self, st: &AppStore, profile: i64, account: &str, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
+        let params = json!({ "p_profile_id": profile, "p_platform": crate::preferences::PLATFORM });
+        let Some(rows) = self.step(report, "configurações", self.call("sync_pull_profile_settings_blob", params)).await? else { return Ok(()) };
+        if !alive() {
+            return Ok(());
+        }
+        let base: Option<PlayerSettings> = st.sync_base("player", profile, account)?;
+        let Some(remote) = blob_of(&rows) else {
+            // Never creates a partial blob; with nothing there, nothing waits to be sent.
+            if base.is_some() {
+                st.set_sync_base("player", profile, "", &Value::Null)?;
+            }
+            return Ok(());
+        };
+        if base.is_none() {
+            st.keep_settings_before_sync()?;
+        }
+        let mut changed = false;
+        let merged = st
+            .update_profile_settings(profile, |settings| {
+                let merged = crate::preferences::merge(&settings.player, base.as_ref(), remote);
+                changed = merged != settings.player;
+                settings.player = merged;
+            })?
+            .player;
+        if changed {
+            report.received += 1;
+            mark_changed(report, "settings");
+        }
+        let agreed = crate::preferences::from_blob(remote);
+        st.set_sync_base("player", profile, account, &agreed)?;
+        if !crate::preferences::differs(&merged, &agreed) || !alive() {
+            return Ok(());
+        }
+        let Some(patched) = crate::preferences::payload(remote, &merged) else { return Ok(()) };
+        // What the account will hold, not `merged`: a font of this computer is never part of it.
+        let sent = crate::preferences::from_blob(&patched);
+        let params = self.with_origin(json!({ "p_profile_id": profile, "p_platform": crate::preferences::PLATFORM, "p_settings_json": patched }));
+        if self.step(report, "configurações", self.call("sync_push_profile_settings_blob", params)).await?.is_some() {
+            st.set_sync_base("player", profile, account, &sent)?;
+            report.sent += 1;
+        }
+        Ok(())
+    }
+
+    /// Sends what waits in the queue of `profile` without reading anything back: for the position
+    /// saved while playing (`pushScrobbleToServer`), every minute and on pause / seek / close.
+    pub async fn push_pending(&self, profile: i64) -> Result<Report, AccountError> {
+        let Ok(_run) = self.run.try_lock() else { return Err(AccountError::Busy) };
+        if self.remote.is_none() {
+            return Err(AccountError::NotConfigured);
+        }
+        let (_, user) = self.token(false).await?;
+        let st = self.st();
+        if st.sync_state()?.linked_user_id.as_deref() != Some(user.as_str()) {
+            return Err(AccountError::NeedsReview);
+        }
+        if !self.received.load(Ordering::SeqCst) {
+            return Err(AccountError::Busy); // a full run receives first, then sends this too
+        }
+        let mut report = Report { profile, ..Default::default() };
+        self.push_profile(&st, profile, &mut report).await?;
+        Ok(report)
     }
 
     async fn pull_library(&self, st: &AppStore, profile: i64, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
@@ -857,7 +1018,7 @@ impl Engine {
             e.progress = Compare::of_keys(&lp.keys().cloned().collect(), local_prog.len(), &rp.keys().cloned().collect(), remote_prog.len());
             for (key, l) in &lp {
                 if let Some(r) = rp.get(key) {
-                    let r = r.to_entry(Some(l));
+                    let r = r.to_entry(Some(l), l.watched_percent);
                     if (l.last_position_ms, l.duration_ms, l.last_updated_epoch_ms) != (r.last_position_ms, r.duration_ms, r.last_updated_epoch_ms) {
                         e.progress.differing += 1;
                         if fresher(l, &r) {
@@ -954,11 +1115,50 @@ impl Engine {
         Ok(())
     }
 
-    /// `verifyPin`: the account checks it (and applies its lockout); offline or signed out, the
-    /// cached hash of the last successful check is used.
+    /// Whether this computer's data was linked to an account.
+    pub fn linked(&self) -> bool {
+        self.st().sync_state().is_ok_and(|s| s.linked_user_id.is_some())
+    }
+
+    /// The session belongs to the account the profiles (and their PINs) came from. Another account's
+    /// PIN must never open them.
+    async fn session_owns_profiles(&self) -> bool {
+        let Some(user) = self.session.lock().await.as_ref().map(|s| s.user_id.clone()) else { return false };
+        let linked = self.st().sync_state().ok().and_then(|s| s.linked_user_id);
+        linked.or_else(|| self.legacy_owner.clone()).is_none_or(|owner| owner == user)
+    }
+
+    /// Asks the account whether a profile still has a PIN and follows a removal, also while the
+    /// profile is locked (nothing else is read or written). `None`: the account could not tell.
+    pub async fn refresh_pin(&self, index: i64) -> Option<bool> {
+        if !self.session_owns_profiles().await {
+            return None;
+        }
+        let rows = self.call("sync_pull_profiles", json!({})).await.ok()?;
+        let protected = rows.as_array()?.iter().filter_map(profile_of).any(|p| p.index == index && p.pin_enabled);
+        if !protected {
+            let st = self.st();
+            st.set_profile_pin_state(index, false).ok()?;
+            let _ = self.sync_pin_cache(&st);
+        }
+        Some(protected)
+    }
+
+    /// The offline PIN hash Nuvio keeps on this computer, for profiles copied from it and not
+    /// linked yet (same algorithm).
+    pub fn adopt_pin_cache(&self, index: i64, (salt, digest, profile_updated_at): (String, String, String)) {
+        let mut cache = self.pin_cache();
+        if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(index) {
+            slot.insert(PinCacheEntry { salt, digest, profile_updated_at });
+            let _ = self.save_pin_cache(&cache);
+        }
+    }
+
+    /// `verifyPin`: the account checks it (and applies its lockout); offline, signed out or with
+    /// another account, the cached hash of the last successful check is used.
     pub async fn verify_pin(&self, index: i64, pin: &str) -> PinResult {
         let signed_in = self.session.lock().await.is_some();
-        if signed_in {
+        if self.session_owns_profiles().await {
             match self.call("verify_profile_pin", json!({ "p_profile_id": index, "p_pin": pin })).await {
                 Ok(v) => {
                     let row = if v.is_array() { v.get(0).cloned().unwrap_or(Value::Null) } else { v };
@@ -968,6 +1168,10 @@ impl Engine {
                         let _ = self.remember_pin(index, pin);
                         return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
                     }
+                    // Removed on another device: nothing to type any more.
+                    if retry == 0 && self.refresh_pin(index).await == Some(false) {
+                        return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
+                    }
                     let message = if retry > 0 { format!("Bloqueado. Tente novamente em {retry}s") } else { row.get("message").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| "PIN incorreto".into()) };
                     return PinResult { unlocked: false, retry_after_seconds: retry, message: Some(message) };
                 }
@@ -975,22 +1179,23 @@ impl Engine {
                 Err(_) => {}
             }
         }
-        self.verify_pin_locally(index, pin)
+        self.verify_pin_locally(index, pin, !signed_in)
     }
 
-    fn verify_pin_locally(&self, index: i64, pin: &str) -> PinResult {
+    fn verify_pin_locally(&self, index: i64, pin: &str, allow_first_offline: bool) -> PinResult {
         let profile = self.st().profiles().ok().and_then(|p| p.get(index).cloned());
         if !profile.as_ref().is_some_and(|p| p.pin_enabled) {
             return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
         }
         let profile = profile.expect("checked");
         let Some(cached) = self.pin_cache().get(&index).cloned() else {
-            // Offline first unlock: the account is not configured/signed in and the original app
-            // never cached this PIN here (its cache was empty too). Register the entered PIN
-            // locally so the profile is usable offline; later unlocks verify against this digest.
-            // The PIN itself is never stored, only a salted SHA-256 like the account flow.
-            let _ = self.remember_pin(index, pin);
-            return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
+            // Offline first unlock only when signed out (so a wrong account cannot claim another
+            // account's profiles). Registers a salted SHA-256, never the PIN itself.
+            if allow_first_offline {
+                let _ = self.remember_pin(index, pin);
+                return PinResult { unlocked: true, retry_after_seconds: 0, message: None };
+            }
+            return PinResult { unlocked: false, retry_after_seconds: 0, message: Some("Este computador ainda não consegue conferir esse PIN. Entre na conta Nuvio dona deste perfil, com internet, para continuar.".into()) };
         };
         if !cached.profile_updated_at.is_empty() && profile.updated_at.as_deref().is_some_and(|u| !u.is_empty() && u != cached.profile_updated_at) {
             let mut cache = self.pin_cache();
@@ -1089,6 +1294,17 @@ fn require_online(message: &'static str) -> impl Fn(AccountError) -> AccountErro
 
 pub fn is_pin(pin: &str) -> bool {
     pin.len() == 4 && pin.chars().all(|c| c.is_ascii_digit())
+}
+
+fn mark_changed(report: &mut Report, kind: &str) {
+    if !report.changed.iter().any(|k| k == kind) {
+        report.changed.push(kind.to_string());
+    }
+}
+
+/// `settings_json` of a `sync_pull_*settings*` answer.
+fn blob_of(rows: &Value) -> Option<&Value> {
+    rows.as_array()?.first()?.get("settings_json").filter(|v| v.is_object())
 }
 
 fn note(report: &mut Report, kind: &str, stats: &MergeStats) {

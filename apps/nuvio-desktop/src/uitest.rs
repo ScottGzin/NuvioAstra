@@ -148,23 +148,26 @@ fn thread_count() -> usize {
 
 #[cfg(windows)]
 fn thread_count() -> usize {
-    // Toolhelp snapshot of this process's threads.
-    use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
-    let pid = std::process::id();
-    // SAFETY: plain Toolhelp calls with a sized entry; the handle is closed below.
-    unsafe {
-        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return 0 };
-        let mut e = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
-        let mut n = 0;
-        let mut ok = Thread32First(snap, &mut e).is_ok();
-        while ok {
-            if e.th32OwnerProcessID == pid {
-                n += 1;
+    {
+        // Toolhelp snapshot of this process's threads.
+        // Windows: Toolhelp snapshot of this process's threads.
+        use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
+        let pid = std::process::id();
+        // SAFETY: plain Toolhelp calls with a sized entry; the handle is closed below.
+        unsafe {
+            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) else { return 0 };
+            let mut e = THREADENTRY32 { dwSize: std::mem::size_of::<THREADENTRY32>() as u32, ..Default::default() };
+            let mut n = 0;
+            let mut ok = Thread32First(snap, &mut e).is_ok();
+            while ok {
+                if e.th32OwnerProcessID == pid {
+                    n += 1;
+                }
+                ok = Thread32Next(snap, &mut e).is_ok();
             }
-            ok = Thread32Next(snap, &mut e).is_ok();
+            let _ = windows::Win32::Foundation::CloseHandle(snap);
+            n
         }
-        let _ = windows::Win32::Foundation::CloseHandle(snap);
-        n
     }
 }
 
@@ -197,4 +200,20 @@ pub fn uitest_native_libraries(app: AppHandle) -> Result<Value, String> {
         "engine": engine,
         "libmpv": mpv,
     }))
+}
+
+/// Collections of the active profile in the test data folder (phase `collections`): the copy only,
+/// never the real data nor the account.
+#[tauri::command]
+pub fn uitest_seed_collections(app: AppHandle, collections: Value) -> Result<(), String> {
+    report_path()?;
+    let state = app.state::<crate::AppState>();
+    state.app_store.set_collections(state.active_profile(), &collections).map_err(|e| e.to_string())
+}
+
+/// Phase `enhance`: breaks display sync on purpose (see `Player::break_display_sync`).
+#[tauri::command]
+pub async fn uitest_break_display_sync(app: AppHandle) -> Result<(), String> {
+    report_path()?;
+    app.state::<crate::AppState>().with_player(|p| p.break_display_sync().map_err(|e| e.to_string()))
 }

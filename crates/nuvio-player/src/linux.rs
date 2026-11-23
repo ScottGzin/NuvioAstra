@@ -24,6 +24,62 @@ pub enum DecoderPriority {
     SoftwareOnly,
 }
 
+/// Motion interpolation (Windows backend drives display-sync). Placeholder on Linux.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Motion { #[default] Off, Steady, Fluid }
+
+/// Image enhancement level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Enhancement { #[default] Off, Movies, AnimeFast, AnimeQuality }
+
+impl Motion {
+    pub fn name(self) -> &'static str {
+        match self { Motion::Off => "off", Motion::Steady => "steady", Motion::Fluid => "fluid" }
+    }
+    pub fn from_name(name: &str) -> Self {
+        [Motion::Steady, Motion::Fluid].into_iter().find(|m| m.name() == name).unwrap_or_default()
+    }
+}
+
+impl Enhancement {
+    pub fn name(self) -> &'static str {
+        match self {
+            Enhancement::Off => "off",
+            Enhancement::Movies => "movies",
+            Enhancement::AnimeFast => "animeFast",
+            Enhancement::AnimeQuality => "animeQuality",
+        }
+    }
+    pub fn from_name(name: &str) -> Self {
+        [Enhancement::Movies, Enhancement::AnimeFast, Enhancement::AnimeQuality]
+            .into_iter().find(|e| e.name() == name).unwrap_or_default()
+    }
+}
+
+/// Anime4K mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AnimeMode { #[default] Auto, A, B, C, Aa, Bb, Ca }
+
+/// Fine-tuning of the picture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Picture {
+    pub mode: AnimeMode,
+    pub denoise: i64,
+    pub deblur: i64,
+    pub thin: i64,
+    pub darken: i64,
+    pub deband: i64,
+    pub brightness: i64,
+    pub contrast: i64,
+    pub saturation: i64,
+    pub gamma: i64,
+    pub hue: i64,
+}
+
 /// Per-session video configuration (the original player's settings).
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -31,6 +87,9 @@ pub struct VideoConfig {
     pub decoder_priority: DecoderPriority,
     pub nvidia_rtx_super_resolution: bool,
     pub nvidia_rtx_hdr: bool,
+    pub motion: Motion,
+    pub enhancement: Enhancement,
+    pub picture: Picture,
 }
 
 /// What to play.
@@ -67,6 +126,11 @@ pub struct SubtitleStyle {
     pub bottom_offset: i64,
     pub strip_sdh: bool,
     pub use_libass: bool,
+    pub override_ass: bool,
+    pub italic: bool,
+    pub spacing: f64,
+    pub blur: f64,
+    pub align: String,
     pub font: String,
     pub fonts_dir: Option<String>,
     pub shadow_enabled: bool,
@@ -87,6 +151,11 @@ impl Default for SubtitleStyle {
             bottom_offset: 20,
             strip_sdh: false,
             use_libass: false,
+            override_ass: false,
+            italic: false,
+            spacing: 0.0,
+            blur: 0.0,
+            align: "center".into(),
             font: String::new(),
             fonts_dir: None,
             shadow_enabled: false,
@@ -129,6 +198,10 @@ pub struct Track {
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct Chapter { pub time: f64, pub title: String }
+
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerSnapshot {
     pub session: u64,
     pub loaded: bool,
@@ -157,7 +230,13 @@ pub struct PlayerSnapshot {
     pub aid: Option<String>,
     pub sid: Option<String>,
     pub tracks: Vec<Track>,
+    pub chapters: Vec<Chapter>,
     pub picture_in_picture: bool,
+    pub motion: Motion,
+    pub enhancement: Enhancement,
+    pub picture: Picture,
+    pub auto_changes: u32,
+    pub auto_reason: Option<&'static str>,
     pub error: Option<String>,
 }
 
@@ -173,13 +252,17 @@ pub enum PlayerCommand {
     SetAudioTrack { id: String },
     SetAudioLanguages { languages: Vec<String> },
     SetSubtitleTrack { id: String },
-    AddSubtitle { url: String },
+    AddSubtitle { url: String, #[serde(default)] title: Option<String>, #[serde(default)] lang: Option<String> },
     RemoveExternalSubtitles { select_id: Option<i64> },
     SetSubtitleVisible { visible: bool },
     SetSubtitleDelay { ms: i64 },
     SetAudioDelay { ms: i64 },
     ApplySubtitleStyle { style: SubtitleStyle },
     SetResizeMode { mode: ResizeMode },
+    SetMotion { motion: Motion },
+    SetEnhancement { enhancement: Enhancement },
+    SetPicture { picture: Picture },
+    SetCompare { active: bool },
 }
 
 pub type SnapshotSink = Arc<dyn Fn(&PlayerSnapshot) + Send + Sync>;
@@ -726,8 +809,8 @@ impl Player {
                 mpv.set_property("aid", "auto")
             }
             PlayerCommand::SetSubtitleTrack { id } => mpv.set_property("sid", id),
-            PlayerCommand::AddSubtitle { url } => {
-                if url.is_empty() { Ok(()) } else { mpv.command(&["sub-add", url, "select"]) }
+            PlayerCommand::AddSubtitle { url, title, lang } => {
+                if url.is_empty() { Ok(()) } else { mpv.command(&["sub-add", url, "select", title.as_deref().unwrap_or(""), lang.as_deref().unwrap_or("")]) }
             }
             PlayerCommand::RemoveExternalSubtitles { select_id } => {
                 let count = mpv.get_i64("track-list/count").unwrap_or(0);
@@ -750,6 +833,7 @@ impl Player {
             PlayerCommand::SetSubtitleDelay { ms } => mpv.set_property_f64("sub-delay", (*ms).clamp(-SUBTITLE_DELAY_LIMIT_MS, SUBTITLE_DELAY_LIMIT_MS) as f64 / 1000.0),
             PlayerCommand::SetAudioDelay { ms } => mpv.set_property_f64("audio-delay", (*ms).clamp(-AUDIO_DELAY_LIMIT_MS, AUDIO_DELAY_LIMIT_MS) as f64 / 1000.0),
             PlayerCommand::ApplySubtitleStyle { style } => self.apply_subtitle_style(style),
+            PlayerCommand::SetMotion { .. } | PlayerCommand::SetEnhancement { .. } | PlayerCommand::SetPicture { .. } | PlayerCommand::SetCompare { .. } => Ok(()),
             PlayerCommand::SetResizeMode { mode } => {
                 *self.resize_mode.lock().expect("mode lock") = *mode;
                 let in_pip = self.pip.lock().expect("pip lock").is_some();
@@ -857,7 +941,7 @@ impl Player {
 
     pub fn is_picture_in_picture(&self) -> bool { self.pip.lock().expect("pip lock").is_some() }
 
-    pub fn enter_picture_in_picture(&self, title: &str, on_close: Box<dyn Fn() + Send>) -> Result<(), PlayerError> {
+    pub fn enter_picture_in_picture(&self, _window: isize) -> Result<(), PlayerError> {
         let mut pip = self.pip.lock().expect("pip lock");
         if pip.is_some() { return Ok(()); }
         let s = self.snapshot();
@@ -866,14 +950,14 @@ impl Player {
         } else if s.width > 0 && s.height > 0 {
             s.width as f64 / s.height as f64
         } else { 16.0 / 9.0 };
-        let window = x11::enter_pip(self.container, title, aspect).map_err(PlayerError::Mpv)?;
+        let window = x11::enter_pip(self.container, "Nuvio Astra", aspect).map_err(PlayerError::Mpv)?;
         let previous_mode = *self.resize_mode.lock().expect("mode lock");
         *pip = Some(PipSession {
             window,
             previous_rect: *self.video_rect.lock().expect("rect lock"),
             previous_mode,
         });
-        x11::watch_pip_close(window, Arc::new(Mutex::new(on_close)));
+        x11::watch_pip_close(window, Arc::new(Mutex::new(Box::new(|| {}) as Box<dyn Fn() + Send>)));
         drop(pip);
         self.apply_margins(None)?;
         self.apply_resize_mode(ResizeMode::Fit)?;
@@ -895,6 +979,8 @@ impl Player {
             x11::set_title(session.window, title);
         }
     }
+
+    pub fn break_display_sync(&self) -> Result<(), PlayerError> { Ok(()) }
 
     pub fn container_hwnd(&self) -> isize { self.container }
 

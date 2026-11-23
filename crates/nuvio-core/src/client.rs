@@ -63,6 +63,23 @@ impl AddonClient {
         result
     }
 
+    /// GETs a small file (a subtitle); refuses one larger than `max` bytes.
+    pub async fn get_bytes(&self, url: &str, max: usize) -> Result<Vec<u8>, CoreError> {
+        let mut response = self.http.get(url).send().await?;
+        let status = response.status();
+        if !status.is_success() {
+            return Err(CoreError::HttpStatus { status: status.as_u16() });
+        }
+        let mut out = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if out.len() + chunk.len() > max {
+                return Err(CoreError::InvalidPayload("file too large".into()));
+            }
+            out.extend_from_slice(&chunk);
+        }
+        Ok(out)
+    }
+
     pub async fn fetch_manifest(&self, manifest_url: &str) -> Result<AddonManifest, Arc<CoreError>> {
         let payload = self.get_text(manifest_url, false).await?;
         parse_manifest(manifest_url, &payload).map_err(Arc::new)

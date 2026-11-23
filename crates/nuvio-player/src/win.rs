@@ -1,19 +1,25 @@
 //! Win32 windows owned by the player: the video container (mpv's `wid`) and the
 //! picture-in-picture window. Same model as `player_bridge.cpp`: mpv renders into a container
 //! child window; PiP moves that container into a separate always-on-top window with `SetParent`,
-//! so playback never restarts.
+//! so playback never restarts. That window is the app's (a transparent webview that draws the
+//! controls over the video, like the main one); here it only gets the container and, while it has
+//! it, keeps the video's aspect when resized (`pipWindowSubclassProc` of the bridge).
 //!
 //! All functions here must run on the thread that owns the host window (the UI thread).
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use windows::core::{w, BOOL, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetStockObject, BLACK_BRUSH, HBRUSH};
+use windows::Win32::Graphics::Gdi::{
+    FillRect, GetMonitorInfoW, GetStockObject, MonitorFromWindow, BLACK_BRUSH, HBRUSH, HDC, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+};
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const CONTAINER_CLASS: PCWSTR = w!("NuvioNextGenVideoContainer");
-const PIP_CLASS: PCWSTR = w!("NuvioNextGenPictureInPicture");
+const PIP_SUBCLASS: usize = 1;
 
 /// Default PiP placement, from `DesktopPlayerPictureInPicture.computeDefaultBounds`.
 pub const PIP_DEFAULT_WIDTH: i32 = 480;
@@ -22,14 +28,6 @@ pub const PIP_MIN_HEIGHT: i32 = 180;
 pub const PIP_SCREEN_MARGIN: i32 = 24;
 
 static CLASSES: OnceLock<()> = OnceLock::new();
-
-/// Aspect ratio enforced while the user resizes the PiP window, and the callback run when the
-/// user closes it (the app then restores the video into the main window).
-struct PipState {
-    aspect: f64,
-    on_close: Option<Box<dyn Fn() + Send>>,
-}
-static PIP_STATE: Mutex<PipState> = Mutex::new(PipState { aspect: 16.0 / 9.0, on_close: None });
 
 fn register_classes() {
     CLASSES.get_or_init(|| unsafe {
@@ -45,17 +43,6 @@ fn register_classes() {
             ..Default::default()
         };
         RegisterClassExW(&container);
-        let pip = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            style: CS_DBLCLKS,
-            lpfnWndProc: Some(pip_proc),
-            hInstance: instance.into(),
-            hbrBackground: background,
-            lpszClassName: PIP_CLASS,
-            hCursor: LoadCursorW(None, IDC_SIZEALL).unwrap_or_default(),
-            ..Default::default()
-        };
-        RegisterClassExW(&pip);
     });
 }
 
@@ -67,56 +54,67 @@ unsafe extern "system" fn container_proc(hwnd: HWND, msg: u32, wparam: WPARAM, l
     }
 }
 
-fn resize_children_to_client(hwnd: HWND) {
-    unsafe {
-        let mut rect = RECT::default();
-        if GetClientRect(hwnd, &mut rect).is_ok() {
-            if let Ok(child) = GetWindow(hwnd, GW_CHILD) {
-                let _ = SetWindowPos(child, None, 0, 0, rect.right, rect.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-        }
+/// What the subclass of a PiP window needs (owned by it).
+struct PipState {
+    container: isize,
+    aspect: f64,
+}
+
+/// A size that keeps `aspect`, at least 320×180. `by_height`: the height is what the user drags.
+fn pip_size(width: i32, height: i32, aspect: f64, by_height: bool) -> (i32, i32) {
+    let min_height = PIP_MIN_HEIGHT.max((PIP_MIN_WIDTH as f64 / aspect).round() as i32);
+    let min_width = (min_height as f64 * aspect).round() as i32;
+    if by_height {
+        let height = height.max(min_height);
+        ((height as f64 * aspect).round() as i32, height)
+    } else {
+        let width = width.max(min_width);
+        (width, (width as f64 / aspect).round() as i32)
     }
 }
 
-unsafe extern "system" fn pip_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+unsafe extern "system" fn pip_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM, _id: usize, data: usize) -> LRESULT {
+    // SAFETY: `data` is the `PipState` boxed in `enter_pip`, freed only after the subclass is removed.
     unsafe {
+        let state = &*(data as *const PipState);
         match msg {
-            // Drag anywhere inside the video; borders keep resizing.
-            WM_NCHITTEST => {
-                let hit = DefWindowProcW(hwnd, msg, wparam, lparam);
-                if hit.0 == HTCLIENT as isize { LRESULT(HTCAPTION as isize) } else { hit }
-            }
-            WM_GETMINMAXINFO => {
-                let info = &mut *(lparam.0 as *mut MINMAXINFO);
-                info.ptMinTrackSize.x = PIP_MIN_WIDTH;
-                info.ptMinTrackSize.y = PIP_MIN_HEIGHT;
-                LRESULT(0)
-            }
-            // Keep the video's aspect ratio while resizing (setWindowAspectRatio in the bridge).
             WM_SIZING => {
-                let aspect = PIP_STATE.lock().map(|s| s.aspect).unwrap_or(16.0 / 9.0);
                 let rect = &mut *(lparam.0 as *mut RECT);
-                let width = (rect.right - rect.left) as f64;
-                let height = (rect.bottom - rect.top) as f64;
-                match wparam.0 as u32 {
-                    WMSZ_TOP | WMSZ_BOTTOM => rect.right = rect.left + (height * aspect).round() as i32,
-                    WMSZ_TOPLEFT | WMSZ_TOPRIGHT => rect.top = rect.bottom - (width / aspect).round() as i32,
-                    _ => rect.bottom = rect.top + (width / aspect).round() as i32,
+                let edge = wparam.0 as u32;
+                let (width, height) = (rect.right - rect.left, rect.bottom - rect.top);
+                let by_height = match edge {
+                    WMSZ_TOP | WMSZ_BOTTOM => true,
+                    WMSZ_LEFT | WMSZ_RIGHT => false,
+                    _ => (width as f64) < height as f64 * state.aspect,
+                };
+                let (width, height) = pip_size(width, height, state.aspect, by_height);
+                if matches!(edge, WMSZ_LEFT | WMSZ_TOPLEFT | WMSZ_BOTTOMLEFT) {
+                    rect.left = rect.right - width;
+                } else {
+                    rect.right = rect.left + width;
+                }
+                if matches!(edge, WMSZ_TOP | WMSZ_TOPLEFT | WMSZ_TOPRIGHT) {
+                    rect.top = rect.bottom - height;
+                } else {
+                    rect.bottom = rect.top + height;
                 }
                 LRESULT(1)
             }
-            WM_SIZE => {
-                resize_children_to_client(hwnd);
-                LRESULT(0)
+            WM_ERASEBKGND => {
+                let mut rect = RECT::default();
+                let _ = GetClientRect(hwnd, &mut rect);
+                FillRect(HDC(wparam.0 as *mut _), &rect, HBRUSH(GetStockObject(BLACK_BRUSH).0));
+                LRESULT(1)
             }
-            WM_CLOSE | WM_NCLBUTTONDBLCLK => {
-                let callback = PIP_STATE.lock().ok().and_then(|mut s| s.on_close.take());
-                if let Some(callback) = callback {
-                    callback();
+            WM_WINDOWPOSCHANGED => {
+                let result = DefSubclassProc(hwnd, msg, wparam, lparam);
+                let container = HWND(state.container as *mut _);
+                if GetParent(container).is_ok_and(|parent| parent == hwnd) {
+                    fit_to_parent(container);
                 }
-                LRESULT(0)
+                result
             }
-            _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+            _ => DefSubclassProc(hwnd, msg, wparam, lparam),
         }
     }
 }
@@ -189,50 +187,41 @@ pub fn pip_default_bounds(work_area: RECT, aspect: f64) -> (i32, i32, i32, i32) 
     )
 }
 
-/// Opens the PiP window and moves `container` into it.
-pub fn enter_pip(container: HWND, title: &str, aspect: f64, on_close: Box<dyn Fn() + Send>) -> Result<HWND, String> {
-    register_classes();
-    let aspect = if aspect.is_finite() && aspect > 0.0 { aspect } else { 16.0 / 9.0 };
-    if let Ok(mut state) = PIP_STATE.lock() {
-        state.aspect = aspect;
-        state.on_close = Some(on_close);
-    }
+/// Places `pip` (an app window, not shown yet) at the bottom right of `host`'s monitor, moves
+/// `container` to the bottom of it and starts keeping the aspect. Returns the state for `exit_pip`.
+pub fn enter_pip(container: HWND, host: HWND, pip: HWND, aspect: f64) -> Result<usize, String> {
+    let aspect = if aspect.is_finite() && aspect > 0.05 { aspect } else { 16.0 / 9.0 };
     unsafe {
-        let mut work = RECT::default();
-        let _ = SystemParametersInfoW(SPI_GETWORKAREA, 0, Some((&mut work as *mut RECT).cast()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
-        let (x, y, w, h) = pip_default_bounds(work, aspect);
-        let title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
-        let pip = CreateWindowExW(
-            WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
-            PIP_CLASS,
-            PCWSTR(title.as_ptr()),
-            WS_POPUP | WS_THICKFRAME | WS_VISIBLE | WS_CLIPCHILDREN,
-            x,
-            y,
-            w,
-            h,
-            None,
-            None,
-            GetModuleHandleW(None).ok().map(Into::into),
-            None,
-        )
-        .map_err(|e| format!("CreateWindowEx(pip): {e}"))?;
+        let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if !GetMonitorInfoW(MonitorFromWindow(host, MONITOR_DEFAULTTONEAREST), &mut info).as_bool() {
+            return Err("GetMonitorInfo(pip)".into());
+        }
+        let work = info.rcWork;
+        let (_, _, w, h) = pip_default_bounds(work, aspect);
+        let dpi = GetDpiForWindow(host).max(96) as f64 / 96.0;
+        let (w, h) = ((w as f64 * dpi).round() as i32, (h as f64 * dpi).round() as i32);
+        let (x, y) = (work.right - w - PIP_SCREEN_MARGIN, work.bottom - h - PIP_SCREEN_MARGIN);
+        SetWindowPos(pip, None, x, y, w, h, SWP_NOZORDER | SWP_NOACTIVATE).map_err(|e| format!("SetWindowPos(pip): {e}"))?;
         SetParent(container, Some(pip)).map_err(|e| format!("SetParent(pip): {e}"))?;
+        let _ = SetWindowPos(container, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         fit_to_parent(container);
-        Ok(pip)
+        let state = Box::into_raw(Box::new(PipState { container: container.0 as isize, aspect })) as usize;
+        // A failure only loses the aspect lock.
+        let _ = SetWindowSubclass(pip, Some(pip_proc), PIP_SUBCLASS, state);
+        Ok(state)
     }
 }
 
-/// Moves `container` back into `host` and destroys the PiP window.
-pub fn exit_pip(container: HWND, host: HWND, pip: HWND) {
+/// Moves `container` back into `host`. The app destroys the PiP window afterwards (never before:
+/// the video's window would go with it).
+pub fn exit_pip(container: HWND, host: HWND, pip: HWND, state: usize) {
     unsafe {
+        let _ = RemoveWindowSubclass(pip, Some(pip_proc), PIP_SUBCLASS);
         let _ = SetParent(container, Some(host));
         let _ = SetWindowPos(container, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         fit_to_parent(container);
-        let _ = DestroyWindow(pip);
-    }
-    if let Ok(mut state) = PIP_STATE.lock() {
-        state.on_close = None;
+        // SAFETY: allocated by `enter_pip`; the subclass that used it is gone.
+        drop(Box::from_raw(state as *mut PipState));
     }
 }
 
@@ -265,5 +254,10 @@ mod tests {
         // Very wide video: width grows so the height reaches 180 (ceil(180 × ratio)).
         assert_eq!(pip_default_bounds(work, 4.0).2, 720);
         assert_eq!(pip_default_bounds(work, 4.0).3, 180);
+        // Resizing keeps the aspect and the minimum.
+        assert_eq!(pip_size(640, 999, 16.0 / 9.0, false), (640, 360));
+        assert_eq!(pip_size(999, 450, 16.0 / 9.0, true), (800, 450));
+        assert_eq!(pip_size(100, 50, 16.0 / 9.0, false), (320, 180));
+        assert_eq!(pip_size(100, 50, 4.0, false), (720, 180));
     }
 }

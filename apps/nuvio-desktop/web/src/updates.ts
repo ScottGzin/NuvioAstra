@@ -1,6 +1,6 @@
 // App updates (official Tauri updater, driven by Rust): one shared state for the banner at the
 // top and Settings → Atualizações. Automatic check right after start and every 6 h (normal app mode
-// only); "Depois" hides the banner for that version until the app restarts.
+// only); t("Depois") hides the banner for that version until the app restarts.
 
 import { useEffect, useSyncExternalStore } from "react";
 import { api, errorText } from "./api";

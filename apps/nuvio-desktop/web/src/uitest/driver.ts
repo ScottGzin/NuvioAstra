@@ -3,7 +3,7 @@
 // and one series from Home, the same two titles searched by name, the first playable source of
 // that movie and of one episode (explicitly chosen by this script), no channel resolution.
 
-import { api } from "../api";
+import { api, notifyRemoteChange } from "../api";
 import { invoke } from "../tauri";
 
 interface Check { name: string; passed: boolean; detail: string }
@@ -1228,6 +1228,306 @@ async function readmeShots(): Promise<Record<string, unknown>> {
   return { shots };
 }
 
+// ---------------- Hero carousel + collections (phase `collections`) ----------------
+// Hero: several titles, arrows change it, and it changes by itself after 8 s. Collections: a test
+// collection (in the test data copy) made of the first Home catalogs, with an animated GIF cover,
+// a still cover, an emoji and a wide card; its folder opens with tabs and a grid, a title opens
+// from it and "back" returns to the folder, then to Home.
+const TEST_GIF = "data:image/gif;base64,R0lGODlhPABaAIEAAC/n8g0OEgAAAAAAACH/C05FVFNDQVBFMi4wAwEAAAAh+QQAGQAAACwAAAAAPABaAAAIxAADCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTqlzJsqXLlzBjypxJs6bNmzhz6txJE4DPnwBkAh0KtCXRo0VTIl3qEyXTpyafSiUptarIqlhDYrX6cWtWj165dgw7dSzZshvPotWoFirHtkzNwj0qd+7QunZ/gs2rdy/foH75gvyrVXDhuVThRlXrlKzKsEbXuqTLs7Lly5gza97MubPnz6BDix5NurTp06hTq15tMyAAIfkEARkAAgAsCgAeACQAHwCB8lqMDQ4SAAAAAAAACJIABQgcSFBggIMHAShcCKCgw4cDESZkSHEhRIgSA1TcyPAiwYwcQyr0KACkSJEXTZ5E6VDlSpYRJb6c+VHmzJUxEd6kWdLmzpMGff4M2VPn0JUuj3JMqrQi06YMn0JVKHVqVahFJ07tmFXjVq5Xj+bUurWm0a8Fw/JMK1QsxrY7SardSDLo2bV1u77M+/auRZIBAQAh+QQBGQACACwPAB4AJAAfAIH6yDwNDhIAAAAAAAAIkgAFCBxIUGCAgwcBKFwIoKDDhwMRJmRIcSFEiBIDVNzI8CLBjBxDKvQoAKRIkRdNnkTpUOVKlhElvpz5UebMlTER3qRZ0ubOkwZ9/gzZU+fQlS6PckyqtCLTpgyfQlUodWpVqEUnTu2YVeNWrleP5tS6tabRrwXD8kwrVCzGtjtJqt1IMujZtXW7vsz79q5FkgEBACH5BAEZAAIALBQAHgAkAB8AgXhu+g0OEgAAAAAAAAiSAAUIHEhQYICDBwEoXAigoMOHAxEmZEhxIUSIEgNU3MjwIsGMHEMq9CgApEiRF02eROlQ5UqWESW+nPlR5syVMRHepFnS5s6TBn3+DNlT59CVLo9yTKq0ItOmDJ9CVSh1alWoRSdO7ZhV41auV4/m1Lq1ptGvBcPyTCtULMa2O0mq3Ugy6Nm1dbu+zPv2rkWSAQEAOw==";
+
+async function collectionsPhase(): Promise<Record<string, unknown>> {
+  // The hero may be off in the test data copy: turned on there (the copy only).
+  const initial = await api.settingsGet();
+  if (!initial.settings.home.heroEnabled) await api.settingsSet({ ...initial.settings, home: { ...initial.settings.home, heroEnabled: true } });
+  check("hero: setting", true, initial.settings.home.heroEnabled ? "já ligado" : "estava desligado na cópia; ligado para o teste");
+  await goTab("home");
+  const hero = await waitFor(() => $<HTMLElement>(".home .hero-carousel"), 20000);
+  let heroInfo = "";
+  if (!hero) {
+    const v = await api.homeRows();
+    const src = v.heroSources;
+    const pages = await Promise.all(src.map((key) => api.catalogPage(key, null).then((p) => p.items, () => [])));
+    heroInfo = `enabled=${v.heroEnabled} placeholder=${!!$(".hero-placeholder")} sources=${src.length} items=${pages.flat().length} withArt=${pages.flat().filter((i) => i.landscapePoster || i.banner).length}`;
+  }
+  check("hero: carousel", !!hero, hero ? `${$$(".hero-dot").length} destaques` : `not shown (${heroInfo})`);
+  let heroAuto = false;
+  const coverRects: Record<string, number[]> = {};
+  if (hero && $$(".hero-dot").length > 1) {
+    window.scrollTo(0, 0);
+    const start = hero.dataset.index;
+    click($<HTMLButtonElement>(".hero-arrow.next")!);
+    await sleep(400);
+    const afterNext = hero.dataset.index;
+    check("hero: next arrow", afterNext !== start, `${start} → ${afterNext}`);
+    click($<HTMLButtonElement>(".hero-arrow.prev")!);
+    await sleep(400);
+    check("hero: previous arrow", hero.dataset.index === start, `${afterNext} → ${hero.dataset.index}`);
+    await sleep(1500);
+    await capture("collections-hero");
+    const before = hero.dataset.index;
+    heroAuto = !!(await waitFor(() => hero.dataset.index !== before, 9500));
+    check("hero: changes by itself (8 s)", heroAuto, `${before} → ${hero.dataset.index}`);
+  }
+
+  const view = await api.homeRows();
+  const catalogs = view.rows.filter((r) => !r.collection).slice(0, 3);
+  const firstItems = catalogs[0] ? (await api.catalogPage(catalogs[0].key, null)).items : [];
+  const source = (key: string) => {
+    const [addonId, type, ...rest] = key.split(":");
+    return { provider: "addon", addonId, type, catalogId: rest.join(":") };
+  };
+  const collection = {
+    id: "uitest", title: "Coleção de teste", viewMode: "TABBED_GRID", showAllTab: true,
+    folders: [
+      { id: "gif", title: "Capa GIF", coverImageUrl: firstItems[0]?.poster ?? null, focusGifUrl: TEST_GIF, sources: catalogs.map((c) => source(c.key)) },
+      { id: "gifonly", title: "Só GIF", coverImageUrl: TEST_GIF, sources: catalogs.slice(0, 1).map((c) => source(c.key)) },
+      { id: "still", title: "Capa fixa", coverImageUrl: firstItems[1]?.poster ?? null, sources: catalogs.slice(0, 1).map((c) => source(c.key)) },
+      { id: "emoji", title: "Emoji", coverEmoji: "🎬", sources: [{ provider: "tmdb", tmdbSourceType: "COLLECTION", tmdbId: 1 }] },
+      { id: "wide", title: "Larga", tileShape: "landscape", coverImageUrl: firstItems[2]?.landscapePoster ?? firstItems[2]?.poster ?? null, sources: catalogs.slice(1, 2).map((c) => source(c.key)) },
+    ],
+  };
+  await invoke("uitest_seed_collections", { collections: [collection] });
+  // As if the account had put the collection between the catalogs (test data copy).
+  const stored = (await api.settingsGet()).settings;
+  const keys = view.rows.filter((r) => !r.collection).map((r) => r.key);
+  keys.splice(1, 0, "collection_uitest");
+  await api.settingsSet({ ...stored, home: { ...stored.home, items: keys.map((key, order) => ({ key, order, enabled: true, customTitle: "", heroSourceEnabled: true })) } });
+  notifyRemoteChange(0, ["collections", "home"]);
+  const row = await waitFor(() => $<HTMLElement>('.home .collection-row[data-collection="uitest"]'), 15000);
+  check("collections: row on Home", !!row, row ? `${$$(".folder-card", row).length} pastas` : "not shown");
+  if (!row) return { heroAuto };
+  row.scrollIntoView({ block: "center" });
+  await sleep(1500);
+  const sections = $$(".home .row-section").filter((s) => s.dataset.collection || s.dataset.contentType);
+  const at = sections.findIndex((s) => s.dataset.collection === "uitest");
+  const pinned = view.rows.filter((r) => r.collection?.pinToTop).length;
+  check("collections: between the catalogs", at === pinned + 1, `linha ${at + 1} de ${sections.length}`);
+  check("GIF: none animated without the pointer", !$(".collection-row .folder-anim"), `${$$(".collection-row .folder-anim").length} animando`);
+  for (const id of ["gif", "gifonly"]) {
+    const card = $<HTMLElement>(`[data-folder="${id}"]`, row)!;
+    card.scrollIntoView({ block: "center", inline: "nearest" });
+    await sleep(500);
+    const canvas = $<HTMLCanvasElement>("canvas.folder-still", card);
+    check(`GIF ${id}: still drawn`, !!canvas?.dataset.drawn, canvas ? "canvas" : "missing");
+    const r = card.querySelector(".card-art")!.getBoundingClientRect();
+    coverRects[id] = [r.x, r.y, r.width, r.height].map((v) => v * window.devicePixelRatio);
+    // Two captures not a multiple of the GIF's 1 s loop apart.
+    await capture(`cover-${id}-still-a`);
+    await sleep(370);
+    await capture(`cover-${id}-still-b`);
+    card.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, relatedTarget: document.body }));
+    const anim = await waitFor(() => $<HTMLImageElement>(".folder-anim", card), 2000);
+    check(`GIF ${id}: animates under the pointer`, !!anim && anim.src.startsWith("data:image/gif"), anim ? "img GIF" : "missing");
+    await sleep(400);
+    for (const [i, wait] of [0, 90, 170, 230, 310, 430].entries()) {
+      await sleep(wait);
+      await capture(`cover-${id}-hover-${i}`);
+    }
+    card.dispatchEvent(new PointerEvent("pointerout", { bubbles: true, relatedTarget: document.body }));
+    await sleep(200);
+    check(`GIF ${id}: still again after leaving`, !$(".folder-anim", card) && !$(".folder-still.covered", card), "");
+    await capture(`cover-${id}-left-a`);
+    await sleep(370);
+    await capture(`cover-${id}-left-b`);
+  }
+  check("collections: emoji cover", ($('[data-folder="emoji"] .folder-fallback', row)?.textContent ?? "") === "🎬", "emoji");
+  const wide = $<HTMLElement>('[data-folder="wide"]', row);
+  check("collections: wide card", !!wide && wide.offsetWidth > ($<HTMLElement>('[data-folder="still"]', row)?.offsetWidth ?? 0), `${wide?.offsetWidth}px`);
+  await capture("collections-row");
+
+  click($<HTMLButtonElement>('[data-folder="gif"]', row)!);
+  const screen = await waitFor(() => $(".folder-screen"), 5000);
+  const tabs = $$<HTMLButtonElement>(".folder-tabs .chip");
+  check("folder: opens with tabs", !!screen && tabs.length === catalogs.length + 1, tabs.map((t) => t.textContent).join(" | "));
+  const cards = await waitFor(() => ($$(".folder-grid .card[data-id]").length > 4 ? $$<HTMLButtonElement>(".folder-grid .card[data-id]") : null), 30000);
+  check("folder: Todos grid", !!cards, `${cards?.length ?? 0} títulos`);
+  await capture("collections-folder");
+  if (tabs[1]) {
+    click(tabs[1]);
+    await sleep(300);
+    const one = await waitFor(() => ($$(".folder-grid .card[data-id]").length > 0 ? $$<HTMLButtonElement>(".folder-grid .card[data-id]") : null), 30000);
+    check("folder: catalog tab", !!one && tabs[1].classList.contains("active"), `${one?.length ?? 0} títulos`);
+    if (one) {
+      click(one[0]);
+      const opened = await waitFor(() => $(".details"), 15000);
+      check("folder: title opens", !!opened, one[0].dataset.id ?? "");
+      await back();
+      check("folder: back returns to the folder", visible($(".folder-screen")), "");
+    }
+  }
+  click($$<HTMLButtonElement>(".folder-screen .back").find(visible)!);
+  await sleep(400);
+  check("folder: back returns to Home", !$(".folder-screen") && visible($(".home")), "");
+  click($<HTMLButtonElement>('[data-folder="emoji"]')!);
+  await waitFor(() => $(".folder-screen"), 5000);
+  const message = $(".folder-screen .screen-message")?.textContent ?? "";
+  check("folder: TMDB-only folder explains", /TMDB/.test(message), message);
+  click($$<HTMLButtonElement>(".folder-screen .back").find(visible)!);
+  await sleep(300);
+  await openSettings("home");
+  const pref = await waitFor(() => $('.catalog-pref[data-key="collection_uitest"]'), 5000);
+  check("settings: collection listed in Início", !!pref, pref?.textContent ?? "missing");
+  return { heroAuto, coverRects };
+}
+
+// ---------------- Video improvements (phase `enhance:<still image>`) ----------------
+// Synthetic video with sound (volume 0) in the real window: playback rate and A/V offset with each
+// motion and level, saving per profile (test data copy), and the watchdog with the broken
+// swapchain put back on purpose. The `signal-*` captures ask the outer script to act on the window.
+const SYNTH = (w: number, h: number, rate = "24000/1001") =>
+  `av://lavfi:testsrc2=size=${w}x${h}:rate=${rate},format=yuv420p[out0];sine=frequency=300:sample_rate=48000[out1]`;
+const prop = (name: string) => invoke<string | null>("uitest_player_property", { name });
+
+async function playTest(url: string, motion = "off", enhancement = "off") {
+  await invoke("player_video_config", { config: { motion, enhancement } });
+  const start = () => invoke("player_open", { request: { url, headers: [], startSeconds: 0 } });
+  window.dispatchEvent(new CustomEvent("uitest-play", { detail: start }));
+  await waitFor(() => $(".full-player .controls"), 5000);
+  await sleep(1500);
+  await invoke("player_command", { command: { type: "setVolume", volume: 0 } });
+}
+
+async function syncOk(label: string, settleMs = 4000) {
+  await sleep(settleMs);
+  const read = async () => [Number(await prop("time-pos")), performance.now(), Number(await prop("frame-drop-count"))];
+  const [p0, t0, d0] = await read();
+  await sleep(4000);
+  const [p1, t1, d1] = await read();
+  const rate = (p1 - p0) / ((t1 - t0) / 1000);
+  const offset = Number(await prop("avsync"));
+  check(`${label}: 1x, audio in sync`, Math.abs(rate - 1) < 0.05 && Math.abs(offset) < 0.1,
+    `rate=${rate.toFixed(3)} avsync=${offset.toFixed(4)} drops=${d1 - d0} sync=${await prop("video-sync")}`);
+  return d1 - d0;
+}
+
+async function pick(selector: string) {
+  if (!$(".pc-enhance-menu")) click($<HTMLButtonElement>(".pc-enhance > button")!);
+  const tab = selector.includes("data-motion") ? "motion" : "quality";
+  (await waitFor(() => $<HTMLButtonElement>(`.pc-enhance-menu [data-tab-id="${tab}"]`), 3000))?.click();
+  const button = await waitFor(() => $<HTMLButtonElement>(`.pc-enhance-menu ${selector}`), 3000);
+  button?.click();
+}
+
+const savedPlayer = async () => (await api.settingsGet()).settings.player;
+
+function oneRow(label: string) {
+  const row = $(".full-player .controls .row")!;
+  const items = Array.from(row.children).filter((e) => (e as HTMLElement).offsetWidth > 0).map((e) => e.getBoundingClientRect());
+  const middles = items.map((r) => (r.top + r.bottom) / 2);
+  const inside = Math.max(...items.map((r) => r.right)) <= window.innerWidth;
+  check(`controls ${label}: one row, inside the window`, inside && Math.max(...middles) - Math.min(...middles) < 8,
+    `janela ${window.innerWidth}px, play ${$(".full-player .pc-play")!.getBoundingClientRect().height}px`);
+}
+
+async function enhancePhase(image: string): Promise<Record<string, unknown>> {
+  await sleep(2500);
+  await playTest(SYNTH(1920, 1080));
+  await syncOk("original");
+  oneRow("normal");
+
+  for (const motion of ["fluid", "steady"]) {
+    await pick(`[data-motion="${motion}"]`);
+    await syncOk(`menu → ${motion}`);
+    check(`${motion}: saved in the profile`, (await savedPlayer()).motionSmoothing === motion, (await savedPlayer()).motionSmoothing);
+  }
+  await pick('[data-motion="fluid"]');
+  await api.setFullscreen(true);
+  await syncOk("fluid, fullscreen");
+  const shot = await capture("enhance-fullscreen");
+  check("fluid: picture visible under the WebView", !!shot && shot.lumaStddev > 5, JSON.stringify(shot));
+
+  for (const level of ["movies", "animeFast", "animeQuality"]) {
+    await pick(`[data-level="${level}"]`);
+    const drops = await syncOk(`fluid + ${level}`);
+    check(`${level}: no overload`, drops <= 4, `${drops} drops`);
+    const shaders = (await prop("glsl-shaders")) ?? "";
+    const applied = level === "movies" ? (await prop("deband-iterations")) === "4" && !shaders
+      : shaders.includes("Anime4K") && ((await prop("vo-passes")) ?? "").includes("Anime4K");
+    check(`${level}: really rendering`, applied, shaders ? `${shaders.split("Anime4K_").length - 1} shaders` : "propriedades");
+    check(`${level}: saved in the profile`, (await savedPlayer()).videoEnhancement === level, (await savedPlayer()).videoEnhancement);
+  }
+  $(".full-player")?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+  await sleep(500);
+  await capture("enhance-menu");
+
+  await invoke("player_command", { command: { type: "seek", seconds: 5, relative: true } });
+  await syncOk("after seek");
+  await invoke("player_command", { command: { type: "togglePause" } });
+  await sleep(2500);
+  await invoke("player_command", { command: { type: "togglePause" } });
+  await syncOk("after pause");
+
+  await api.setFullscreen(false);
+  await sleep(800);
+  await capture("signal-minimize");
+  await sleep(9000);
+  check("minimized: motion suspended", (await prop("video-sync")) === "audio", String(await prop("video-sync")));
+  await sleep(9000);
+  await syncOk("restored", 2500);
+  check("restored: motion resumed", (await prop("video-sync")) === "display-resample", String(await prop("video-sync")));
+
+  for (const width of [1000, 780]) {
+    await capture(`signal-width-${width}`);
+    await sleep(2000);
+    $(".full-player")?.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
+    await sleep(500);
+    oneRow(`${width}`);
+    await capture(`enhance-width-${width}`);
+  }
+  await capture("signal-width-1280");
+  await sleep(1500);
+
+  await pick('[data-motion="off"]');
+  await syncOk("menu → original");
+
+  await playTest(SYNTH(1280, 720), "fluid", "animeQuality");
+  await syncOk("on from the start, 720p");
+
+  // The reported bug, on purpose: the flip swapchain under display sync.
+  await api.settingsGet();
+  await invoke("uitest_break_display_sync");
+  const notice = await waitFor(() => $(".enhance-notice"), 14000);
+  check("watchdog: broken motion detected and told", !!notice, notice?.textContent ?? "sem aviso");
+  await syncOk("watchdog: after going back to original");
+  check("watchdog: saved", (await savedPlayer()).motionSmoothing === "off", (await savedPlayer()).motionSmoothing);
+
+  // Anime + RTX Super Resolution: Anime4K takes its place, and it comes back with another level.
+  await invoke("player_video_config", { config: { enhancement: "animeQuality", motion: "fluid", nvidiaRtxSuperResolution: true } });
+  const start = () => invoke("player_open", { request: { url: SYNTH(1920, 1080), headers: [], startSeconds: 0 } });
+  window.dispatchEvent(new CustomEvent("uitest-play", { detail: start }));
+  await sleep(1500);
+  await invoke("player_command", { command: { type: "setVolume", volume: 0 } });
+  const rtxDrops = await syncOk("anime + RTX VSR", 5000);
+  check("anime + RTX VSR: no overload", rtxDrops <= 4 && !((await prop("vf")) ?? "").includes("nvidia"), `${rtxDrops} drops`);
+  await pick('[data-level="movies"]');
+  await sleep(1500);
+  check("movies: RTX VSR back", ((await prop("vf")) ?? "").includes("nvidia"), String(await prop("vf")));
+
+  await playTest(SYNTH(3840, 2160), "off", "animeQuality");
+  await sleep(2000);
+  check("4K: no Anime4K", !((await prop("glsl-shaders")) ?? "").includes("Anime4K"), String(await prop("glsl-shaders")));
+
+  // An impossible load: the level must go down by itself, be told and be saved.
+  await playTest(SYNTH(2048, 1152, "300"), "off", "animeQuality");
+  const lowered = await waitFor(() => $(".enhance-notice"), 25000);
+  check("watchdog: overload lowers the level", !!lowered, lowered?.textContent ?? "sem aviso");
+  check("watchdog: lower level saved", (await savedPlayer()).videoEnhancement === "animeFast", (await savedPlayer()).videoEnhancement);
+
+  // Visible change on the drawn test frame, through the app.
+  await playTest(image);
+  await sleep(1500);
+  for (const level of ["off", "animeFast", "animeQuality"]) {
+    await pick(`[data-level="${level}"]`);
+    await sleep(3000);
+    const menu = $<HTMLElement>(".full-player .controls")!;
+    menu.style.visibility = "hidden";
+    await sleep(400);
+    await capture(`enhance-art-${level}`);
+    menu.style.visibility = "";
+  }
+  return {};
+}
+
 // ---------------- Trailers (phase `trailer`) ----------------
 // A movie and a series from Home whose details have a YouTube trailer: nothing is requested before
 // the click, the trailer plays (picture + audio track) in the app's player, closing returns to the
@@ -1294,6 +1594,8 @@ export async function runUiTest() {
       else if (phase === "trailer") extra = await trailerPhase();
       else if (phase === "install-check") extra = await installCheck();
       else if (phase === "readme-shots") extra = await readmeShots();
+      else if (phase === "collections") extra = await collectionsPhase();
+      else if (phase.startsWith("enhance:")) extra = await enhancePhase(decodeURIComponent(phase.slice("enhance:".length)));
       else if (phase.startsWith("account-verify:")) await accountVerify(JSON.parse(decodeURIComponent(phase.slice("account-verify:".length))));
       else if (phase.startsWith("manage-verify:")) await manageVerify(JSON.parse(decodeURIComponent(phase.slice("manage-verify:".length))));
       else if (phase.startsWith("library-verify:")) await libraryVerify(JSON.parse(decodeURIComponent(phase.slice("library-verify:".length))));

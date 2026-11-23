@@ -6,6 +6,10 @@
 //!   implemented in phase 2 with X11/Wayland embedding. Keeping the types identical lets the
 //!   desktop app and the UI work unmodified on both platforms.
 
+#[cfg(windows)]
+mod enhance;
+#[cfg(windows)]
+mod picture;
 pub mod mpv;
 
 #[cfg(windows)]
@@ -20,6 +24,11 @@ pub use linux::*;
 
 use std::path::PathBuf;
 use thiserror::Error;
+
+#[cfg(windows)]
+pub use enhance::{Enhancement, Motion};
+#[cfg(windows)]
+pub use picture::{AnimeMode, Picture};
 
 #[derive(Debug, Error)]
 pub enum PlayerError {

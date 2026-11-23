@@ -28,6 +28,8 @@ pub struct StreamItem {
     pub addon_logo: Option<String>,
     pub stream_type: Option<String>,
     pub behavior_hints: StreamBehaviorHints,
+    /// Subtitles the stream itself carries (HTTP(S) only).
+    pub subtitles: Vec<crate::subtitle::SubtitleItem>,
     /// Raw `clientResolve` object, preserved for the debrid port.
     pub client_resolve: Option<Value>,
 }
@@ -163,6 +165,7 @@ pub fn parse_streams(payload: &str, addon_name: &str, addon_id: &str, addon_logo
                     filename: hint("filename"),
                     proxy_headers,
                 },
+                subtitles: crate::subtitle::items(obj.get("subtitles"), "stream"),
                 client_resolve,
             })
         })

@@ -83,7 +83,7 @@ export function TorrentStart({ stream, onReady, onCancel }: Props) {
   const accept = async () => {
     try {
       const view = await api.settingsGet();
-      await api.settingsSet({ ...view.settings, p2p: { ...view.settings.p2p, enabled: true } });
+      await api.settingsSet({ ...view.settings, p2p: { ...view.settings.p2p, enabled: true } }, view.settings, view.profile.index);
       setAttempt((a) => a + 1);
     } catch (e) {
       setError(errorText(e));

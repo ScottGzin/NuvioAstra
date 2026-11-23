@@ -38,23 +38,63 @@ export interface MetaPreview {
 export interface CatalogPage { items: MetaPreview[]; rawItemCount: number; nextSkip: number | null }
 export interface HomeRow {
   key: string; title: string; addonName: string; contentType: string; catalogId: string; supportsPagination: boolean;
+  /** Set for a collection row (key `collection_<id>`). */
+  collection?: CollectionView;
 }
-export interface HomeView { heroEnabled: boolean; rows: HomeRow[] }
+
+// ---- Collections (services::collections) ----
+export interface FolderSource {
+  key: string; genre: string | null; label: string; addonName: string; contentType: string; supportsPagination: boolean;
+}
+export interface FolderView {
+  id: string; title: string;
+  /** GIF (when enabled) or cover; a `.mp4`/`.webm` URL is a video. */
+  image: string | null; stillImage: string | null; emoji: string | null;
+  shape: "poster" | "landscape" | "square"; hideTitle: boolean;
+  backdrop: string | null; logo: string | null;
+  sources: FolderSource[]; skippedSources: number;
+}
+export interface CollectionView {
+  id: string; title: string; backdrop: string | null; pinToTop: boolean;
+  viewMode: "TABBED_GRID" | "ROWS" | "FOLLOW_LAYOUT" | string; showAllTab: boolean;
+  folders: FolderView[];
+}
+export interface HomeView {
+  heroEnabled: boolean;
+  /** Catalog keys whose first page feeds the hero (at most 2, hidden rows included). */
+  heroSources: string[];
+  rows: HomeRow[];
+}
 
 // ---- Settings (nuvio-store::settings, per profile) ----
 export interface SubtitleSettings {
   textColor: string; backgroundColor: string; outlineColor: string; outlineEnabled: boolean;
   outlineWidth: number; bold: boolean; fontSizeSp: number; bottomOffset: number; stripSdh: boolean;
+  fontId: string; shadowEnabled: boolean; shadowOpacity: number; shadowSize: number;
+  italic: boolean; spacing: number; blur: number; align: "left" | "center" | "right"; overrideAss: boolean;
 }
+export type MotionName = "off" | "steady" | "fluid";
+export type AnimeModeName = "auto" | "a" | "b" | "c" | "aa" | "bb" | "ca";
+export interface PictureSettings {
+  mode: AnimeModeName; denoise: number; deblur: number; thin: number; darken: number; deband: number;
+  brightness: number; contrast: number; saturation: number; gamma: number; hue: number;
+}
+export interface SubtitleFont { id: string; name: string; family: string }
+export interface SubtitleFontList { imported: SubtitleFont[]; system: string[] }
+export type EnhancementName = "off" | "movies" | "animeFast" | "animeQuality";
 export type ResizeModeName = "Fit" | "Fill" | "Zoom" | "Stretch";
 export interface PlayerSettings {
   resizeMode: ResizeModeName; decoderPriority: number; nvidiaRtxSuperResolution: boolean; nvidiaRtxHdr: boolean;
+  motionSmoothing: MotionName; videoEnhancement: EnhancementName; picture: PictureSettings;
   preferredAudioLanguage: string; secondaryPreferredAudioLanguage: string | null;
   preferredSubtitleLanguage: string; secondaryPreferredSubtitleLanguage: string | null;
   subtitle: SubtitleSettings;
+  skipSegmentsEnabled: boolean; autoSkipSegments: string[];
+  nextEpisodeThresholdMode: "PERCENTAGE" | "MINUTES_BEFORE_END";
+  nextEpisodeThresholdPercent: number; nextEpisodeThresholdMinutes: number; watchedPercent: number;
 }
 export interface HomeCatalogPreference { key: string; customTitle: string; enabled: boolean; heroSourceEnabled: boolean; order: number }
-export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[] }
+export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[]; heroCatalogs: string[] | null }
 export type P2pProfileName = "SOFT" | "BALANCED" | "FAST";
 export type P2pCacheName = "NONE" | "GB_2" | "GB_5" | "GB_10";
 export interface P2pSettings { enabled: boolean; enableUpload: boolean; hideTorrentStats: boolean; torrentProfile: P2pProfileName; cacheSize: P2pCacheName }
@@ -117,6 +157,14 @@ export interface Channel {
 }
 export interface ChannelList { channels: Channel[]; categories: [string, number][]; failedCatalogs: number }
 
+export interface Chapter { time: number; title: string }
+export interface SubtitleOption { index: number; source: string; language: string; title: string }
+export interface SubtitleList { options: SubtitleOption[]; addons: number; failed: number }
+export interface Moment {
+  kind: "intro" | "recap" | "outro" | "movie-credits" | "post-credits";
+  start: number; end: number; target: number; toPostCredits: boolean; auto: boolean;
+}
+export interface Moments { segments: Moment[]; nextEpisodeAt: number | null }
 export interface Track {
   id: number; kind: string; title: string | null; lang: string | null; codec: string | null;
   selected: boolean; external: boolean; default: boolean; forced: boolean;
@@ -126,8 +174,9 @@ export interface PlayerSnapshot {
   timePos: number; duration: number; cacheSeconds: number; volume: number; mute: boolean; speed: number;
   subDelayMs: number; audioDelayMs: number; subVisible: boolean; hwdecCurrent: string | null;
   videoCodec: string | null; width: number; height: number; fps: number; droppedFrames: number;
-  decoderDroppedFrames: number; aid: string | null; sid: string | null; tracks: Track[];
-  pictureInPicture: boolean; error: string | null;
+  decoderDroppedFrames: number; aid: string | null; sid: string | null; tracks: Track[]; chapters: Chapter[];
+  pictureInPicture: boolean; motion: MotionName; enhancement: EnhancementName; picture: PictureSettings;
+  autoChanges: number; autoReason: "motion" | "enhancement" | "effects" | null; error: string | null;
 }
 export type ResizeMode = "fit" | "fill" | "zoom" | "stretch";
 export type PlayerCommand =
@@ -140,8 +189,13 @@ export type PlayerCommand =
   | { type: "setAudioTrack"; id: string }
   | { type: "setSubtitleTrack"; id: string }
   | { type: "setSubtitleDelay"; ms: number }
+  | { type: "setSubtitleVisible"; visible: boolean }
   | { type: "setAudioDelay"; ms: number }
-  | { type: "setResizeMode"; mode: ResizeMode };
+  | { type: "setResizeMode"; mode: ResizeMode }
+  | { type: "setMotion"; motion: MotionName }
+  | { type: "setEnhancement"; enhancement: EnhancementName }
+  | { type: "setPicture"; picture: PictureSettings }
+  | { type: "setCompare"; active: boolean };
 export interface PlayerInfo { session: number; libmpvApi: string }
 export interface CssRect { x: number; y: number; width: number; height: number }
 
@@ -158,6 +212,10 @@ export interface HistoryEntry {
   background: string | null; season: number | null; episode: number | null; episodeTitle: string | null;
   positionMs: number; durationMs: number; fraction: number; completed: boolean; inProgress: boolean;
   lastWatchedEpochMs: number;
+  /** The next episode of a series, after finishing the previous one. */
+  nextUp: boolean;
+  /** Date of a next episode that is not out yet. */
+  airs: string | null;
 }
 export interface HistoryPage { items: HistoryEntry[]; total: number; nextOffset: number | null }
 export interface TitleProgress { resume: HistoryEntry | null; entries: HistoryEntry[] }

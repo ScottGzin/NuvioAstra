@@ -27,14 +27,44 @@
 
 ## Recursos
 
-- **Início, pesquisa e detalhes:** catálogos dos seus addons em fileiras, pesquisa com resultados enquanto você digita e histórico, temporadas, episódios e elenco.
-- **Player embutido** (libmpv): aceleração por hardware, faixas de áudio e legendas, estilos de legenda, PiP.
+### Início e descoberta
+
+- **Destaque em carrossel**, com os dois catálogos que você escolher.
+- **Catálogos dos seus addons** em fileiras, que podem ser renomeadas, ocultadas e reordenadas.
+- **Coleções da conta Nuvio**, com capas em GIF que animam ao passar o mouse.
+- **Pesquisa** com resultados enquanto você digita e histórico.
+- **Detalhes** com temporadas, episódios, elenco e trailers do YouTube.
+
+### Player
+
+- **Player embutido** (libmpv), com aceleração por hardware, faixas de áudio e controle de velocidade.
+- **Legendas dentro do player:** do arquivo, da fonte e dos addons, com atraso, tamanho e posição.
+- **Estilo das legendas:** fontes do sistema ou importadas, cores, contorno, sombra, fundo e alinhamento.
+- **Pular introdução, recapitulação e créditos**, usando os capítulos do vídeo, IntroDB e AniSkip, sem precisar de chave. Também pode pular automaticamente.
+- **Próximo episódio**, com a escolha da fonte por cima do vídeo.
+- **Picture-in-picture** com controles.
 - **Torrent / P2P** no próprio player, com reprodução antes do download terminar.
-- **Trailers do YouTube** na tela de detalhes.
-- **TV ao vivo** com categorias, filtro por addon e guia de programação (quando o addon informa).
-- **Biblioteca:** favoritos, histórico e "Continuar assistindo".
-- **Perfis** com PIN e avatares, e **sincronização com a conta Nuvio**.
+
+### Qualidade de imagem
+
+- **Anime4K** com modos A, B, C, A+A, B+B e C+A, além de efeitos de nitidez, traço e redução de ruído.
+- **Ajustes de cor** e melhoria para filmes e séries.
+- **Movimento:** "Sem tremidas" (ajusta o ritmo ao monitor) ou "Fluido" (mistura quadros vizinhos).
+- **NVIDIA RTX Video** Super Resolution e HDR, em placas e drivers compatíveis.
+
+### Biblioteca, conta e perfis
+
+- **Continuar assistindo** com o próximo episódio e porcentagem de assistido ajustável de 90% a 100%.
+- **Favoritos e histórico** por perfil.
+- **Perfis** com PIN e avatares.
+- **Sincronização automática com a conta Nuvio:** perfis, addons, favoritos, progresso, ordem do Início e preferências compatíveis. As coleções são recebidas da conta.
+
+### TV ao vivo e atualizações
+
+- **TV ao vivo** com categorias, favoritos, filtro por addon e guia de programação (quando o addon informa).
 - **Atualizações automáticas** pelo próprio app, com verificação de assinatura.
+
+O que ainda não foi portado do Nuvio original está em **Configurações → Ainda não disponível**.
 
 ## Instalação
 
@@ -46,7 +76,7 @@
 
 O instalador ainda não tem assinatura digital, então o Windows SmartScreen pode pedir confirmação na primeira vez: **Mais informações → Executar assim mesmo**. Os arquivos de cada versão têm checksums em `SHA256SUMS.txt`.
 
-Quem já usa o Nuvio Desktop pode ter perfis, addons e biblioteca importados automaticamente na primeira abertura. Os arquivos originais não são alterados. Os dados do Nuvio Astra ficam em `%APPDATA%\NuvioNextGen` e são mantidos em atualizações e desinstalações.
+Na primeira abertura, o app pede a conta Nuvio e sincroniza sozinho (também dá para continuar sem conta). Quem já usa o Nuvio Desktop pode ter perfis, addons e biblioteca importados automaticamente; a senha e o login do Nuvio Desktop não são copiados, e os arquivos originais não são alterados. Os dados do Nuvio Astra ficam em `%APPDATA%\NuvioNextGen` e são mantidos em atualizações e desinstalações.
 
 ## Compilar a partir do código
 
@@ -95,12 +125,38 @@ automáticas e pacotes AppImage/.deb vêm na fase 4. Variáveis de ajuste: `NUVI
 
 ## Créditos e direitos autorais
 
-- **Nuvio Desktop**, © equipe Nuvio / [NuvioMedia](https://github.com/NuvioMedia), licenciado sob a GPL-3.0. O Nuvio Astra é um projeto derivado dele (fork). O nome, a marca e o logotipo **Nuvio** pertencem aos seus respectivos donos.
-- **[Nuvio Engine](https://github.com/NuvioMedia/nuvio-engine)** (`nuvio_engine.dll`), © NuvioMedia, GPL-3.0. Inclui libtorrent (BSD-3-Clause), Boost (BSL-1.0) e OpenSSL (Apache-2.0).
-- **[mpv / libmpv](https://mpv.io)** e FFmpeg, sob a GPL.
-- **[Tauri](https://tauri.app)**, **React** e as bibliotecas Rust e JavaScript usadas, sob as licenças MIT e/ou Apache-2.0.
+**Nuvio Astra:** modificações e código novo © 2026 [ScottGzin](https://github.com/ScottGzin) e contribuidores, sob a GPL-3.0.
 
-Os textos completos das licenças de terceiros acompanham o instalador (pasta `licenses`) e estão em [`packaging/licenses`](packaging/licenses).
+**Projeto original:** o Nuvio Astra é uma versão modificada, iniciada em novembro de 2026, do [Nuvio Desktop](https://github.com/NuvioMedia/NuvioDesktop), © equipe Nuvio / [NuvioMedia](https://github.com/NuvioMedia) e seus contribuidores, licenciado sob a GPL-3.0. Os direitos sobre o código original continuam com seus autores. O nome, a marca e o logotipo **Nuvio** pertencem aos seus respectivos donos.
+
+### Componentes incluídos
+
+| Componente | Autoria | Licença |
+|---|---|---|
+| [Nuvio Engine](https://github.com/NuvioMedia/nuvio-engine) (`nuvio_engine.dll`) | © NuvioMedia | GPL-3.0-or-later |
+| [libtorrent](https://www.libtorrent.org), dentro do Nuvio Engine | © Arvid Norberg e contribuidores | BSD-3-Clause |
+| [Boost](https://www.boost.org), dentro do Nuvio Engine | © autores do Boost | BSL-1.0 |
+| [OpenSSL](https://www.openssl.org), dentro do Nuvio Engine | © autores do OpenSSL | Apache-2.0 |
+| [try_signal](https://github.com/arvidn/try_signal), dentro do Nuvio Engine | © 2016 Arvid Norberg | BSD-3-Clause |
+| [mpv / libmpv](https://mpv.io) (`libmpv-2.dll`) | © autores do mpv | GPL-2.0-or-later |
+| [FFmpeg](https://ffmpeg.org), dentro do libmpv | © desenvolvedores do FFmpeg | GPL, nesta compilação |
+| [Anime4K](https://github.com/bloc97/Anime4K) | © 2019–2021 bloc97 | MIT (`AutoDownscalePre`: Unlicense) |
+| [Tauri](https://tauri.app) | © 2017–presente Tauri Apps Contributors | MIT ou Apache-2.0 |
+| [React](https://react.dev) | © Meta Platforms, Inc. e afiliadas | MIT |
+
+As demais bibliotecas usam licenças livres, como MIT, Apache-2.0, BSD, ISC, Zlib e Unicode-3.0. Os avisos de terceiros estão em [`packaging/licenses`](packaging/licenses).
+
+### Serviços e dados de terceiros
+
+Estes serviços não fazem parte do Nuvio Astra, não têm vínculo com o projeto e seguem os próprios termos:
+
+- **[IntroDB](https://introdb.app):** tempos de introdução, recapitulação e créditos enviados pela comunidade ([termos](https://introdb.app/docs/terms)).
+- **[AniSkip](https://api.aniskip.com/api-docs):** tempos de abertura e encerramento de animes enviados pela comunidade.
+- **[ARM](https://github.com/BeeeQueue/arm-server)**, de BeeeQueue, com dados de [Fribb/anime-lists](https://github.com/Fribb/anime-lists): correspondência entre identificadores de animes.
+- **YouTube:** reprodução de trailers. YouTube é uma marca da Google LLC.
+- **Addons:** catálogos, capas, informações, fontes e legendas pertencem aos seus provedores e autores.
+
+NVIDIA e RTX são marcas da NVIDIA Corporation. Windows e WebView2 são produtos da Microsoft Corporation.
 
 ## Aviso legal
 
@@ -109,6 +165,12 @@ Os textos completos das licenças de terceiros acompanham o instalador (pasta `l
 - Cada usuário é responsável pelos addons que instala e pelo conteúdo que acessa, de acordo com as leis do seu país. Ao usar torrent/P2P, o seu endereço IP fica visível para outros participantes da rede.
 - Marcas, capas e imagens que aparecem no aplicativo ou nas capturas pertencem aos seus respectivos donos.
 
+## Privacidade
+
+- A senha da conta Nuvio é enviada apenas ao servidor da conta e não é armazenada. A sessão fica criptografada neste computador pelo Windows (DPAPI).
+- Com os botões de pular ativados, o app envia ao IntroDB, AniSkip ou ARM o identificador público do título e, para séries, a temporada ou o episódio. Como em qualquer acesso à internet, esses serviços veem o seu IP. Os botões podem ser desligados em **Configurações → Reprodução**.
+- Os addons instalados recebem os pedidos de catálogo, fontes e legendas. Para legendas, isso pode incluir o nome, o tamanho e o identificador do arquivo de vídeo.
+
 ## Licença
 
-[GNU General Public License v3.0](LICENSE), a mesma do Nuvio Desktop. O código-fonte completo de cada versão está neste repositório.
+[GNU General Public License v3.0](LICENSE), a mesma do Nuvio Desktop. Você pode usar, estudar, modificar e redistribuir o Nuvio Astra seguindo os termos dessa licença, mantendo os avisos de direitos autorais e disponibilizando o código-fonte. O programa é fornecido **sem qualquer garantia**. O código-fonte completo de cada versão está neste repositório.

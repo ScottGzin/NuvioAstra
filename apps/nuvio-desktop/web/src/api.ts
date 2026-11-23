@@ -2,6 +2,10 @@ import { invoke } from "./tauri";
 import { t } from "./i18n";
 import type {
   EpgView,
+  SubtitleFont,
+  SubtitleFontList,
+  SubtitleList,
+  Moments,
   UpdateInfo,
   UpdateStatus,
   P2pStatus,
@@ -16,6 +20,13 @@ import type {
 const pageCache = new Map<string, Promise<CatalogPage>>();
 const detailsCache = new Map<string, Promise<Details>>();
 const homeListeners = new Set<() => void>();
+
+const remoteSettingsListeners = new Set<() => void>();
+/** The account changed settings, the Home layout or the collections (not a change made in this app). */
+export function onRemoteSettingsChanged(listener: () => void): () => void {
+  remoteSettingsListeners.add(listener);
+  return () => remoteSettingsListeners.delete(listener);
+}
 
 // Data epoch: changes when the active profile or its addons change. Every cache tied to them is
 // dropped, and an answer started before the change is ignored by whoever compares the epoch.
@@ -48,6 +59,11 @@ export function reloadProfileData() {
 export function notifyRemoteChange(_profile: number, changed: string[]) {
   if (changed.includes("addons")) newEpoch("addons");
   if (changed.includes("profiles")) profileListeners.forEach((l) => l());
+  if (changed.includes("collections") || changed.includes("home")) {
+    pageCache.clear(); // "ocultar não lançados" may have changed
+    homeListeners.forEach((l) => l());
+  }
+  if (["collections", "home", "settings"].some((k) => changed.includes(k))) remoteSettingsListeners.forEach((l) => l());
 }
 
 function cached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Promise<T>): Promise<T> {
@@ -63,16 +79,18 @@ function cached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Prom
 export const api = {
   bootstrap: () => invoke<Bootstrap>("app_bootstrap"),
   homeRows: () => invoke<HomeView>("home_rows"),
-  catalogPage: (key: string, skip: number | null) =>
-    cached(pageCache, `${key}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip })),
+  /** `genre`: a collection folder's catalog filtered by genre. */
+  catalogPage: (key: string, skip: number | null, genre: string | null = null) =>
+    cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre })),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
   streams: (contentType: string, id: string) => invoke<StreamGroup[]>("title_streams", { contentType, id }),
   settingsGet: () => invoke<SettingsView>("settings_get"),
-  /** Saves and returns what was stored (validated by Rust). Home changes drop the cached pages. */
-  async settingsSet(settings: ProfileSettings): Promise<ProfileSettings> {
-    const saved = await invoke<ProfileSettings>("settings_set", { settings });
+  /** Saves and returns what was stored (validated by Rust). `previous`: what was loaded before the
+   *  edit, so only the edit is written. `profile`: the one edited. Home changes drop the cached pages. */
+  async settingsSet(settings: ProfileSettings, previous?: ProfileSettings | null, profile?: number): Promise<ProfileSettings> {
+    const saved = await invoke<ProfileSettings>("settings_set", { settings, previous: previous ?? null, profile: profile ?? null });
     pageCache.clear();
     homeListeners.forEach((l) => l());
     return saved;
@@ -82,6 +100,11 @@ export const api = {
     homeListeners.add(listener);
     return () => homeListeners.delete(listener);
   },
+  subtitleFonts: () => invoke<SubtitleFontList>("subtitle_fonts"),
+  /** Opens the Windows file dialog; `null` = cancelled. */
+  subtitleFontImport: () => invoke<SubtitleFont | null>("subtitle_font_import"),
+  subtitleFontRemove: (id: string) => invoke<void>("subtitle_font_remove", { id }),
+  subtitleFontData: (id: string) => invoke<ArrayBuffer>("subtitle_font_data", { id }),
   appMode: () => invoke<"app" | "selftest" | "uitest">("app_mode"),
   liveTvChannels: () => invoke<ChannelList>("livetv_channels"),
   liveTvFavorites: () => invoke<string[]>("livetv_favorites"),
@@ -101,6 +124,14 @@ export const api = {
 
   // Profiles. A switch closes the player in Rust and starts a new data epoch.
   profilesList: () => invoke<ProfilesView>("profiles_list"),
+  /** Asks again whether the PIN was removed in Nuvio. */
+  profilePinRefresh: (index: number) => invoke<ProfilesView>("profile_pin_refresh", { index }),
+  /** The UI listens to the sync events: Rust starts the first sync. */
+  appReady: () => invoke<void>("app_ready"),
+  welcomeNeeded: () => invoke<boolean>("welcome_needed"),
+  welcomeDone: () => invoke<void>("welcome_done"),
+  /** After signing in: receives the account's data and joins it with this computer's. */
+  accountConnect: (confirmOther: boolean) => invoke<AccountStatus>("account_connect", { confirmOther }),
   profileSwitch: (index: number) => changed("profile", invoke<ProfilesView>("profile_switch", { index })),
   profileCreate: (name: string, color: string, usesPrimaryAddons: boolean) => invoke<ProfilesView>("profile_create", { name, color, usesPrimaryAddons }),
   /** `avatarId`: an id of the account's catalog, "" for color and initial, undefined to keep it. */
@@ -128,13 +159,19 @@ export const api = {
   libraryToggleFavorite: (item: Omit<LibraryItem, "savedAtEpochMs">) => invoke<boolean>("library_toggle_favorite", { item }),
   libraryRemoveFavorite: (contentType: string, id: string) => invoke<boolean>("library_remove_favorite", { contentType, id }),
   libraryContinueWatching: () => invoke<HistoryEntry[]>("library_continue_watching"),
+  /** The row completed with next episodes (asks the addons for the episode lists it lacks). */
+  libraryNextUp: () => invoke<HistoryEntry[]>("library_next_up"),
   libraryHistory: (offset: number, limit: number) => invoke<HistoryPage>("library_history", { offset, limit }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
 
   /** `progress`: the movie/episode, so Rust saves its position (absent for live TV). */
-  playStream: (key: string, startSeconds: number | null, progress: PlaybackItem | null = null) =>
-    invoke<PlayerInfo>("stream_play", { key, startSeconds, progress }),
+  playStream: (key: string, startSeconds: number | null, progress: PlaybackItem | null = null, previousFinished = false) =>
+    invoke<PlayerInfo>("stream_play", { key, startSeconds, progress, previousFinished }),
+  playerSubtitles: (session: number) => invoke<SubtitleList>("player_subtitles", { session }),
+  playerSubtitleLoad: (session: number, index: number) => invoke<void>("player_subtitle_load", { session, index }),
+  playerSubtitleStyle: () => invoke<void>("player_subtitle_style"),
+  playerMoments: (session: number) => invoke<Moments>("player_moments", { session }),
   playerCommand: (command: PlayerCommand) => invoke<void>("player_command", { command }).catch(() => {}),
   /** `rect` in CSS pixels; `null` = whole window. */
   playerRect: (rect: CssRect | null) =>

@@ -13,6 +13,8 @@
 //! windows and must run on the host window's thread (the Tauri main thread). Property commands are
 //! thread-safe (mpv client API).
 
+use crate::enhance::{Enhancement, Lowered, Motion, Tuner};
+use crate::picture::Picture;
 use crate::mpv::*;
 use crate::{win, PlayerError};
 use serde::{Deserialize, Serialize};
@@ -50,6 +52,9 @@ pub struct VideoConfig {
     pub nvidia_rtx_super_resolution: bool,
     /// NVIDIA RTX Video HDR (`d3d11vpp` nvidia-true-hdr).
     pub nvidia_rtx_hdr: bool,
+    pub motion: Motion,
+    pub enhancement: Enhancement,
+    pub picture: Picture,
 }
 
 /// What to play.
@@ -93,6 +98,15 @@ pub struct SubtitleStyle {
     pub bottom_offset: i64,
     pub strip_sdh: bool,
     pub use_libass: bool,
+    /// Formatted (ASS) subtitles get this style too, instead of their own.
+    pub override_ass: bool,
+    pub italic: bool,
+    /// Extra space between letters.
+    pub spacing: f64,
+    /// Softened edge.
+    pub blur: f64,
+    /// `left`, `center` or `right`.
+    pub align: String,
     pub font: String,
     pub fonts_dir: Option<String>,
     pub shadow_enabled: bool,
@@ -115,7 +129,12 @@ impl Default for SubtitleStyle {
             bottom_offset: 20,
             strip_sdh: false,
             use_libass: false,
-            font: String::new(),
+            override_ass: false,
+            italic: false,
+            spacing: 0.0,
+            blur: 0.0,
+            align: "center".into(),
+            font: "sans-serif".into(),
             fonts_dir: None,
             shadow_enabled: false,
             shadow_opacity: 0,
@@ -123,6 +142,8 @@ impl Default for SubtitleStyle {
         }
     }
 }
+
+const SUBTITLE_BOX_PADDING: f64 = 4.0;
 
 impl SubtitleStyle {
     pub fn mpv_font_size(&self) -> f64 {
@@ -138,6 +159,12 @@ impl SubtitleStyle {
         let alpha = if self.shadow_enabled { (self.shadow_opacity.clamp(0, 100) * 255 / 100) as u8 } else { 0 };
         format!("#{alpha:02X}000000")
     }
+    /// The background box's color, when there is one.
+    pub fn mpv_box(&self) -> Option<&str> {
+        let color = self.background_color.as_str();
+        (color.len() == 9 && !color.starts_with("#00")).then_some(color)
+    }
+
     pub fn mpv_shadow_offset(&self) -> f64 {
         if self.shadow_enabled { self.shadow_size } else { 0.0 }
     }
@@ -161,6 +188,13 @@ pub struct Track {
     pub external: bool,
     pub default: bool,
     pub forced: bool,
+}
+
+/// A chapter of the file (`chapter-list`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Chapter {
+    pub time: f64,
+    pub title: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
@@ -195,7 +229,16 @@ pub struct PlayerSnapshot {
     pub aid: Option<String>,
     pub sid: Option<String>,
     pub tracks: Vec<Track>,
+    pub chapters: Vec<Chapter>,
     pub picture_in_picture: bool,
+    /// Improvements in use (`enhance`).
+    pub motion: Motion,
+    pub enhancement: Enhancement,
+    pub picture: Picture,
+    /// How many times the watchdog lowered something in this session, and what the last time
+    /// (`motion` or `enhancement`).
+    pub auto_changes: u32,
+    pub auto_reason: Option<&'static str>,
     /// Error text without URLs (mpv error names only).
     pub error: Option<String>,
 }
@@ -217,8 +260,14 @@ pub enum PlayerCommand {
     /// Preferred audio languages (`alang`), then `aid=auto` like `setAudioLanguages`.
     SetAudioLanguages { languages: Vec<String> },
     SetSubtitleTrack { id: String },
-    /// `sub-add <url> select`, as `addSubtitleUrl`.
-    AddSubtitle { url: String },
+    /// `sub-add <url> select [<title> [<lang>]]`, as `addSubtitleUrl`.
+    AddSubtitle {
+        url: String,
+        #[serde(default)]
+        title: Option<String>,
+        #[serde(default)]
+        lang: Option<String>,
+    },
     /// Removes external subtitle tracks, then selects `select_id` or disables subtitles.
     RemoveExternalSubtitles { select_id: Option<i64> },
     SetSubtitleVisible { visible: bool },
@@ -228,6 +277,11 @@ pub enum PlayerCommand {
     SetAudioDelay { ms: i64 },
     ApplySubtitleStyle { style: SubtitleStyle },
     SetResizeMode { mode: ResizeMode },
+    SetMotion { motion: Motion },
+    SetEnhancement { enhancement: Enhancement },
+    SetPicture { picture: Picture },
+    /// The original picture while `active` (never saved).
+    SetCompare { active: bool },
 }
 
 /// Observed properties: (reply id, name, format).
@@ -257,6 +311,7 @@ const OBSERVED: &[(u64, &str, std::ffi::c_int)] = &[
     (23, "avsync", FORMAT_DOUBLE),
     (24, "video-out-params/dw", FORMAT_INT64),
     (25, "video-out-params/dh", FORMAT_INT64),
+    (26, "chapter-list", FORMAT_NONE),
 ];
 
 /// Minimum interval between two snapshots sent to the UI (position updates are frequent).
@@ -279,8 +334,19 @@ struct AppliedSubtitleStyle {
 
 struct PipSession {
     window: isize,
+    /// `win::enter_pip`'s state.
+    state: usize,
     previous_rect: Option<(f64, f64, f64, f64)>,
     previous_mode: ResizeMode,
+}
+
+/// Improvement changes asked by the UI, not applied yet.
+#[derive(Default)]
+struct Wanted {
+    motion: Option<Motion>,
+    enhancement: Option<Enhancement>,
+    picture: Option<Picture>,
+    compare: Option<bool>,
 }
 
 pub struct Player {
@@ -294,6 +360,8 @@ pub struct Player {
     video_rect: Mutex<Option<(f64, f64, f64, f64)>>,
     resize_mode: Mutex<ResizeMode>,
     pip: Mutex<Option<PipSession>>,
+    /// Changes for the `Tuner`, applied by the event thread.
+    wanted: Arc<Mutex<Wanted>>,
 }
 
 fn hwnd(value: isize) -> HWND {
@@ -329,6 +397,15 @@ pub fn http_header_lines(headers: &[(String, String)]) -> Vec<String> {
         .collect()
 }
 
+fn rtx_filter(super_resolution: bool, hdr: bool) -> &'static str {
+    match (super_resolution, hdr) {
+        (true, true) => "d3d11vpp=scale=2:scaling-mode=nvidia:format=x2bgr10:nvidia-true-hdr,format=x2bgr10:transfer=pq:primaries=bt.2020",
+        (true, false) => "d3d11vpp=scale=2:scaling-mode=nvidia",
+        (false, true) => "d3d11vpp=format=x2bgr10:nvidia-true-hdr,format=x2bgr10:transfer=pq:primaries=bt.2020",
+        (false, false) => "",
+    }
+}
+
 /// mpv options in the order the original bridge sets them (`startMpv`).
 pub(crate) fn startup_options(video: &VideoConfig, unified_memory_gpu: bool, shader_cache: Option<&str>) -> Vec<(String, String)> {
     let rtx = video.nvidia_rtx_super_resolution || video.nvidia_rtx_hdr;
@@ -356,11 +433,9 @@ pub(crate) fn startup_options(video: &VideoConfig, unified_memory_gpu: bool, sha
         set("hwdec", "auto");
     }
     set("hwdec-codecs", "all");
-    match (video.nvidia_rtx_super_resolution, video.nvidia_rtx_hdr) {
-        (true, true) => set("vf", "d3d11vpp=scale=2:scaling-mode=nvidia:format=x2bgr10:nvidia-true-hdr,format=x2bgr10:transfer=pq:primaries=bt.2020"),
-        (true, false) => set("vf", "d3d11vpp=scale=2:scaling-mode=nvidia"),
-        (false, true) => set("vf", "d3d11vpp=format=x2bgr10:nvidia-true-hdr,format=x2bgr10:transfer=pq:primaries=bt.2020"),
-        (false, false) => {}
+    let filters = rtx_filter(video.nvidia_rtx_super_resolution, video.nvidia_rtx_hdr);
+    if !filters.is_empty() {
+        set("vf", filters);
     }
     set("target-colorspace-hint", "yes");
     match video.decoder_priority {
@@ -454,17 +529,45 @@ impl Player {
         }
         mpv.set_option_i64("wid", container as i64)?;
         mpv.initialize()?;
+        // Before the file loads there is no video output yet, so this is immediate. An improvement
+        // that cannot be applied never stops the video from playing.
+        let rtx = &request.video;
+        let rtx_filters = rtx
+            .nvidia_rtx_super_resolution
+            .then(|| (rtx_filter(true, rtx.nvidia_rtx_hdr), rtx_filter(false, rtx.nvidia_rtx_hdr)));
+        let mut tuner = Tuner::new(mpv.clone(), container, rtx_filters);
+        let (mut motion, mut enhancement) = (request.video.motion, request.video.enhancement);
+        if motion != Motion::Off {
+            if let Err(error) = tuner.set_motion(motion) {
+                eprintln!("[player] motion not applied: {error}");
+                motion = Motion::Off;
+            }
+        }
+        if enhancement != Enhancement::Off {
+            if let Err(error) = tuner.set_enhancement(enhancement) {
+                eprintln!("[player] image improvement not applied: {error}");
+                enhancement = Enhancement::Off;
+            }
+        }
+        let mut picture = request.video.picture.sanitized();
+        if picture != Picture::default() {
+            if let Err(error) = tuner.set_picture(picture) {
+                eprintln!("[player] picture options not applied: {error}");
+                picture = Picture::default();
+            }
+        }
+        let wanted = Arc::new(Mutex::new(Wanted::default()));
         for &(id, name, format) in OBSERVED {
             mpv.observe(id, name, format)?;
         }
 
-        let snapshot = Arc::new(Mutex::new(PlayerSnapshot { session, sub_visible: true, speed: 1.0, ..Default::default() }));
+        let snapshot = Arc::new(Mutex::new(PlayerSnapshot { session, sub_visible: true, speed: 1.0, motion, enhancement, picture, ..Default::default() }));
         let stop = Arc::new(AtomicBool::new(false));
         let events = {
-            let (mpv, stop, snapshot) = (mpv.clone(), stop.clone(), snapshot.clone());
+            let (mpv, stop, snapshot, wanted) = (mpv.clone(), stop.clone(), snapshot.clone(), wanted.clone());
             std::thread::Builder::new()
                 .name("nuvio-mpv-events".into())
-                .spawn(move || event_loop(mpv, container, stop, snapshot, sink))
+                .spawn(move || event_loop(mpv, container, stop, snapshot, sink, tuner, wanted))
                 .map_err(|e| PlayerError::Mpv(format!("event thread: {e}")))?
         };
         let player = Self {
@@ -478,11 +581,20 @@ impl Player {
             video_rect: Mutex::new(None),
             resize_mode: Mutex::new(ResizeMode::Fit),
             pip: Mutex::new(None),
+            wanted,
         };
         // The original applies the default subtitle style on attach (pendingSubtitleStyle).
         player.apply_subtitle_style(&SubtitleStyle::default())?;
         player.load(request)?;
         Ok(player)
+    }
+
+    /// UI test only: puts back the flip swapchain, under which display sync runs too fast, so the
+    /// watchdog can be checked against the real failure.
+    #[doc(hidden)]
+    pub fn break_display_sync(&self) -> Result<(), PlayerError> {
+        self.mpv().set_property("d3d11-flip", "yes")?;
+        self.mpv().set_property("vo", "gpu-next,gpu,")
     }
 
     fn mpv(&self) -> &Mpv {
@@ -523,8 +635,13 @@ impl Player {
                 mpv.set_property("aid", "auto")
             }
             PlayerCommand::SetSubtitleTrack { id } => mpv.set_property("sid", id),
-            PlayerCommand::AddSubtitle { url } => {
-                if url.is_empty() { Ok(()) } else { mpv.command(&["sub-add", url, "select"]) }
+            PlayerCommand::AddSubtitle { url, title, lang } => {
+                let mut args = vec!["sub-add", url.as_str(), "select"];
+                args.extend(title.as_deref());
+                if title.is_some() {
+                    args.extend(lang.as_deref());
+                }
+                if url.is_empty() { Ok(()) } else { mpv.command(&args) }
             }
             PlayerCommand::RemoveExternalSubtitles { select_id } => {
                 let count = mpv.get_i64("track-list/count").unwrap_or(0);
@@ -556,6 +673,22 @@ impl Player {
                 // PiP always uses Fit (desktopEffectiveResizeMode).
                 let in_pip = self.pip.lock().expect("pip lock").is_some();
                 self.apply_resize_mode(if in_pip { ResizeMode::Fit } else { *mode })
+            }
+            PlayerCommand::SetMotion { motion } => {
+                self.wanted.lock().expect("wanted lock").motion = Some(*motion);
+                Ok(())
+            }
+            PlayerCommand::SetEnhancement { enhancement } => {
+                self.wanted.lock().expect("wanted lock").enhancement = Some(*enhancement);
+                Ok(())
+            }
+            PlayerCommand::SetPicture { picture } => {
+                self.wanted.lock().expect("wanted lock").picture = Some(picture.sanitized());
+                Ok(())
+            }
+            PlayerCommand::SetCompare { active } => {
+                self.wanted.lock().expect("wanted lock").compare = Some(*active);
+                Ok(())
             }
         }
     }
@@ -608,7 +741,6 @@ impl Player {
             mpv.set_property("sub-color", &next.text_color)?;
         }
         if changed(|p, n| p.background_color != n.background_color) {
-            mpv.set_property("sub-back-color", &next.background_color)?;
             let border = if next.background_color.starts_with("#00") { "outline-and-shadow" } else { "background-box" };
             mpv.set_property("sub-border-style", border)?;
         }
@@ -629,13 +761,25 @@ impl Player {
         *applied = Some(next);
         drop(applied);
 
+        mpv.set_property("sub-ass-override", if style.override_ass { "force" } else { "no" })?;
+        mpv.set_property("sub-italic", if style.italic { "yes" } else { "no" })?;
+        mpv.set_property_f64("sub-spacing", style.spacing.clamp(0.0, 10.0))?;
+        mpv.set_property_f64("sub-blur", style.blur.clamp(0.0, 20.0))?;
+        mpv.set_property("sub-align-x", if matches!(style.align.as_str(), "left" | "right") { style.align.as_str() } else { "center" })?;
+
         // setSubtitleAppearance: font, fonts dir, shadow.
         if let Some(dir) = style.fonts_dir.as_deref().filter(|d| !d.is_empty()) {
             mpv.set_property("sub-fonts-dir", dir)?;
         }
         mpv.set_property("sub-font", &style.font)?;
-        mpv.set_property("sub-shadow-color", &style.mpv_shadow_color())?;
-        mpv.set_property_f64("sub-shadow-offset", style.mpv_shadow_offset())
+        // mpv's `sub-shadow-color` is an alias of `sub-back-color`: with a box, the color is the box's
+        // and the shadow offset its padding, so a box has no shadow.
+        let (color, offset) = match style.mpv_box() {
+            Some(color) => (color.to_string(), SUBTITLE_BOX_PADDING),
+            None => (style.mpv_shadow_color(), style.mpv_shadow_offset()),
+        };
+        mpv.set_property("sub-back-color", &color)?;
+        mpv.set_property_f64("sub-shadow-offset", offset)
     }
 
     /// Places the video inside `rect` (physical pixels, host client coordinates); `None` = whole
@@ -680,9 +824,9 @@ impl Player {
         self.pip.lock().expect("pip lock").is_some()
     }
 
-    /// Moves the video into an always-on-top PiP window (original `DesktopPlayerPictureInPicture`):
+    /// Moves the video into `window`, the app's PiP window (original `DesktopPlayerPictureInPicture`):
     /// aspect from `video-out-params`, Fit resize mode, no margins. UI thread.
-    pub fn enter_picture_in_picture(&self, title: &str, on_close: Box<dyn Fn() + Send>) -> Result<(), PlayerError> {
+    pub fn enter_picture_in_picture(&self, window: isize) -> Result<(), PlayerError> {
         let mut pip = self.pip.lock().expect("pip lock");
         if pip.is_some() {
             return Ok(());
@@ -695,9 +839,9 @@ impl Player {
         } else {
             16.0 / 9.0
         };
-        let window = win::enter_pip(hwnd(self.container), title, aspect, on_close).map_err(PlayerError::Mpv)?;
+        let state = win::enter_pip(hwnd(self.container), hwnd(self.host), hwnd(window), aspect).map_err(PlayerError::Mpv)?;
         let previous_mode = *self.resize_mode.lock().expect("mode lock");
-        *pip = Some(PipSession { window: window.0 as isize, previous_rect: *self.video_rect.lock().expect("rect lock"), previous_mode });
+        *pip = Some(PipSession { window, state, previous_rect: *self.video_rect.lock().expect("rect lock"), previous_mode });
         drop(pip);
         self.apply_margins(None)?;
         self.apply_resize_mode(ResizeMode::Fit)?;
@@ -708,7 +852,7 @@ impl Player {
     /// Restores the video into the host window. UI thread.
     pub fn exit_picture_in_picture(&self) -> Result<(), PlayerError> {
         let Some(session) = self.pip.lock().expect("pip lock").take() else { return Ok(()) };
-        win::exit_pip(hwnd(self.container), hwnd(self.host), hwnd(session.window));
+        win::exit_pip(hwnd(self.container), hwnd(self.host), hwnd(session.window), session.state);
         self.apply_resize_mode(session.previous_mode)?;
         self.apply_margins(session.previous_rect)?;
         self.snapshot.lock().expect("snapshot lock").picture_in_picture = false;
@@ -756,6 +900,18 @@ impl Drop for Player {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+fn read_chapters(mpv: &Mpv) -> Vec<Chapter> {
+    let count = mpv.get_i64("chapter-list/count").unwrap_or(0).min(200);
+    (0..count)
+        .filter_map(|i| {
+            Some(Chapter {
+                time: mpv.get_f64(&format!("chapter-list/{i}/time"))?,
+                title: mpv.get_string(&format!("chapter-list/{i}/title")).unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 fn read_tracks(mpv: &Mpv) -> Vec<Track> {
@@ -810,13 +966,35 @@ fn error_text(code: i32) -> String {
     }
 }
 
-fn event_loop(mpv: Arc<Mpv>, container: isize, stop: Arc<AtomicBool>, snapshot: Arc<Mutex<PlayerSnapshot>>, sink: SnapshotSink) {
+fn event_loop(
+    mpv: Arc<Mpv>,
+    container: isize,
+    stop: Arc<AtomicBool>,
+    snapshot: Arc<Mutex<PlayerSnapshot>>,
+    sink: SnapshotSink,
+    mut tuner: Tuner,
+    wanted: Arc<Mutex<Wanted>>,
+) {
     let mut last_emit = Instant::now() - EMIT_INTERVAL;
     let mut dirty = false;
     while !stop.load(Ordering::SeqCst) {
         // SAFETY: this thread is the only one waiting for events on this handle.
         let event = unsafe { &*mpv.wait_event(0.25) };
         let mut urgent = false;
+        if event.event_id == EVENT_PLAYBACK_RESTART {
+            tuner.playback_restarted();
+        }
+        // Outside the snapshot lock: a change may recreate the video output.
+        let asked = std::mem::take(&mut *wanted.lock().expect("wanted lock"));
+        let motion = asked.motion.and_then(|m| tuner.set_motion(m).map(|()| m).map_err(|e| eprintln!("[player] motion: {e}")).ok());
+        let enhancement = asked
+            .enhancement
+            .and_then(|l| tuner.set_enhancement(l).map(|()| l).map_err(|e| eprintln!("[player] image improvement: {e}")).ok());
+        let picture = asked.picture.and_then(|p| tuner.set_picture(p).map(|()| p).map_err(|e| eprintln!("[player] picture options: {e}")).ok());
+        if let Some(compare) = asked.compare {
+            let _ = tuner.set_compare(compare).map_err(|e| eprintln!("[player] compare: {e}"));
+        }
+        let lowered = tuner.poll();
         {
             let mut s = snapshot.lock().expect("snapshot lock");
             match event.event_id {
@@ -883,7 +1061,9 @@ fn event_loop(mpv: Arc<Mpv>, container: isize, stop: Arc<AtomicBool>, snapshot: 
                         "aid" => { s.aid = string(); urgent = true; }
                         "sid" => { s.sid = string(); urgent = true; }
                         "track-list" => { s.tracks = read_tracks(&mpv); urgent = true; }
-                        "eof-reached" => { if flag() == Some(true) { s.ended = true; urgent = true; } }
+                        "chapter-list" => { s.chapters = read_chapters(&mpv); urgent = true; }
+                        // Back to false when the user seeks back from the end.
+                        "eof-reached" => { if let Some(end) = flag() { urgent |= end != s.ended; s.ended = end; } }
                         _ => {}
                     }
                 }
@@ -891,6 +1071,19 @@ fn event_loop(mpv: Arc<Mpv>, container: isize, stop: Arc<AtomicBool>, snapshot: 
             }
             if event.event_id != EVENT_NONE {
                 dirty = true;
+            }
+            if asked.motion.is_some() || asked.enhancement.is_some() || asked.picture.is_some() || lowered.is_some() {
+                s.motion = motion.unwrap_or(s.motion);
+                s.enhancement = enhancement.unwrap_or(s.enhancement);
+                s.picture = picture.unwrap_or(s.picture);
+                s.auto_changes += u32::from(lowered.is_some());
+                match lowered {
+                    Some(Lowered::Motion) => (s.motion, s.auto_reason) = (Motion::Off, Some("motion")),
+                    Some(Lowered::Enhancement(level)) => (s.enhancement, s.auto_reason) = (level, Some("enhancement")),
+                    Some(Lowered::Picture(lighter)) => (s.picture, s.auto_reason) = (lighter, Some("effects")),
+                    None => {}
+                }
+                (dirty, urgent) = (true, true);
             }
             if dirty && (urgent || last_emit.elapsed() >= EMIT_INTERVAL) {
                 sink(&s);
@@ -960,5 +1153,7 @@ mod tests {
         assert_eq!(big.mpv_sub_pos(), 150);
         assert_eq!(big.mpv_outline_size(), 0.0);
         assert_eq!(big.mpv_shadow_color(), "#7F000000");
+        assert_eq!(big.mpv_box(), None);
+        assert_eq!(SubtitleStyle { background_color: "#B3000000".into(), ..Default::default() }.mpv_box(), Some("#B3000000"));
     }
 }
