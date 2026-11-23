@@ -1,7 +1,7 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, servers, tmdb};
+use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, servers, tmdb, tracking};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
@@ -312,6 +312,8 @@ pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Op
 pub struct TrackingCredentialsView {
     pub trakt_configured: bool,
     pub simkl_configured: bool,
+    pub trakt_connected: bool,
+    pub simkl_connected: bool,
 }
 
 /// Build-time default from the gitignored local.properties, overridden by a value entered in Settings.
@@ -341,6 +343,8 @@ fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
         trakt_configured: tracking_value(state, "trakt:clientId").is_some()
             && tracking_value(state, "trakt:clientSecret").is_some(),
         simkl_configured: tracking_value(state, "simkl:clientId").is_some(),
+        trakt_connected: tracking::connected(&state.app_store, state.active_profile(), "trakt"),
+        simkl_connected: tracking::connected(&state.app_store, state.active_profile(), "simkl"),
     })
 }
 
@@ -608,6 +612,52 @@ pub async fn shuffle_pick(
     let current = current_season.zip(current_episode);
     let consume = surface != "playback" || current.is_none();
     Ok(picker.pick(view.include_watched, current, consume))
+}
+
+/// Trakt/Simkl authorization flows. Client/secret values are resolved in Rust only.
+#[tauri::command]
+pub async fn trakt_device_start(state: State<'_, AppState>) -> Result<tracking::DeviceStart, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "trakt:clientId").ok_or("Trakt client id não configurado")?;
+    tracking::trakt_start(&state.app_store, profile, &id).await
+}
+
+#[tauri::command]
+pub async fn trakt_device_poll(state: State<'_, AppState>) -> Result<tracking::PollResult, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "trakt:clientId").ok_or("Trakt client id não configurado")?;
+    let secret = crate::api::tracking_value(&state, "trakt:clientSecret").ok_or("Trakt client secret não configurado")?;
+    tracking::trakt_poll(&state.app_store, profile, &id, &secret).await
+}
+
+#[tauri::command]
+pub fn simkl_authorize_url(state: State<'_, AppState>) -> Result<String, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "simkl:clientId").ok_or("Simkl client id não configurado")?;
+    tracking::simkl_authorize_url(&state.app_store, profile, &id)
+}
+
+#[tauri::command]
+pub async fn simkl_complete(state: State<'_, AppState>, code: String, state_value: String) -> Result<bool, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "simkl:clientId").ok_or("Simkl client id não configurado")?;
+    tracking::simkl_complete(&state.app_store, profile, &id, &code, &state_value).await
+}
+
+#[tauri::command]
+pub fn tracking_disconnect(state: State<'_, AppState>, provider: String) -> Result<TrackingCredentialsView, String> {
+    state.ensure_unlocked()?;
+    tracking::disconnect(&state.app_store, state.active_profile(), &provider)?;
+    tracking_view(&state)
+}
+
+#[tauri::command]
+pub async fn tracking_sync(state: State<'_, AppState>, provider: String) -> Result<tracking::SyncResult, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let key = match provider.as_str() { "trakt" => "trakt:clientId", "simkl" => "simkl:clientId", _ => return Err("unknown provider".into()) };
+    let id = crate::api::tracking_value(&state, key).ok_or("client id não configurado")?;
+    tracking::sync_watched(&state.app_store, profile, &provider, &id).await
 }
 
 /// Opens an `externalUrl` source in the browser, as the original does. Only http(s) links are

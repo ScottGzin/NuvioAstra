@@ -25,3 +25,4 @@ pub mod servers;
 pub mod segments;
 pub mod subtitles;
 pub mod tmdb;
+pub mod tracking;
