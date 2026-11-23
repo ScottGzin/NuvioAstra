@@ -1,4 +1,4 @@
-// A collection folder (`FolderDetailScreen`): its catalogs as tabs over a grid ("Todos" merges
+// A collection folder (`FolderDetailScreen`): its catalogs as tabs over a grid (t("Todos") merges
 // them, one item of each in turn, as `rebuildAllTab`), or as rows when the collection is set to
 // rows. Pages load as the end of the grid comes near. Opening a title keeps this screen and its
 // loaded pages for the way back.
@@ -9,6 +9,7 @@ import { CatalogRow } from "../components/CatalogRow";
 import { PosterCard } from "../components/PosterCard";
 import { useWhenVisible } from "../components/useInView";
 import type { CollectionView, FolderSource, FolderView, MetaPreview } from "../types";
+import { localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   collection: CollectionView;
@@ -110,7 +111,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
     <div className="folder-screen">
       <header className={`folder-head ${backdrop ? "with-backdrop" : ""}`} style={backdrop ? { backgroundImage: `url("${backdrop}")` } : undefined}>
         <div className="folder-head-shade">
-          <button className="back" onClick={onBack} aria-label="Voltar">←</button>
+          <button className="back" onClick={onBack} aria-label={t("Voltar")}>←</button>
           <div className="folder-head-title">
             {folder.logo ? <img className="folder-logo" src={folder.logo} alt={folder.title} /> : <h1>{folder.title}</h1>}
             <span className="muted">{collection.title}</span>
@@ -121,8 +122,8 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       {sources.length === 0 ? (
         <div className="screen-message">
           {folder.skippedSources > 0
-            ? "Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra."
-            : "Esta pasta não tem catálogos."}
+            ? t("Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra.")
+            : t("Esta pasta não tem catálogos.")}
         </div>
       ) : rowsMode ? (
         <div className="folder-rows">
@@ -138,13 +139,13 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       ) : (
         <>
           {(showAll || sources.length > 1) && (
-            <nav className="folder-tabs" aria-label="Catálogos da pasta">
+            <nav className="folder-tabs" aria-label={t("Catálogos da pasta")}>
               {showAll && (
-                <button className={`chip ${tab === ALL ? "active" : ""}`} onClick={() => setTab(ALL)}>Todos</button>
+                <button className={`chip ${tab === ALL ? "active" : ""}`} onClick={() => setTab(ALL)}>{t("Todos")}</button>
               )}
               {sources.map((s) => (
                 <button key={sourceId(s)} className={`chip ${tab === sourceId(s) ? "active" : ""}`} onClick={() => setTab(sourceId(s))} title={s.addonName}>
-                  {s.label}
+                  {localizeCatalogTitle(s.label)}
                 </button>
               ))}
             </nav>
@@ -155,7 +156,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
           </div>
           {!loading && items.length === 0 && (
             <div className="screen-message">
-              {errors.length ? `Não foi possível carregar este catálogo (${errors[0]}).` : "Nenhum título neste catálogo."}
+              {errors.length ? t("Não foi possível carregar este catálogo ({error}).", { error: errors[0] ?? "" }) : t("Nenhum título neste catálogo.")}
             </div>
           )}
           <div ref={sentinel} className="grid-sentinel" />
@@ -163,7 +164,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       )}
       {folder.skippedSources > 0 && sources.length > 0 && (
         <p className="muted small folder-note">
-          {folder.skippedSources} catálogo(s) desta pasta vêm do TMDB, do Trakt ou de addons não instalados e não aparecem aqui.
+          {folder.skippedSources} {t("catálogo(s) desta pasta vêm do TMDB, do Trakt ou de addons não instalados e não aparecem aqui.")}
         </p>
       )}
     </div>

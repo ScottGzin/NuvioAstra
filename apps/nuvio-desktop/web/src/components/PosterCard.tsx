@@ -1,19 +1,20 @@
 import { memo } from "react";
 import type { MetaPreview } from "../types";
 import { FavoriteButton } from "./FavoriteButton";
+import { t } from "../i18n";
 
 interface Props {
   item: MetaPreview;
   onOpen(item: MetaPreview): void;
-  /** Shows "Filme"/"Série" on the art (Library grid). */
+  /** Shows the type label on the art (Library grid). */
   showType?: boolean;
 }
 
 export function typeLabel(contentType: string): string {
-  const t = contentType.toLowerCase();
-  if (t === "movie") return "Filme";
-  if (t === "series" || t === "tv" || t === "show") return "Série";
-  if (t === "anime") return "Anime";
+  const kind = contentType.toLowerCase();
+  if (kind === "movie") return t("Filme");
+  if (kind === "series" || kind === "tv" || kind === "show") return t("Série");
+  if (kind === "anime") return "Anime";
   return contentType;
 }
 

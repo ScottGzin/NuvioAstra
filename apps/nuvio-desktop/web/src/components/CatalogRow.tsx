@@ -6,6 +6,7 @@ import { api, errorText } from "../api";
 import type { HomeRow, MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
 import { useInView } from "./useInView";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   row: HomeRow;
@@ -61,20 +62,20 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
   return (
     <section className="row-section" ref={ref} data-content-type={row.contentType}>
       <header className="row-header">
-        <h2>{row.title}</h2>
-        <span className="muted small">{row.addonName}</span>
+        <h2>{localizeCatalogTitle(row.title)}</h2>
+        <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
         {items && (
           <>
-            <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-            <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+            <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>
+            <button className="icon-btn" aria-label={t("Próximo")} onClick={() => scrollBy(1)}>›</button>
           </>
         )}
       </header>
       {error ? (
         <div className="row-error">
-          Não foi possível carregar este catálogo ({error}).{" "}
-          <button className="link" onClick={() => { setError(null); }}>Tentar novamente</button>
+          {t("Não foi possível carregar este catálogo ({error}).", { error })} {" "}
+          <button className="link" onClick={() => { setError(null); }}>{t("Tentar novamente")}</button>
         </div>
       ) : (
         <div className="row-track" ref={track} onScroll={onScroll}>

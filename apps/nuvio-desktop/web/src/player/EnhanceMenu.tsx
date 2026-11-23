@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { AnimeModeName, EnhancementName, MotionName, PictureSettings, PlayerSnapshot } from "../types";
+import { t } from "../i18n";
 
 export const ENHANCEMENTS: { value: EnhancementName; label: string; hint: string }[] = [
   { value: "off", label: "Desligado", hint: "Imagem original" },
@@ -133,8 +134,8 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
     <div className="pc-enhance">
       <button
         className={`pc-icon ${motion !== "off" || changed ? "pc-on" : ""}`}
-        aria-label="Melhorar imagem"
-        title="Melhorar imagem"
+        aria-label={t("Melhorar imagem")}
+        title={t("Melhorar imagem")}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
@@ -148,7 +149,7 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
         <div className="pc-enhance-menu">
           <div className="pc-tabs" role="tablist">
             {TABS.map(([id, label]) => (
-              <button key={id} role="tab" aria-selected={tab === id} className={`pc-tab ${tab === id ? "active" : ""}`} data-tab-id={id} onClick={() => setTab(id)}>{label}</button>
+              <button key={id} role="tab" aria-selected={tab === id} className={`pc-tab ${tab === id ? "active" : ""}`} data-tab-id={id} onClick={() => setTab(id)}>{t(label)}</button>
             ))}
           </div>
           <div className="pc-tab-body">
@@ -165,13 +166,13 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                       void api.playerCommand({ type: "setEnhancement", enhancement: option.value });
                     }}
                   >
-                    <b>{option.label}</b>
-                    <small>{option.hint}</small>
+                    <b>{t(option.label)}</b>
+                    <small>{t(option.hint)}</small>
                   </button>
                 ))}
                 {anime && (
                   <>
-                    <span className="pc-enhance-title">Modo do Anime4K</span>
+                    <span className="pc-enhance-title">{t("Modo do Anime4K")}</span>
                     <div className="pc-modes">
                       {ANIME_MODES.map((option) => (
                         <button
@@ -179,18 +180,18 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                           className={`pc-level ${picture.mode === option.value ? "active" : ""}`}
                           data-mode={option.value}
                           aria-pressed={picture.mode === option.value}
-                          title={option.hint}
+                          title={t(option.hint)}
                           onClick={() => change({ ...picture, mode: option.value })}
                         >
-                          {option.label.replace("Modo ", "")}
+                          {option.value.toUpperCase()}
                         </button>
                       ))}
                     </div>
-                    <p className="pc-enhance-note">{ANIME_MODES.find((m) => m.value === picture.mode)?.hint}</p>
+                    <p className="pc-enhance-note">{t(ANIME_MODES.find((m) => m.value === picture.mode)?.hint ?? "")}</p>
                     {snapshot.width > 2048 ? (
-                      <p className="pc-enhance-note">Vídeo acima de 1080p: o Anime4K e os efeitos de traço não são aplicados.</p>
+                      <p className="pc-enhance-note">{t("Vídeo acima de 1080p: o Anime4K e os efeitos de traço não são aplicados.")}</p>
                     ) : native ? (
-                      <p className="pc-enhance-note">Este vídeo já tem a resolução da tela: aqui a mudança é sutil, mais nos traços. Os Efeitos aparecem mais.</p>
+                      <p className="pc-enhance-note">{t("Este vídeo já tem a resolução da tela: aqui a mudança é sutil, mais nos traços. Os Efeitos aparecem mais.")}</p>
                     ) : null}
                   </>
                 )}
@@ -201,17 +202,17 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
               <>
                 {EFFECTS.map((effect) => (
                   <div className="pc-effect" key={effect.key}>
-                    <span><b>{effect.label}</b><small>{effect.hint}</small></span>
+                    <span><b>{t(effect.label)}</b><small>{t(effect.hint)}</small></span>
                     <div className="pc-steps">
                       {STEPS.map((label, value) => (
                         <button key={label} className={`pc-level ${picture[effect.key] === value ? "active" : ""}`} data-effect={`${effect.key}:${value}`} aria-pressed={picture[effect.key] === value} onClick={() => change({ ...picture, [effect.key]: value })}>
-                          {label}
+                          {t(label)}
                         </button>
                       ))}
                     </div>
                   </div>
                 ))}
-                <button className="pc-reset" data-reset="effects" onClick={() => change({ ...picture, denoise: 0, deblur: 0, thin: 0, darken: 0, deband: 0 })}>Zerar efeitos</button>
+                <button className="pc-reset" data-reset="effects" onClick={() => change({ ...picture, denoise: 0, deblur: 0, thin: 0, darken: 0, deband: 0 })}>{t("Zerar efeitos")}</button>
               </>
             )}
 
@@ -222,14 +223,14 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                     const active = COLORS.every((c) => picture[c.key] === preset.values[c.key]);
                     return (
                       <button key={preset.label} className={`pc-level ${active ? "active" : ""}`} data-preset={preset.label} aria-pressed={active} onClick={() => change({ ...picture, ...preset.values })}>
-                        {preset.label}
+                        {t(preset.label)}
                       </button>
                     );
                   })}
                 </div>
                 {COLORS.map(({ key, label }) => (
                   <label className="pc-color" key={key}>
-                    <span>{label}</span>
+                    <span>{t(label)}</span>
                     <input type="range" min={-50} max={50} value={picture[key]} data-color={key} onChange={(e) => change({ ...picture, [key]: Number(e.target.value) })} onPointerUp={send} />
                     <output>{picture[key]}</output>
                   </label>
@@ -248,8 +249,8 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                   void api.playerCommand({ type: "setMotion", motion: option.value });
                 }}
               >
-                <b>{option.label}</b>
-                <small>{option.hint}</small>
+                <b>{t(option.label)}</b>
+                <small>{t(option.hint)}</small>
               </button>
             ))}
           </div>
@@ -262,7 +263,7 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                 compare(true);
               }}
             >
-              {comparing ? "Mostrando o original" : "Segure para ver o original"}
+              {comparing ? t("Mostrando o original") : t("Segure para ver o original")}
             </button>
           )}
         </div>
@@ -290,10 +291,10 @@ export function EnhanceNotice({ snapshot }: { snapshot: PlayerSnapshot | null })
   return (
     <div className="enhance-notice" role="status">
       {snapshot.autoReason === "motion"
-        ? "O movimento não sincronizou com este monitor: voltei para Original."
+        ? t("O movimento não sincronizou com este monitor: voltei para Original.")
         : snapshot.autoReason === "effects"
-          ? "A placa de vídeo não aguentou: desliguei os efeitos de imagem."
-          : `A placa de vídeo não aguentou: melhoria de imagem reduzida para ${level}.`}
+          ? t("A placa de vídeo não aguentou: desliguei os efeitos de imagem.")
+          : t("A placa de vídeo não aguentou: melhoria de imagem reduzida para {level}.", { level: t(level ?? "") })}
     </div>
   );
 }

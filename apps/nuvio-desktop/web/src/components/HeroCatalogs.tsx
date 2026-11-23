@@ -2,6 +2,7 @@
 
 import type { CatalogChoice, HomeCatalogSettings } from "../types";
 import { Row } from "./SettingControls";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 const LIMIT = 2;
 
@@ -29,7 +30,7 @@ export function HeroCatalogs({ home, catalogs, onChange }: Props) {
   const chosen = inUse(home, choices);
   const name = (c: CatalogChoice) => {
     const custom = home.items.find((i) => i.key === c.key)?.customTitle ?? c.customTitle;
-    return `${custom.trim() || c.defaultTitle} · ${c.addonName}`;
+    return `${custom.trim() || localizeCatalogTitle(c.defaultTitle)} · ${addonLabel(c.addonName)}`;
   };
   const choose = (slot: number, key: string) => {
     const next = [chosen[0] ?? "", chosen[1] ?? ""];
@@ -42,15 +43,15 @@ export function HeroCatalogs({ home, catalogs, onChange }: Props) {
       {[0, 1].map((slot) => (
         <Row
           key={slot}
-          title={`Catálogo ${slot + 1} do destaque`}
+          title={t("Catálogo {index} do destaque", { index: slot + 1 })}
           description={
             slot === 0
-              ? "Os títulos destes dois catálogos passam no topo do Início, mesmo que a fileira esteja oculta."
-              : "O Nuvio não guarda esta escolha na conta. Neste computador, se você mudar no Nuvio, o Astra acompanha."
+              ? t("Os títulos destes dois catálogos passam no topo do Início, mesmo que a fileira esteja oculta.")
+              : t("O Nuvio não guarda esta escolha na conta. Neste computador, se você mudar no Nuvio, o Astra acompanha.")
           }
         >
-          <select className="hero-catalog" aria-label={`Catálogo ${slot + 1} do destaque`} data-hero-slot={slot} value={chosen[slot] ?? ""} disabled={slot === 1 && !chosen.length} onChange={(e) => choose(slot, e.target.value)}>
-            <option value="">Nenhum</option>
+          <select className="hero-catalog" aria-label={t("Catálogo {index} do destaque", { index: slot + 1 })} data-hero-slot={slot} value={chosen[slot] ?? ""} disabled={slot === 1 && !chosen.length} onChange={(e) => choose(slot, e.target.value)}>
+            <option value="">{t("Nenhum")}</option>
             {choices
               .filter((c) => c.key === chosen[slot] || !chosen.includes(c.key))
               .map((c) => <option key={c.key} value={c.key}>{name(c)}</option>)}

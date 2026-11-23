@@ -80,3 +80,19 @@ export const LANGUAGES: [code: string, name: string][] = [
   ["cy", "Galês"],
   ["zu", "Zulu"],
 ];
+
+/**
+ * Name of a track language in the active UI language. The original list above has pt-BR names;
+ * Intl.DisplayNames gives proper English/Arabic names natively (no extra dictionary), with the
+ * Portuguese list as a fallback for old WebKit builds.
+ */
+export function languageLabel(code: string, uiLang: "pt" | "en" | "ar"): string {
+  const portuguese = LANGUAGES.find(([c]) => c.toLowerCase() === code.toLowerCase())?.[1];
+  if (uiLang === "pt" || !code) return portuguese ?? code;
+  try {
+    const names = new Intl.DisplayNames([uiLang], { type: "language" });
+    return names.of(code) ?? portuguese ?? code;
+  } catch {
+    return portuguese ?? code;
+  }
+}

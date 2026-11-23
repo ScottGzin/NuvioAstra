@@ -1,12 +1,13 @@
 // Starting a torrent source (as the original's player does before playback): the P2P notice the
 // first time (P2P is off until accepted, per profile), then the engine's phases with peers and
-// speed until the selected file can be read; "Cancelar" ends the P2P session. The video itself
+// speed until the selected file can be read; t("Cancelar") ends the P2P session. The video itself
 // opens in the normal player.
 
 import { useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { listen } from "../tauri";
 import type { P2pStatus, StreamEntry, TorrentPrepared } from "../types";
+import { decimal, t } from "../i18n";
 
 export const P2P_CONSENT_TEXT = [
   "Esta stream utiliza tecnologia ponto a ponto (P2P). Ao ativar o P2P, você reconhece e concorda que:",
@@ -25,13 +26,13 @@ const PHASES: Record<string, string> = {
 };
 
 export function speed(bytes: number): string {
-  if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1).replace(".", ",")} MB/s`;
+  if (bytes >= 1_048_576) return `${decimal(bytes / 1_048_576)} MB/s`;
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB/s`;
   return `${bytes} B/s`;
 }
 
 export function megabytes(bytes: number): string {
-  return bytes >= 1_073_741_824 ? `${(bytes / 1_073_741_824).toFixed(2).replace(".", ",")} GB` : `${(bytes / 1_048_576).toFixed(1).replace(".", ",")} MB`;
+  return bytes >= 1_073_741_824 ? `${decimal(bytes / 1_073_741_824, 2)} GB` : `${decimal(bytes / 1_048_576)} MB`;
 }
 
 interface Props {
@@ -94,33 +95,33 @@ export function TorrentStart({ stream, onReady, onCancel }: Props) {
       <div className="modal torrent-start">
         {consent ? (
           <>
-            <h2 id="torrent-title">Streaming P2P</h2>
-            <div className="p2p-consent">{P2P_CONSENT_TEXT.map((l, i) => <p key={i}>{l}</p>)}</div>
+            <h2 id="torrent-title">{t("Streaming P2P")}</h2>
+            <div className="p2p-consent">{P2P_CONSENT_TEXT.map((l, i) => <p key={i}>{t(l)}</p>)}</div>
             <div className="account-actions">
-              <button className="primary" onClick={() => void accept()} data-testid="p2p-accept">Ativar P2P</button>
-              <button className="ghost" onClick={onCancel}>Cancelar</button>
+              <button className="primary" onClick={() => void accept()} data-testid="p2p-accept">{t("Ativar P2P")}</button>
+              <button className="ghost" onClick={onCancel}>{t("Cancelar")}</button>
             </div>
           </>
         ) : (
           <>
             <h2 id="torrent-title">{stream.name || "Torrent"}</h2>
             {error ? (
-              <div className="row-error" data-testid="torrent-error">Não foi possível iniciar o torrent: {error}</div>
+              <div className="row-error" data-testid="torrent-error">{t("Não foi possível iniciar o torrent: {error}", { error })}</div>
             ) : (
               <>
                 <div className="torrent-phase" data-testid="torrent-phase">
-                  <span className="spinner" aria-hidden /> {PHASES[status?.phase || "engine"] ?? "Conectando…"}
+                  <span className="spinner" aria-hidden /> {t(PHASES[status?.phase || "engine"] ?? "Conectando…")}
                 </div>
                 <dl className="facts account-facts">
-                  <div className="fact"><dt>Peers</dt><dd>{status?.peers ?? 0} ({status?.seeds ?? 0} seeds)</dd></div>
-                  <div className="fact"><dt>Velocidade</dt><dd>{speed(status?.downloadSpeed ?? 0)}</dd></div>
+                  <div className="fact"><dt>{t("Peers")}</dt><dd>{status?.peers ?? 0} ({status?.seeds ?? 0} seeds)</dd></div>
+                  <div className="fact"><dt>{t("Velocidade")}</dt><dd>{speed(status?.downloadSpeed ?? 0)}</dd></div>
                 </dl>
-                <p className="muted small">A reprodução começa assim que o início do arquivo estiver disponível; o restante é baixado enquanto você assiste.</p>
+                <p className="muted small">{t("A reprodução começa assim que o início do arquivo estiver disponível; o restante é baixado enquanto você assiste.")}</p>
               </>
             )}
             <div className="account-actions">
-              {error && <button className="primary" onClick={() => setAttempt((a) => a + 1)}>Tentar novamente</button>}
-              <button className="ghost" onClick={cancel} data-testid="torrent-cancel">Cancelar</button>
+              {error && <button className="primary" onClick={() => setAttempt((a) => a + 1)}>{t("Tentar novamente")}</button>}
+              <button className="ghost" onClick={cancel} data-testid="torrent-cancel">{t("Cancelar")}</button>
             </div>
           </>
         )}

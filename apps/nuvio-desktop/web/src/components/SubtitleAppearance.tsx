@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { api, errorText } from "../api";
 import type { SubtitleFontList, SubtitleSettings } from "../types";
 import { ColorField, Row, Slider, Toggle } from "./SettingControls";
+import { t } from "../i18n";
 
 /** Shown first when installed. Arial has Helvetica's metrics; Helvetica itself is not in Windows. */
 const FEATURED = [
@@ -99,7 +100,7 @@ export function SubtitleAppearance({ value: sub, onChange }: Props) {
   };
 
   const removeFont = async () => {
-    if (!imported || !window.confirm(`Remover “${imported.name}” das fontes do Nuvio Astra? O arquivo original não é apagado.`)) return;
+    if (!imported || !window.confirm(t("Remover “{name}” das fontes do Nuvio Astra? O arquivo original não é apagado.", { name: imported.name }))) return;
     try {
       await api.subtitleFontRemove(imported.id);
       set({ fontId: "default" });
@@ -128,83 +129,83 @@ export function SubtitleAppearance({ value: sub, onChange }: Props) {
   return (
     <>
       <div className="subtitle-preview subtitle-preview-large" aria-hidden>
-        <span style={style} data-testid="subtitle-preview">Exemplo de legenda<br />ação, coração, amanhã</span>
+        <span style={style} data-testid="subtitle-preview">{t("Exemplo de legenda")}<br />{t("ação, coração, amanhã")}</span>
       </div>
-      <div className="subtitle-presets" aria-label="Estilos prontos">
+      <div className="subtitle-presets" aria-label={t("Estilos prontos")}>
         {PRESETS.map((preset) => (
-          <button key={preset.label} className="chip" data-preset={preset.label} onClick={() => set(preset.look)}>{preset.label}</button>
+          <button key={preset.label} className="chip" data-preset={preset.label} onClick={() => set(preset.look)}>{t(preset.label)}</button>
         ))}
       </div>
 
-      <Row title="Fonte" description="Escolha entre as fontes do Windows ou importe um arquivo TTF ou OTF. A Arial é a mais parecida com a Helvetica.">
+      <Row title={t("Fonte")} description={t("Escolha entre as fontes do Windows ou importe um arquivo TTF ou OTF. A Arial é a mais parecida com a Helvetica.")}>
         <span className="font-field">
-          <select aria-label="Fonte da legenda" data-setting="subtitleFont" value={sub.fontId} style={{ fontFamily: cssFamily(sub.fontId) }} onChange={(e) => set({ fontId: e.target.value })}>
-            <optgroup label="Básicas">
-              {BUILT_IN.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          <select aria-label={t("Fonte da legenda")} data-setting="subtitleFont" value={sub.fontId} style={{ fontFamily: cssFamily(sub.fontId) }} onChange={(e) => set({ fontId: e.target.value })}>
+            <optgroup label={t("Básicas")}>
+              {BUILT_IN.map(([id, label]) => <option key={id} value={id}>{t(label)}</option>)}
             </optgroup>
             {!!fonts?.imported.length && (
-              <optgroup label="Importadas">
+              <optgroup label={t("Importadas")}>
                 {fonts.imported.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
               </optgroup>
             )}
             {featured.length > 0 && (
-              <optgroup label="Recomendadas">
+              <optgroup label={t("Recomendadas")}>
                 {featured.map((f) => <option key={f} value={`system:${f}`} style={{ fontFamily: cssFamily(`system:${f}`) }}>{f}</option>)}
               </optgroup>
             )}
             {others.length > 0 && (
-              <optgroup label="Todas do Windows">
+              <optgroup label={t("Todas do Windows")}>
                 {others.map((f) => <option key={f} value={`system:${f}`}>{f}</option>)}
               </optgroup>
             )}
-            {(missing || !fonts) && !BUILT_IN.some(([id]) => id === sub.fontId) && <option value={sub.fontId}>{sub.fontId.startsWith("system:") ? sub.fontId.slice(7) : "Fonte importada"}</option>}
+            {(missing || !fonts) && !BUILT_IN.some(([id]) => id === sub.fontId) && <option value={sub.fontId}>{sub.fontId.startsWith("system:") ? sub.fontId.slice(7) : t("Fonte importada")}</option>}
           </select>
           <button className="ghost" data-testid="font-import" disabled={busy} onClick={() => void importFont()}>{busy ? "Importando…" : "Importar fonte"}</button>
-          {imported && <button className="ghost" data-testid="font-remove" onClick={() => void removeFont()}>Remover</button>}
+          {imported && <button className="ghost" data-testid="font-remove" onClick={() => void removeFont()}>{t("Remover")}</button>}
         </span>
       </Row>
-      {missing && <p className="muted small">Esta fonte não está neste computador: a legenda usa a padrão.</p>}
+      {missing && <p className="muted small">{t("Esta fonte não está neste computador: a legenda usa a padrão.")}</p>}
       {error && <div className="row-error">{error}</div>}
 
-      <Row title="Aplicar meu estilo em legendas de anime (ASS)" description="Legendas ASS trazem fonte e cores próprias e ignoram estes ajustes. Ligado, usam o seu estilo, mas placas e músicas legendadas podem perder o visual original.">
-        <Toggle label="Aplicar meu estilo em legendas ASS" checked={sub.overrideAss} onChange={(v) => set({ overrideAss: v })} />
+      <Row title={t("Aplicar meu estilo em legendas de anime (ASS)")} description={t("Legendas ASS trazem fonte e cores próprias e ignoram estes ajustes. Ligado, usam o seu estilo, mas placas e músicas legendadas podem perder o visual original.")}>
+        <Toggle label={t("Aplicar meu estilo em legendas ASS")} checked={sub.overrideAss} onChange={(v) => set({ overrideAss: v })} />
       </Row>
-      <Row title="Tamanho"><Slider label="Tamanho da legenda" value={sub.fontSizeSp} min={6} max={40} onChange={(v) => set({ fontSizeSp: v })} /></Row>
-      <Row title="Distância da borda inferior"><Slider label="Distância da borda inferior" value={sub.bottomOffset} min={0} max={200} onChange={(v) => set({ bottomOffset: v })} /></Row>
-      <Row title="Alinhamento">
-        <select aria-label="Alinhamento da legenda" value={sub.align} onChange={(e) => set({ align: e.target.value as SubtitleSettings["align"] })}>
-          <option value="left">Esquerda</option>
-          <option value="center">Centro</option>
-          <option value="right">Direita</option>
+      <Row title={t("Tamanho")}><Slider label={t("Tamanho da legenda")} value={sub.fontSizeSp} min={6} max={40} onChange={(v) => set({ fontSizeSp: v })} /></Row>
+      <Row title={t("Distância da borda inferior")}><Slider label={t("Distância da borda inferior")} value={sub.bottomOffset} min={0} max={200} onChange={(v) => set({ bottomOffset: v })} /></Row>
+      <Row title={t("Alinhamento")}>
+        <select aria-label={t("Alinhamento da legenda")} value={sub.align} onChange={(e) => set({ align: e.target.value as SubtitleSettings["align"] })}>
+          <option value="left">{t("Esquerda")}</option>
+          <option value="center">{t("Centro")}</option>
+          <option value="right">{t("Direita")}</option>
         </select>
       </Row>
-      <Row title="Cor do texto"><ColorField label="Cor do texto" withOpacity value={sub.textColor} onChange={(v) => set({ textColor: v })} /></Row>
-      <Row title="Negrito"><Toggle label="Negrito" checked={sub.bold} onChange={(v) => set({ bold: v })} /></Row>
-      <Row title="Itálico"><Toggle label="Itálico" checked={sub.italic} onChange={(v) => set({ italic: v })} /></Row>
-      <Row title="Espaço entre letras"><Slider label="Espaço entre letras" value={sub.spacing} min={0} max={10} onChange={(v) => set({ spacing: v })} /></Row>
+      <Row title={t("Cor do texto")}><ColorField label={t("Cor do texto")} withOpacity value={sub.textColor} onChange={(v) => set({ textColor: v })} /></Row>
+      <Row title={t("Negrito")}><Toggle label={t("Negrito")} checked={sub.bold} onChange={(v) => set({ bold: v })} /></Row>
+      <Row title={t("Itálico")}><Toggle label={t("Itálico")} checked={sub.italic} onChange={(v) => set({ italic: v })} /></Row>
+      <Row title={t("Espaço entre letras")}><Slider label={t("Espaço entre letras")} value={sub.spacing} min={0} max={10} onChange={(v) => set({ spacing: v })} /></Row>
 
-      <Row title="Fundo em caixa" description="Com a caixa ligada, ela substitui o contorno e a sombra.">
-        <Toggle label="Fundo em caixa" checked={boxed} onChange={(v) => set({ backgroundColor: `#${v ? "B3" : "00"}${sub.backgroundColor.slice(3)}` })} />
+      <Row title={t("Fundo em caixa")} description={t("Com a caixa ligada, ela substitui o contorno e a sombra.")}>
+        <Toggle label={t("Fundo em caixa")} checked={boxed} onChange={(v) => set({ backgroundColor: `#${v ? "B3" : "00"}${sub.backgroundColor.slice(3)}` })} />
       </Row>
       {boxed ? (
-        <Row title="Cor do fundo"><ColorField label="Cor de fundo" withOpacity value={sub.backgroundColor} onChange={(v) => set({ backgroundColor: v })} /></Row>
+        <Row title={t("Cor do fundo")}><ColorField label={t("Cor de fundo")} withOpacity value={sub.backgroundColor} onChange={(v) => set({ backgroundColor: v })} /></Row>
       ) : (
         <>
-          <Row title="Contorno"><Toggle label="Contorno" checked={sub.outlineEnabled} onChange={(v) => set({ outlineEnabled: v })} /></Row>
+          <Row title={t("Contorno")}><Toggle label={t("Contorno")} checked={sub.outlineEnabled} onChange={(v) => set({ outlineEnabled: v })} /></Row>
           {sub.outlineEnabled && (
             <>
-              <Row title="Cor do contorno"><ColorField label="Cor do contorno" withOpacity value={sub.outlineColor} onChange={(v) => set({ outlineColor: v })} /></Row>
-              <Row title="Espessura do contorno"><Slider label="Espessura do contorno" value={sub.outlineWidth} min={1} max={5} onChange={(v) => set({ outlineWidth: v })} /></Row>
+              <Row title={t("Cor do contorno")}><ColorField label={t("Cor do contorno")} withOpacity value={sub.outlineColor} onChange={(v) => set({ outlineColor: v })} /></Row>
+              <Row title={t("Espessura do contorno")}><Slider label={t("Espessura do contorno")} value={sub.outlineWidth} min={1} max={5} onChange={(v) => set({ outlineWidth: v })} /></Row>
             </>
           )}
-          <Row title="Sombra"><Toggle label="Sombra" checked={sub.shadowEnabled} onChange={(v) => set({ shadowEnabled: v })} /></Row>
+          <Row title={t("Sombra")}><Toggle label={t("Sombra")} checked={sub.shadowEnabled} onChange={(v) => set({ shadowEnabled: v })} /></Row>
           {sub.shadowEnabled && (
             <>
-              <Row title="Opacidade da sombra"><Slider label="Opacidade da sombra" value={sub.shadowOpacity} min={0} max={100} unit="%" onChange={(v) => set({ shadowOpacity: v })} /></Row>
-              <Row title="Tamanho da sombra"><Slider label="Tamanho da sombra" value={sub.shadowSize} min={1} max={8} onChange={(v) => set({ shadowSize: v })} /></Row>
+              <Row title={t("Opacidade da sombra")}><Slider label={t("Opacidade da sombra")} value={sub.shadowOpacity} min={0} max={100} unit="%" onChange={(v) => set({ shadowOpacity: v })} /></Row>
+              <Row title={t("Tamanho da sombra")}><Slider label={t("Tamanho da sombra")} value={sub.shadowSize} min={1} max={8} onChange={(v) => set({ shadowSize: v })} /></Row>
             </>
           )}
-          <Row title="Suavizar borda"><Slider label="Suavizar borda" value={sub.blur} min={0} max={10} onChange={(v) => set({ blur: v })} /></Row>
+          <Row title={t("Suavizar borda")}><Slider label={t("Suavizar borda")} value={sub.blur} min={0} max={10} onChange={(v) => set({ blur: v })} /></Row>
         </>
       )}
     </>

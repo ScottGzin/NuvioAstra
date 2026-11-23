@@ -8,6 +8,7 @@ import { PlayerProvider } from "./player/PlayerContext";
 import { SelftestView } from "./player/SelftestView";
 import { runUiTest } from "./uitest/driver";
 import { installDesktopFeel } from "./desktopFeel";
+import { useLang } from "./i18n";
 import "./styles.css";
 
 // The automated player tests get only the video overlay: no catalogs are loaded, so their
@@ -36,8 +37,14 @@ installDesktopFeel();
 // The picture-in-picture window loads this same page and shows only its controls (`pip.rs`).
 const pip = (window as { __NUVIO_PIP__?: boolean }).__NUVIO_PIP__ === true;
 
+// Re-mount the UI when the language changes so every t() call is re-evaluated.
+function LangRoot() {
+  const lang = useLang();
+  return pip ? <PipView /> : <Root key={lang} />;
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    {pip ? <PipView /> : <Root />}
+    <LangRoot />
   </StrictMode>,
 );

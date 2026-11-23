@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import type { ProfileInfo } from "../types";
+import { t } from "../i18n";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"];
 
@@ -31,7 +32,7 @@ export function PinPad({ profile, onUnlocked }: { profile: ProfileInfo; onUnlock
       try {
         const result = await api.profileUnlock(profile.index, next);
         if (result.unlocked) return done.current();
-        setError(result.message ?? "PIN incorreto");
+        setError(result.message ?? t("PIN incorreto"));
       } catch (e) {
         setError(errorText(e));
       } finally {
@@ -59,11 +60,11 @@ export function PinPad({ profile, onUnlocked }: { profile: ProfileInfo; onUnlock
 
   return (
     <div className="pin-pad" data-testid="pin-pad">
-      <div className="pin-dots" role="status" aria-label={`${pin.length} de 4 dígitos`} data-filled={pin.length}>
+      <div className="pin-dots" role="status" aria-label={t("{count} de 4 dígitos", { count: pin.length })} data-filled={pin.length}>
         {[0, 1, 2, 3].map((i) => <span key={i} className={`pin-dot ${i < pin.length ? "filled" : ""} ${error ? "error" : ""}`} />)}
       </div>
       <div className="pin-message" aria-live="polite">
-        {error ? <span className="pin-error" role="alert">{error}</span> : busy ? "Verificando…" : ""}
+        {error ? <span className="pin-error" role="alert">{error}</span> : busy ? t("Verificando…") : ""}
       </div>
       <div className="pin-keys">
         {KEYS.map((key, i) =>

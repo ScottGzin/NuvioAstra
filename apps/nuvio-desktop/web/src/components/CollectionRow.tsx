@@ -8,6 +8,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import type { CollectionView, FolderView } from "../types";
 import { useInView } from "./useInView";
+import { t } from "../i18n";
 
 const VIDEO = /\.(mp4|webm|m4v|mov)(\?|#|$)/i;
 
@@ -129,8 +130,8 @@ export function CollectionRow({ title, collection, onOpenFolder }: Props) {
       <header className="row-header">
         <h2>{title}</h2>
         <span className="spacer" />
-        <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-        <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+        <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>
+        <button className="icon-btn" aria-label={t("Próximo")} onClick={() => scrollBy(1)}>›</button>
       </header>
       <div className="row-track" ref={track}>
         {collection.folders.map((folder) => (

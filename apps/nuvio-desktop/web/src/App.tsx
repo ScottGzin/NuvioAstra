@@ -21,7 +21,8 @@ import { resumeTarget } from "./library";
 import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
 import { Settings } from "./screens/Settings";
-import { metaRef, type Bootstrap, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { metaRef, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { t } from "./i18n";
 
 
 export function App() {
@@ -30,7 +31,6 @@ export function App() {
   useEffect(() => {
     api.appMode().then(setAppMode, () => setAppMode("app"));
   }, []);
-  const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [details, setDetails] = useState<MetaRef | null>(null);
@@ -41,6 +41,8 @@ export function App() {
   const [profilesFailed, setProfilesFailed] = useState(false);
   /** The account screen of the first opening; it waits while a profile is locked. */
   const [welcome, setWelcome] = useState<"unknown" | "waiting" | "open" | "none">("unknown");
+  /** The original asks "Who's watching?" on every launch, before opening the last profile. */
+  const [needChooser, setNeedChooser] = useState(true);
   const [menu, setMenu] = useState(false);
   const [manage, setManage] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
@@ -52,7 +54,7 @@ export function App() {
   const [addonsEpoch, setAddonsEpoch] = useState(0);
 
   useEffect(() => {
-    api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+    api.bootstrap().catch((e) => setBootError(errorText(e)));
     api.profilesList().then(setProfiles, () => setProfilesFailed(true));
     api.welcomeNeeded().then((needed) => setWelcome(needed ? "waiting" : "none"), () => setWelcome("none"));
     startAccount();
@@ -82,6 +84,7 @@ export function App() {
   }, []);
   const openFromLock = useCallback((next: ProfilesView) => {
     setProfiles(next);
+    setNeedChooser(false);
     reloadProfileData();
   }, []);
 
@@ -96,13 +99,12 @@ export function App() {
           setDetails(null);
           setFolder(null);
           setOpenError(null);
-          setBoot(null);
           api.profilesList().then(setProfiles, () => {});
         } else {
           setAddonsEpoch((e) => e + 1);
           setFolder(null); // its catalogs were resolved with the previous addons
         }
-        api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+        api.bootstrap().catch((e) => setBootError(errorText(e)));
       }),
     [],
   );
@@ -121,7 +123,7 @@ export function App() {
         if (player.session) await player.close();
         setProfiles(await api.profileSwitch(index));
       } catch (e) {
-        setOpenError(`Não foi possível trocar de perfil: ${errorText(e)}`);
+        setOpenError(t("Não foi possível trocar de perfil: {error}", { error: errorText(e) }));
       } finally {
         setSwitching(null);
       }
@@ -145,7 +147,7 @@ export function App() {
   const open = useCallback((item: MetaPreview) => {
     const ref = metaRef(item);
     if (typeof ref === "string") {
-      setOpenError(`Não foi possível abrir “${item.name}”: ${ref}.`);
+      setOpenError(t("Não foi possível abrir “{name}”: {error}.", { name: item.name, error: ref }));
       return;
     }
     setOpenError(null);
@@ -170,11 +172,11 @@ export function App() {
   // Nothing of the profile is drawn before it is known to be open.
   const starting = (!profiles && !profilesFailed) || welcome === "unknown" || (welcome === "waiting" && !profiles?.locked && !profilesFailed);
   if (starting) return <div className="gate" aria-busy />;
-  if (welcome === "open" || profiles?.locked) {
+  if (welcome === "open" || profiles?.locked || needChooser) {
     return (
       <div className="gate-page">
         <UpdateBanner automatic={appMode === "app"} />
-        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} />}
+        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} initialMode={needChooser ? "profiles" : "pin"} />}
       </div>
     );
   }
@@ -195,15 +197,12 @@ export function App() {
         )}
         {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
         {switching !== null && (
-          <div className="switching" role="status" data-testid="profile-switching">Trocando para {switching || "outro perfil"}…</div>
+          <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para")} {switching || t("outro perfil")}…</div>
         )}
         <main className="content">
           <UpdateBanner automatic={appMode === "app"} />
-          {bootError && <div className="banner error">Não foi possível ler os dados do Nuvio Astra: {bootError}</div>}
+          {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra:")} {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
-          {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{boot.addonsFailed} de {boot.addonsEnabled} addon(s) não responderam; os demais estão disponíveis.</div>
-          )}
           <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
             <Home key={dataKey} onOpen={open} onResume={resume} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
           </div>

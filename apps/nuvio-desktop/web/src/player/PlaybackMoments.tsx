@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { MetaVideo, Moment, Moments, PlayerSnapshot } from "../types";
 import { airDate, episodeTitle, hasAired, reachedEnd } from "./episodes";
+import { t } from "../i18n";
 
 const NOTHING: Moments = { segments: [], nextEpisodeAt: null };
 /** The button stays this long, then returns with the controls. */
@@ -18,21 +19,21 @@ const SEEK_JUMP_S = 3;
 const keyOf = (m: Moment) => `${m.kind}:${m.start}:${m.end}`;
 
 function skipLabel(m: Moment): string {
-  if (m.toPostCredits) return "Pular para pós-créditos";
+  if (m.toPostCredits) return t("Pular para pós-créditos");
   switch (m.kind) {
-    case "intro": return "Pular introdução";
-    case "recap": return "Pular recapitulação";
-    case "outro": return "Pular encerramento";
-    case "movie-credits": return "Pular créditos";
-    default: return "Pular";
+    case "intro": return t("Pular introdução");
+    case "recap": return t("Pular recapitulação");
+    case "outro": return t("Pular encerramento");
+    case "movie-credits": return t("Pular créditos");
+    default: return t("Pular");
   }
 }
 
 const SKIPPED: Partial<Record<Moment["kind"], string>> = {
-  intro: "Introdução pulada",
-  recap: "Recapitulação pulada",
+  intro: t("Introdução pulada"),
+  recap: t("Recapitulação pulada"),
   outro: "Encerramento pulado",
-  "movie-credits": "Créditos pulados",
+  "movie-credits": t("Créditos pulados"),
 };
 
 /** The moments of a session, asked again when the duration or the chapters change. */
@@ -106,7 +107,7 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
     if (!active?.auto || s.paused || s.buffering || covered || autoDone.current.has(keyOf(active))) return;
     if (active.end <= startedAt.current || seekPoints.current.some((p) => p >= active.start && p < active.end)) return;
     skip(active);
-    setNotice(SKIPPED[active.kind] ?? null);
+    setNotice(SKIPPED[active.kind] ? t(SKIPPED[active.kind]!) : null);
   }, [time, active, covered, skip, s.loaded, s.paused, s.buffering, s.speed]);
 
   useEffect(() => {
@@ -157,12 +158,12 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
                 {aired && <span aria-hidden>▶</span>}
               </span>
               <span className="next-card-text">
-                <small>Próximo episódio</small>
+                <small>{t("Próximo episódio")}</small>
                 <b>{episodeTitle(next)}</b>
-                <em>{aired ? "Escolher fonte" : `Não exibido · ${airDate(next.released)}`}</em>
+                <em>{aired ? t("Escolher fonte") : t("Não exibido · {date}", { date: airDate(next.released) })}</em>
               </span>
             </button>
-            {!reachedEnd(s) && <button className="next-card-close" aria-label="Dispensar próximo episódio" onClick={() => setDismissed(true)}>✕</button>}
+            {!reachedEnd(s) && <button className="next-card-close" aria-label={t("Dispensar próximo episódio")} onClick={() => setDismissed(true)}>✕</button>}
           </div>
         )}
       </div>

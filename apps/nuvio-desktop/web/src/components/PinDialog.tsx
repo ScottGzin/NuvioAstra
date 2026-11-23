@@ -5,6 +5,7 @@ import { api, errorText } from "../api";
 import type { ProfileInfo } from "../types";
 import { PinPad } from "./PinPad";
 import { Avatar } from "./ProfileMenu";
+import { t } from "../i18n";
 
 interface Props {
   profile: ProfileInfo;
@@ -32,7 +33,7 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
     try {
       const view = await api.profilePinRefresh(profile.index);
       if (view.profiles.find((p) => p.index === profile.index)?.pinEnabled === false) return onUnlocked();
-      setNote("Não deu para confirmar a remoção: é preciso estar com internet e conectado à conta dona deste perfil.");
+      setNote(t("Não deu para confirmar a remoção: é preciso estar com internet e conectado à conta dona deste perfil."));
     } catch (e) {
       setNote(errorText(e));
     } finally {
@@ -42,14 +43,14 @@ export function PinDialog({ profile, onUnlocked, onCancel }: Props) {
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={`PIN de ${profile.name}`} data-testid="pin-dialog">
+      <div className="modal pin-modal" role="dialog" aria-modal="true" aria-label={t("PIN de {name}", { name: profile.name })} data-testid="pin-dialog">
         <Avatar profile={profile} size={64} />
-        <h2>Insira o PIN para {profile.name}</h2>
+        <h2>{t("Insira o PIN para")} {profile.name}</h2>
         <PinPad profile={profile} onUnlocked={onUnlocked} />
         {note && <p className="muted small" role="status">{note}</p>}
         <div className="gate-actions">
-          <button className="ghost" disabled={checking} onClick={() => void recheck()}>{checking ? "Verificando…" : "Já removi o PIN"}</button>
-          <button className="ghost" data-testid="pin-cancel" onClick={onCancel}>Cancelar</button>
+          <button className="ghost" disabled={checking} onClick={() => void recheck()}>{checking ? t("Verificando…") : t("Já removi o PIN")}</button>
+          <button className="ghost" data-testid="pin-cancel" onClick={onCancel}>{t("Cancelar")}</button>
         </div>
       </div>
     </div>

@@ -10,10 +10,11 @@
 // Recent searches are remembered (last 12) and shown when the field is empty.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { dataEpoch, onDataEpoch } from "../api";
+import { api, dataEpoch, onDataEpoch } from "../api";
 import { ResultRow } from "../components/ResultRow";
 import { invoke, listen } from "../tauri";
-import type { MetaPreview, SearchSection } from "../types";
+import type { CatalogChoice, MetaPreview, SearchSection } from "../types";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   onOpen(item: MetaPreview): void;
@@ -177,28 +178,99 @@ export function Search({ onOpen }: Props) {
   };
   const empty = useMemo(() => query.trim().length < 2, [query]);
 
+  // Discover: the original's "Movies / TMDB Popular / All Genres" filters, backed by the addons'
+  // listable catalogs (catalog_page already accepts an optional genre).
+  const [catalogs, setCatalogs] = useState<CatalogChoice[]>([]);
+  const [discoverType, setDiscoverType] = useState("movie");
+  const [discoverCatalog, setDiscoverCatalog] = useState("");
+  const [discoverGenre, setDiscoverGenre] = useState("");
+  const [discoverItems, setDiscoverItems] = useState<MetaPreview[] | null>(null);
+
+  useEffect(() => {
+    if (!empty) return;
+    let cancelled = false;
+    api.settingsGet().then(
+      (v) => { if (!cancelled) setCatalogs(v.catalogs); },
+      () => {},
+    );
+    return () => { cancelled = true; };
+  }, [empty]);
+
+  const typeCatalogs = catalogs.filter((c) => c.contentType === discoverType);
+  useEffect(() => {
+    if (typeCatalogs.length && !typeCatalogs.some((c) => c.key === discoverCatalog)) {
+      const preferred = typeCatalogs.find((c) => /popular|popular/i.test(c.defaultTitle)) ?? typeCatalogs[0];
+      setDiscoverCatalog(preferred.key);
+    }
+  }, [catalogs, discoverType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!empty || !discoverCatalog) { setDiscoverItems(null); return; }
+    let cancelled = false;
+    api.catalogPage(discoverCatalog, 0, discoverGenre || null).then(
+      (page) => { if (!cancelled) setDiscoverItems(page.items); },
+      () => { if (!cancelled) setDiscoverItems([]); },
+    );
+    return () => { cancelled = true; };
+  }, [empty, discoverCatalog, discoverGenre]);
+
+  const selectedCatalog = catalogs.find((c) => c.key === discoverCatalog);
+  const GENRES = ["Action", "Adventure", "Animation", "Comedy", "Crime", "Documentary", "Drama", "Family",
+    "Fantasy", "History", "Horror", "Music", "Mystery", "Romance", "Science Fiction", "Thriller", "War", "Western"];
+
   return (
     <div className="search">
       <div className="search-bar">
         <input
           ref={input}
           type="search"
-          placeholder="Buscar filmes, séries…"
+          placeholder={t("Buscar filmes, séries…")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && addHistory(query)}
-          aria-label="Buscar"
+          aria-label={t("Buscar")}
           data-testid="search-input"
         />
-        {loading && <span className="spinner" aria-label="Buscando" />}
+        {loading && <span className="spinner" aria-label={t("Buscando")} />}
       </div>
+
+      {empty && (
+        <div className="discover">
+          <h1 className="discover-title">{t("Discover")}</h1>
+          <div className="discover-filters">
+            <select aria-label={t("Discover")} value={discoverType} onChange={(e) => { setDiscoverType(e.target.value); setDiscoverCatalog(""); setDiscoverGenre(""); }}>
+              <option value="movie">{t("Filme")}</option>
+              <option value="series">{t("Série")}</option>
+            </select>
+            <select aria-label={t("Fontes")} value={discoverCatalog} onChange={(e) => setDiscoverCatalog(e.target.value)}>
+              {typeCatalogs.map((c) => <option key={c.key} value={c.key}>{localizeCatalogTitle(c.defaultTitle)}</option>)}
+            </select>
+            <select aria-label={t("Gêneros")} value={discoverGenre} onChange={(e) => setDiscoverGenre(e.target.value)}>
+              <option value="">{t("All Genres")}</option>
+              {GENRES.map((g) => <option key={g} value={g}>{t(g)}</option>)}
+            </select>
+          </div>
+          {selectedCatalog && (
+            <div className="discover-context muted small">{addonLabel(selectedCatalog.addonName)} · {localizeCatalogTitle(selectedCatalog.defaultTitle)}{discoverGenre ? ` · ${t(discoverGenre)}` : ""}</div>
+          )}
+          {discoverItems && discoverItems.length > 0 && (
+            <ResultRow
+              title={discoverGenre ? t(discoverGenre) : selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover")}
+              addonName={selectedCatalog?.addonName ?? ""}
+              items={discoverItems}
+              onOpen={open}
+            />
+          )}
+          {discoverItems && discoverItems.length === 0 && <div className="screen-message muted">{t("Nada encontrado para “{query}”.", { query: selectedCatalog ? localizeCatalogTitle(selectedCatalog.defaultTitle) : t("Discover") })}</div>}
+        </div>
+      )}
 
       {empty && (
         history.length ? (
           <div className="search-history" data-testid="search-history">
             <div className="search-history-head">
-              <span>Pesquisas recentes</span>
-              <button className="link" onClick={clearHistory}>Limpar histórico</button>
+              <span>{t("Pesquisas recentes")}</span>
+              <button className="link" onClick={clearHistory}>{t("Limpar histórico")}</button>
             </div>
             <div className="search-history-list">
               {history.map((h) => (
@@ -207,17 +279,17 @@ export function Search({ onOpen }: Props) {
                     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
                     {h}
                   </button>
-                  <button className="history-remove" aria-label={`Remover “${h}” do histórico`} onClick={() => removeHistory(h)}>×</button>
+                  <button className="history-remove" aria-label={t("Remover “{term}” do histórico", { term: h })} onClick={() => removeHistory(h)}>×</button>
                 </span>
               ))}
             </div>
           </div>
         ) : (
-          <div className="screen-message muted">Digite ao menos 2 letras.</div>
+          <div className="screen-message muted">{t("Digite ao menos 2 letras.")}</div>
         )
       )}
 
-      {!empty && result?.done && !result.sections.length && <div className="screen-message">Nada encontrado para “{query.trim()}”.</div>}
+      {!empty && result?.done && !result.sections.length && <div className="screen-message">{t("Nada encontrado para “{query}”.", { query: query.trim() })}</div>}
 
       {!empty &&
         shown.map(({ section }) => (

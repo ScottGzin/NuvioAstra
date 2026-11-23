@@ -4,6 +4,7 @@
 import { useRef } from "react";
 import type { MetaPreview } from "../types";
 import { PosterCard } from "./PosterCard";
+import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 
 interface Props {
   title: string;
@@ -18,11 +19,11 @@ export function ResultRow({ title, addonName, items, onOpen }: Props) {
   return (
     <section className="row-section">
       <header className="row-header">
-        <h2>{title}</h2>
-        <span className="muted small">{addonName}</span>
+        <h2>{localizeCatalogTitle(title)}</h2>
+        <span className="muted small">{addonLabel(addonName)}</span>
         <span className="spacer" />
-        <button className="icon-btn" aria-label="Anterior" onClick={() => scrollBy(-1)}>‹</button>
-        <button className="icon-btn" aria-label="Próximo" onClick={() => scrollBy(1)}>›</button>
+        <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>
+        <button className="icon-btn" aria-label={t("Próximo")} onClick={() => scrollBy(1)}>›</button>
       </header>
       <div className="row-track" ref={track}>
         {items.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)}

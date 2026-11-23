@@ -1134,3 +1134,39 @@ html.pip-page, html.pip-page body, html.pip-page #root { background: transparent
 .pin-key { height: 46px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 19px; cursor: pointer; }
 .pin-key:hover { background: var(--surface-hover); }
 .hero-catalog { width: 320px; max-width: 100%; }
+
+/* ---- Right-to-left layout (Arabic UI) ---- */
+html[dir="rtl"] .sidebar { border-right: 0; border-left: 1px solid rgba(63, 147, 220, .18); }
+html[dir="rtl"] .settings-nav { border-right: 0; border-left: 1px solid var(--line); }
+html[dir="rtl"] .settings-nav .nav-item.active::before { left: auto; right: 0; border-radius: 3px 0 0 3px; }
+html[dir="rtl"] .row-header { padding-right: 0; padding-left: 32px; }
+html[dir="rtl"] .channel-main, html[dir="rtl"] .cw-card, html[dir="rtl"] .history-open,
+html[dir="rtl"] button.profile-chip, html[dir="rtl"] .episode { text-align: right; }
+html[dir="rtl"] .slider output { text-align: left; }
+html[dir="rtl"] .sync-table th, html[dir="rtl"] .sync-table td { text-align: right; }
+html[dir="rtl"] .sync-table th[scope="row"], html[dir="rtl"] .sync-table thead th:first-child { text-align: right; }
+html[dir="rtl"] .livetv-preview { padding: 10px 12px 24px 24px; }
+html[dir="rtl"] .player-status { left: auto; right: 14px; }
+html[dir="rtl"] .badge { left: auto; right: 12px; }
+html[dir="rtl"] .subtitle-preview span { left: 50%; }
+html[dir="rtl"] .profile-menu { left: auto; right: 86px; }
+html[dir="rtl"] .profile-option { text-align: right; }
+html[dir="rtl"] .addon-picker-menu { right: auto; left: 0; }
+html[dir="rtl"] .chip-viewport::before { left: auto; right: 0; transform: scaleX(-1); }
+
+/* Discover filters on the Search page (as in the original app). */
+.discover { padding: 18px 0 8px; }
+.discover-title { font-size: 30px; margin: 6px 0 14px; }
+.discover-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+.discover-filters select {
+  background: var(--surface); color: var(--text); border: 1px solid var(--line);
+  border-radius: 999px; padding: 8px 16px; font: inherit; cursor: pointer;
+}
+.discover-context { padding: 4px 0 10px; }
+
+/* Player chrome and timeline always read left-to-right, even in the Arabic UI. */
+html[dir="rtl"] .full-player,
+html[dir="rtl"] .controls,
+html[dir="rtl"] .controls .row,
+html[dir="rtl"] .full-player-top,
+html[dir="rtl"] .pc-panel { direction: ltr; }

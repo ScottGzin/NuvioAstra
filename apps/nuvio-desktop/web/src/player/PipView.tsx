@@ -9,6 +9,8 @@ import { invoke, listen } from "../tauri";
 import type { PlayerSnapshot } from "../types";
 import { formatTime, trackLabel } from "./PlayerControls";
 import { useSubtitles } from "./subtitles";
+import { t } from "../i18n";
+import { message } from "../rustErrors";
 
 const HIDE_MS = 2600;
 const DRAG_PX = 5;
@@ -132,7 +134,7 @@ export function PipView() {
       <div className="pip-chrome" inert={!visible}>
         <div className="pip-top">
           <button className="pip-round" title="Travar controles" aria-label="Travar controles" data-pip="lock" onClick={() => { setMenu(null); setLocked(true); }}>{Icons.lock}</button>
-          <button className="pip-round" title="Voltar ao Nuvio Astra" aria-label="Voltar ao Nuvio Astra" data-pip="back" onClick={() => void api.pictureInPicture(false, "").catch(() => {})}>{Icons.back}</button>
+          <button className="pip-round" title={t("Voltar ao Nuvio Astra")} aria-label={t("Voltar ao Nuvio Astra")} data-pip="back" onClick={() => void api.pictureInPicture(false, "").catch(() => {})}>{Icons.back}</button>
         </div>
         <div className="pip-bottom">
           {duration > 0 && (
@@ -153,7 +155,7 @@ export function PipView() {
                 min={0}
                 max={1000}
                 value={Math.round(position * 1000)}
-                aria-label="Posição"
+                aria-label={t("Posição")}
                 data-pip="seek"
                 onChange={(e) => setSeekDraft(Number(e.target.value) / 1000)}
                 onPointerUp={commitSeek}
@@ -163,14 +165,14 @@ export function PipView() {
           )}
           <div className="pip-row">
             <div className="pip-pill">
-              <button className="pip-play" aria-label={s?.paused ? "Reproduzir" : "Pausar"} data-pip="play" onClick={() => void api.playerCommand({ type: "togglePause" })}>
+              <button className="pip-play" aria-label={s?.paused ? t("Reproduzir") : t("Pausar")} data-pip="play" onClick={() => void api.playerCommand({ type: "togglePause" })}>
                 {s?.paused ? Icons.play : Icons.pause}
               </button>
-              <button className="pip-plain" title="Legendas" aria-label="Legendas" data-pip="subs" disabled={!s?.loaded} onClick={() => setMenu((m) => (m === "subs" ? null : "subs"))}>{Icons.cc}</button>
-              <button className="pip-plain" title="Áudio" aria-label="Áudio" data-pip="audio" disabled={!audio.length} onClick={() => setMenu((m) => (m === "audio" ? null : "audio"))}>{Icons.audio}</button>
+              <button className="pip-plain" title={t("Legendas")} aria-label={t("Legendas")} data-pip="subs" disabled={!s?.loaded} onClick={() => setMenu((m) => (m === "subs" ? null : "subs"))}>{Icons.cc}</button>
+              <button className="pip-plain" title={t("Áudio")} aria-label={t("Áudio")} data-pip="audio" disabled={!audio.length} onClick={() => setMenu((m) => (m === "audio" ? null : "audio"))}>{Icons.audio}</button>
             </div>
             <span className="pip-space" />
-            <button className="pip-plain" aria-label={s?.mute ? "Ativar som" : "Silenciar"} onClick={() => void api.playerCommand({ type: "setMute", mute: !s?.mute })}>
+            <button className="pip-plain" aria-label={s?.mute ? t("Ativar som") : t("Silenciar")} onClick={() => void api.playerCommand({ type: "setMute", mute: !s?.mute })}>
               {s?.mute || volume === 0 ? Icons.muted : Icons.volume}
             </button>
             <input
@@ -179,7 +181,7 @@ export function PipView() {
               min={0}
               max={200}
               value={volume}
-              aria-label="Volume"
+              aria-label={t("Volume")}
               data-pip="volume"
               style={{ ["--fill" as string]: `${volume / 2}%` }}
               onChange={(e) => void api.playerCommand({ type: "setVolume", volume: Number(e.target.value) })}
@@ -187,7 +189,7 @@ export function PipView() {
             {duration > 0 ? (
               <span className="pip-time" data-pip="time">{formatTime(time)} / {formatTime(duration)}</span>
             ) : s?.loaded ? (
-              <span className="live-dot">AO VIVO</span>
+              <span className="live-dot">{t("AO VIVO")}</span>
             ) : null}
           </div>
         </div>
@@ -195,7 +197,7 @@ export function PipView() {
           <div className="pip-menu" role="menu">
             {menu === "subs" && (
               <button role="menuitemradio" aria-checked={!s?.sid || s.sid === "no"} onClick={() => { void api.playerCommand({ type: "setSubtitleTrack", id: "no" }); setMenu(null); }}>
-                Sem legenda
+                {t("Sem legenda")}
               </button>
             )}
             {menu === "subs" &&
@@ -208,12 +210,12 @@ export function PipView() {
                     disabled={subtitles.loading !== null}
                     onClick={() => void subtitles.choose(choice).then((ok) => ok && setMenu(null))}
                   >
-                    {subtitles.loading === choice.id ? "Carregando…" : `${group.name} · ${choice.label}`}
+                    {subtitles.loading === choice.id ? t("Carregando…") : `${group.name} · ${choice.label}`}
                   </button>
                 )),
               )}
             {menu === "subs" && (subtitles.searching || subtitles.error || !subtitles.groups.length) && (
-              <span className="pip-menu-note">{subtitles.searching ? "Buscando legendas…" : subtitles.error ?? "Nenhuma legenda encontrada"}</span>
+              <span className="pip-menu-note">{subtitles.searching ? t("Buscando legendas…") : subtitles.error ? message(subtitles.error) : t("Nenhuma legenda encontrada")}</span>
             )}
             {menu === "audio" &&
               audio.map((t) => (

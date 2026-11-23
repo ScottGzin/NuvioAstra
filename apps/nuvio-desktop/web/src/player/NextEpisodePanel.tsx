@@ -9,6 +9,7 @@ import { clock, playbackItem } from "../library";
 import type { MetaVideo, StreamEntry } from "../types";
 import { episodeTitle, type EpisodeContext } from "./episodes";
 import { usePlayer } from "./PlayerContext";
+import { t } from "../i18n";
 
 interface Props {
   context: EpisodeContext;
@@ -76,22 +77,22 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
 
   return (
     <div className="next-panel-layer" data-testid="next-panel">
-      <button className="next-panel-outside" aria-label="Fechar fontes" tabIndex={-1} onClick={onClose} />
-      <aside className="next-panel" aria-label="Fontes do próximo episódio">
+      <button className="next-panel-outside" aria-label={t("Fechar fontes")} tabIndex={-1} onClick={onClose} />
+      <aside className="next-panel" aria-label={t("Fontes do próximo episódio")}>
         <header className="sources-header">
           <div>
-            <h2>Próximo episódio</h2>
+            <h2>{t("Próximo episódio")}</h2>
             <div className="muted small">
               {episodeTitle(next)}
-              {resumeAt !== null && ` · continua de ${clock(resumeAt)}`}
+              {resumeAt !== null && ` · ${t("continua de {time}", { time: clock(resumeAt) })}`}
             </div>
           </div>
-          <button className="icon-btn" aria-label="Fechar fontes" onClick={onClose}>✕</button>
+          <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={onClose}>✕</button>
         </header>
         <div className="sources-body">
-          {player.error && <div className="row-error">Falha ao reproduzir: {player.error}</div>}
+          {player.error && <div className="row-error">{t("Falha ao reproduzir:")} {player.error}</div>}
           {starting ? (
-            <div className="muted"><span className="spinner" aria-hidden /> Abrindo o próximo episódio…</div>
+            <div className="muted"><span className="spinner" aria-hidden /> {t("Abrindo o próximo episódio…")}</div>
           ) : (
             <StreamList contentType={meta.contentType} id={next.id} onPlay={(stream) => void play(stream)} />
           )}

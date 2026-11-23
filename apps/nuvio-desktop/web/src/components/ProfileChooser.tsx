@@ -1,9 +1,10 @@
-// "Quem está assistindo?": picks a profile before the app shows, asking its PIN when it has one.
+// t("Quem está assistindo?"): picks a profile before the app shows, asking its PIN when it has one.
 
 import { useState } from "react";
 import { api, errorText } from "../api";
 import type { ProfilesView } from "../types";
 import { PinDialog } from "./PinDialog";
+import { t } from "../i18n";
 import { Avatar } from "./ProfileMenu";
 
 export function ProfileChooser({ view, onChosen }: { view: ProfilesView; onChosen(view: ProfilesView): void }) {
@@ -31,7 +32,7 @@ export function ProfileChooser({ view, onChosen }: { view: ProfilesView; onChose
           <button key={p.index} className="gate-profile" disabled={busy} data-profile={p.index} onClick={() => (p.pinEnabled ? setPinFor(p.index) : void open(p.index))}>
             <Avatar profile={p} size={72} />
             <span>{p.name}</span>
-            {p.pinEnabled && <small>Com PIN</small>}
+            {p.pinEnabled && <small>{t("Com PIN")}</small>}
           </button>
         ))}
       </div>

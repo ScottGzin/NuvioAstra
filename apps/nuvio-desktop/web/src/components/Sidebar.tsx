@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import type { ProfileInfo } from "../types";
 import { Avatar } from "./ProfileMenu";
 import { HomeLine as HomeIcon, LibraryLine as LibraryIcon, SearchLine as SearchIcon, SettingsLine as SettingsIcon, TvLine as TvIcon } from "./SidebarIcons";
+import { t } from "../i18n";
 
 export type Tab = "home" | "tv" | "search" | "library" | "settings";
 
@@ -26,7 +27,7 @@ interface Props {
 
 export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
   return (
-    <nav className="sidebar" aria-label="Navegação principal">
+    <nav className="sidebar" aria-label={t("Navegação principal")}>
       <div className="brand" title="Nuvio Astra">
         <img className="brand-logo" src="./nuvio-astra-128.png" alt="" draggable={false} />
         <span className="nav-label">Nuvio Astra</span>
@@ -39,10 +40,10 @@ export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
               aria-current={current === item.tab ? "page" : undefined}
               onClick={() => onSelect(item.tab)}
               data-tab={item.tab}
-              title={item.label}
+              title={t(item.label)}
             >
               <span className="nav-icon" aria-hidden>{item.icon}</span>
-              <span className="nav-label">{item.label}</span>
+              <span className="nav-label">{t(item.label)}</span>
             </button>
           </li>
         ))}
@@ -54,15 +55,15 @@ export function Sidebar({ current, onSelect, profile, onProfile }: Props) {
         aria-current={current === "settings" ? "page" : undefined}
         onClick={() => onSelect("settings")}
         data-tab="settings"
-        title="Configurações"
+        title={t("Configurações")}
       >
         <span className="nav-icon" aria-hidden>
           <SettingsIcon />
         </span>
-        <span className="nav-label">Configurações</span>
+        <span className="nav-label">{t("Configurações")}</span>
       </button>
       {profile && (
-        <button className="profile-chip" title={`${profile.name} · trocar de perfil`} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
+        <button className="profile-chip" title={t("{name} · trocar de perfil", { name: profile.name })} onClick={onProfile} data-testid="profile-chip" aria-haspopup="menu">
           <span className="profile-ring"><Avatar profile={profile} /></span>
           <span className="nav-label">{profile.name}</span>
         </button>
