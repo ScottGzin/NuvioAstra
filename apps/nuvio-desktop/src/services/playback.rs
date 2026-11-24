@@ -119,6 +119,8 @@ pub fn video_config(settings: &PlayerSettings) -> VideoConfig {
         motion: Motion::from_name(&settings.motion_smoothing),
         enhancement: Enhancement::from_name(&settings.video_enhancement),
         picture: picture(settings),
+        audio_passthrough: settings.audio_passthrough,
+        subtitle_codepage: settings.subtitle_codepage.clone(),
     }
 }
 

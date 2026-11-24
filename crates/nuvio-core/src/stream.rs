@@ -32,6 +32,8 @@ pub struct StreamItem {
     pub subtitles: Vec<crate::subtitle::SubtitleItem>,
     /// Raw `clientResolve` object, preserved for the debrid port.
     pub client_resolve: Option<Value>,
+    /// Provider id forced by a duplicated source card (e.g. `torbox` or `realdebrid`).
+    pub forced_debrid: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Default)]
@@ -167,6 +169,7 @@ pub fn parse_streams(payload: &str, addon_name: &str, addon_id: &str, addon_logo
                 },
                 subtitles: crate::subtitle::items(obj.get("subtitles"), "stream"),
                 client_resolve,
+                forced_debrid: None,
             })
         })
         .collect())

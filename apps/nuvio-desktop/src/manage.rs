@@ -488,11 +488,13 @@ mod ipc_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let client = AddonClient::new().unwrap();
         let state = AppState {
+            relay: Mutex::new(None),
             api: Mutex::new(None),
             player: Mutex::new(None),
             session: AtomicU64::new(0),
             hwnd: Mutex::new(0),
             addons: AddonContext::new(client.clone(), dir.clone()),
+            plugins: crate::services::plugins::Manager::new(dir.clone(), client.clone()),
             client,
             streams: crate::streams::StreamCache::default(),
             downloads: crate::services::downloads::Manager::new(),

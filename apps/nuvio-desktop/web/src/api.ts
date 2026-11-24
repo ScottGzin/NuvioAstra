@@ -19,6 +19,7 @@ import type {
   TmdbSettingsView,
   DebridSettingsInput,
   DebridSettingsView,
+  PluginsView,
   ParentalGuide,
   MdblistSettingsInput,
   MdblistSettingsView,
@@ -198,6 +199,14 @@ export const api = {
   addonMove: (key: string, delta: number) => changed("addons", invoke<AddonsView>("addon_move", { key, delta })),
   addonRefresh: (key: string) => changed("addons", invoke<AddonsView>("addon_refresh", { key })),
   addonConfigure: (key: string) => invoke<void>("addon_configure", { key }),
+
+  // Nuvio scraper plugins (manifest.json repositories). Adding/refreshing runs the sandbox.
+  pluginsList: () => invoke<PluginsView>("plugins_list"),
+  pluginsAdd: (url: string) => invoke<PluginsView>("plugins_add", { url }),
+  pluginsRefresh: (key: string) => invoke<PluginsView>("plugins_refresh", { key }),
+  pluginsSetEnabled: (enabled: boolean) => invoke<PluginsView>("plugins_set_enabled", { enabled }),
+  pluginsSetScraperEnabled: (key: string, enabled: boolean) => invoke<PluginsView>("plugins_set_scraper_enabled", { key, enabled }),
+  pluginsRemove: (key: string) => invoke<PluginsView>("plugins_remove", { key }),
 
   // Profiles. A switch closes the player in Rust and starts a new data epoch.
   profilesList: () => invoke<ProfilesView>("profiles_list"),

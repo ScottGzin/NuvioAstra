@@ -63,6 +63,8 @@ pub struct StreamEntry {
     /// A debrid service is connected: this source is played through it (no local P2P), even when
     /// the addon only left a magnet (`DirectDebridPlaybackResolver` in the original).
     pub debrid_playable: bool,
+    /// Name of the connected provider that resolves torrent/debrid sources (display only).
+    pub debrid_provider: Option<String>,
     /// Header names only (values may be secrets).
     pub header_names: Vec<String>,
     pub not_web_ready: bool,
@@ -156,7 +158,7 @@ pub async fn search(
     profile: Option<i64>,
 ) -> Result<Vec<StreamGroup>, String> {
     let manifests: Vec<AddonManifest> = load_manifests(client, profile).await?.into_iter().filter_map(Result::ok).collect();
-    Ok(search_in(client, cache, &manifests, content_type, id, false, false).await)
+    Ok(search_in(client, cache, &manifests, content_type, id, false, None).await)
 }
 
 /// Searches streams for one title in the given addons (those that serve `stream` for it), in order.
@@ -168,7 +170,7 @@ pub async fn search_in(
     content_type: &str,
     id: &str,
     force: bool,
-    debrid_available: bool,
+    debrid_provider: Option<&str>,
 ) -> Vec<StreamGroup> {
     let targets: Vec<&AddonManifest> = manifests.iter().filter(|m| m.supports_resource("stream", content_type, id)).collect();
     let requests = targets.iter().map(|manifest| {
@@ -219,7 +221,8 @@ pub async fn search_in(
                             filename: stream.behavior_hints.filename.clone(),
                             video_size: stream.behavior_hints.video_size,
                             kind,
-                            debrid_playable: debrid_available && matches!(kind, StreamKind::Torrent | StreamKind::Debrid),
+                            debrid_playable: debrid_provider.is_some() && matches!(kind, StreamKind::Torrent | StreamKind::Debrid),
+                            debrid_provider: if matches!(kind, StreamKind::Torrent | StreamKind::Debrid) { debrid_provider.map(str::to_string) } else { None },
                             header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
                             not_web_ready: stream.behavior_hints.not_web_ready,
                             external_url: stream.external_url.clone(),
@@ -234,6 +237,82 @@ pub async fn search_in(
         .collect();
     cache.keep(cached);
     groups
+}
+
+/// Turns scraper results into the same stream groups the addons produce, so the Sources screen,
+/// playback and the local relay need no plugin-specific code.
+pub fn plugin_groups(cache: &StreamCache, found: Vec<(String, Vec<StreamItem>)>, debrid_provider: Option<&str>) -> Vec<StreamGroup> {
+    let search = cache.next_search();
+    let mut cached = HashMap::new();
+    let groups = found
+        .into_iter()
+        .enumerate()
+        .map(|(group_index, (name, streams))| StreamGroup {
+            addon_name: name.clone(),
+            error: None,
+            streams: streams
+                .into_iter()
+                .enumerate()
+                .map(|(i, stream)| {
+                    let key = format!("{search}:{group_index}:{i}");
+                    let kind = kind_of(&stream);
+                    let entry = StreamEntry {
+                        key: key.clone(),
+                        addon_name: name.clone(),
+                        name: stream.name.clone(),
+                        title: stream.title.clone(),
+                        description: stream.description.clone(),
+                        filename: stream.behavior_hints.filename.clone(),
+                        video_size: stream.behavior_hints.video_size,
+                        kind,
+                        debrid_playable: debrid_provider.is_some() && matches!(kind, StreamKind::Torrent | StreamKind::Debrid),
+                        debrid_provider: if matches!(kind, StreamKind::Torrent | StreamKind::Debrid) { debrid_provider.map(str::to_string) } else { None },
+                        header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
+                        not_web_ready: stream.behavior_hints.not_web_ready,
+                        external_url: stream.external_url.clone(),
+                        youtube_id: stream.yt_id.clone(),
+                    };
+                    cached.insert(key, stream);
+                    entry
+                })
+                .collect(),
+        })
+        .collect();
+    cache.keep(cached);
+    groups
+}
+
+/// Turns every torrent/debrid source into one card per connected debrid provider. Each copy carries
+/// the provider id in its cache key, so clicking it resolves through that provider only. When there
+/// is a single provider the original card is kept as is.
+pub fn duplicate_for_providers(cache: &StreamCache, groups: &mut [StreamGroup], choices: &[(String, String)]) {
+    if choices.len() < 2 {
+        return;
+    }
+    let search = cache.next_search();
+    let mut cached = HashMap::new();
+    for (group_index, group) in groups.iter_mut().enumerate() {
+        let originals: Vec<StreamEntry> = group.streams.iter().filter(|entry| matches!(entry.kind, StreamKind::Torrent | StreamKind::Debrid)).cloned().collect();
+        if originals.is_empty() {
+            continue;
+        }
+        group.streams.retain(|entry| !matches!(entry.kind, StreamKind::Torrent | StreamKind::Debrid));
+        for (i, original) in originals.into_iter().enumerate() {
+            let Some(item) = cache.get(&original.key) else { continue };
+            for (provider_index, (code, id)) in choices.iter().enumerate() {
+                let mut copy = item.clone();
+                copy.forced_debrid = Some(id.clone());
+                let key = format!("{search}:{group_index}:{i}:{provider_index}");
+                let mut entry = original.clone();
+                entry.key = key.clone();
+                entry.debrid_provider = Some(code.clone());
+                entry.debrid_playable = true;
+                cached.insert(key, copy);
+                group.streams.push(entry);
+            }
+        }
+    }
+    cache.keep(cached);
 }
 
 #[cfg(test)]
@@ -253,6 +332,36 @@ mod tests {
         ]}"#;
         let kinds: Vec<_> = parse_streams(payload, "a", "b", None).unwrap().iter().map(kind_of).collect();
         assert_eq!(kinds, vec![StreamKind::Direct, StreamKind::Torrent, StreamKind::Torrent, StreamKind::Debrid, StreamKind::External, StreamKind::YouTube]);
+    }
+
+    #[test]
+    fn debrid_sources_are_duplicated_per_provider() {
+        let cache = StreamCache::default();
+        let stream = parse_streams(r#"{"streams":[{"infoHash":"abc","name":"Movie"}]}"#, "A", "a", None).unwrap().remove(0);
+        cache.keep(HashMap::from([("0:0:0".to_string(), stream)]));
+        let entry = StreamEntry {
+            key: "0:0:0".into(),
+            addon_name: "A".into(),
+            name: Some("Movie".into()),
+            title: None,
+            description: None,
+            filename: None,
+            video_size: None,
+            kind: StreamKind::Torrent,
+            debrid_playable: true,
+            debrid_provider: None,
+            header_names: Vec::new(),
+            not_web_ready: false,
+            external_url: None,
+            youtube_id: None,
+        };
+        let mut groups = vec![StreamGroup { addon_name: "A".into(), streams: vec![entry], error: None }];
+        let choices = vec![("RD".to_string(), "realdebrid".to_string()), ("TB".to_string(), "torbox".to_string())];
+        duplicate_for_providers(&cache, &mut groups, &choices);
+        assert_eq!(groups[0].streams.len(), 2);
+        assert_eq!(groups[0].streams[0].debrid_provider.as_deref(), Some("RD"));
+        assert_eq!(groups[0].streams[1].debrid_provider.as_deref(), Some("TB"));
+        assert_eq!(cache.get(&groups[0].streams[0].key).unwrap().forced_debrid.as_deref(), Some("realdebrid"));
     }
 
     #[test]

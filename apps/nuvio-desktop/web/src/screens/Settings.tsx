@@ -11,6 +11,7 @@ import {
 import { api, errorText, onRemoteSettingsChanged } from "../api";
 import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";
+import { PluginsManager } from "../components/PluginsManager";
 import { checkForUpdates, installUpdate, useUpdates } from "../updates";
 import { Avatar } from "../components/ProfileMenu";
 import { LANGUAGES, languageLabel } from "../languages";
@@ -112,7 +113,7 @@ export function Settings() {
   const [debrid, setDebrid] = useState<DebridSettingsView | null>(null);
   const [debridError, setDebridError] = useState<string | null>(null);
   const [debridStatus, setDebridStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [torboxDraft, setTorboxDraft] = useState("");
+  const [debridDrafts, setDebridDrafts] = useState<Record<string, string>>({});
   const [mdblist, setMdblist] = useState<MdblistSettingsView | null>(null);
   const [mdblistError, setMdblistError] = useState<string | null>(null);
   const [mdblistStatus, setMdblistStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -434,7 +435,7 @@ export function Settings() {
             <SourceSettings value={draft.player} addons={[...new Set(view.catalogs.map((c) => c.addonName))].sort()} onChange={player} />
           </div>
         )}
-        {section === "addons" && <AddonsManager />}
+        {section === "addons" && <><AddonsManager /><PluginsManager /></>}
 
         {section === "playback" && (
           <div className="settings-group">
@@ -672,41 +673,57 @@ export function Settings() {
             ) : (
               <div className="settings-group">
                 <Row title={t("Ativar resolução de links")} description={t("Resolve as fontes de debrid para uma ligação direta antes de reproduzir.")}>
-                  <Toggle label={t("Ativar resolução de links")} checked={debrid.enabled} disabled={!debrid.torboxConnected} onChange={(v) => void saveDebrid({ enabled: v })} />
+                  <Toggle label={t("Ativar resolução de links")} checked={debrid.enabled} disabled={!debrid.active} onChange={(v) => void saveDebrid({ enabled: v })} />
                 </Row>
-                <Row
-                  title="TorBox"
-                  description={
-                    debrid.torboxFromAccount
-                      ? t("Chave sincronizada da conta Nuvio.")
-                      : debrid.torboxFromOriginal
-                        ? t("Chave do Nuvio original em uso.")
-                        : debrid.torboxConnected
-                          ? t("Ligado{account}.", { account: debrid.account ? ` · ${debrid.account}` : "" })
-                          : t("Sem chave: ligue o TorBox na conta Nuvio ou cole uma chave.")
-                  }
-                >
-                  <span className="tmdb-key">
-                    <input
-                      type="password"
-                      value={torboxDraft}
-                      placeholder={debrid.torboxConnected ? "••••••••" : t("Cole a chave")}
-                      aria-label="TorBox"
-                      onChange={(e) => setTorboxDraft(e.target.value)}
-                    />
-                    <button className="ghost" disabled={!torboxDraft.trim()} onClick={() => { const key = torboxDraft.trim(); if (key) { setTorboxDraft(""); void saveDebrid({ torboxApiKey: key }); } }}>
-                      {t("Salvar")}
-                    </button>
-                  </span>
-                </Row>
-                <div className="integration-row disabled" aria-disabled="true">
-                  <span className="integration-text">
-                    <span className="setting-title">Premiumize</span>
-                    <span className="muted small">{t("Requer o client ID do dispositivo, que não está no repositório público.")}</span>
-                  </span>
-                  <span className="integration-tag">{t("Ainda não disponível")}</span>
-                </div>
-                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio (ProviderCredentialSync) por perfil; o TorBox é o serviço de debrid suportado nesta versão.")}</p>
+                {debrid.providers.map((provider) => (
+                  <Row
+                    key={provider.id}
+                    title={provider.label}
+                    description={
+                      provider.fromAccount
+                        ? t("Chave sincronizada da conta Nuvio.")
+                        : provider.fromOriginal
+                          ? t("Chave do Nuvio original em uso.")
+                          : provider.connected
+                            ? t("Ligado{account}.", { account: provider.account ? ` · ${provider.account}` : "" })
+                            : t("Sem chave: cole a sua chave de API.")
+                    }
+                  >
+                    <span className="tmdb-key">
+                      <input
+                        type="password"
+                        value={debridDrafts[provider.id] ?? ""}
+                        placeholder={provider.connected ? "••••••••" : t("Cole a chave")}
+                        aria-label={provider.label}
+                        onChange={(e) => setDebridDrafts((drafts) => ({ ...drafts, [provider.id]: e.target.value }))}
+                      />
+                      <button
+                        className="ghost"
+                        disabled={!(debridDrafts[provider.id] ?? "").trim()}
+                        onClick={() => {
+                          const key = (debridDrafts[provider.id] ?? "").trim();
+                          if (!key) return;
+                          setDebridDrafts((drafts) => ({ ...drafts, [provider.id]: "" }));
+                          void saveDebrid({ keys: { [provider.id]: key }, ...(debrid.active ? {} : { active: provider.id }) });
+                        }}
+                      >
+                        {t("Salvar")}
+                      </button>
+                      {provider.connected && debrid.active !== provider.id && (
+                        <button className="ghost" onClick={() => void saveDebrid({ active: provider.id })}>
+                          {t("Usar")}
+                        </button>
+                      )}
+                      {provider.connected && (
+                        <button className="ghost" onClick={() => void saveDebrid({ keys: { [provider.id]: "" }, active: debrid.active === provider.id ? "" : debrid.active })}>
+                          {t("Remover chave")}
+                        </button>
+                      )}
+                      {debrid.active === provider.id && <span className="integration-tag">{t("Em uso")}</span>}
+                    </span>
+                  </Row>
+                ))}
+                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio (ProviderCredentialSync) por perfil. O primeiro serviço ligado é usado por padrão.")}</p>
               </div>
             )}
           </>
@@ -1118,6 +1135,9 @@ function HomeSection({ settings, catalogs, update }: {
             <option value="details">{t("Abrir detalhes")}</option>
             <option value="detailsForUpcoming">{t("Detalhes só nos próximos episódios")}</option>
           </select>
+        </Row>
+        <Row title={t("Aviso ao abrir o app")} description={t("Pergunta se quer continuar assistindo ao iniciar o aplicativo.")}>
+          <Toggle label={t("Aviso ao abrir o app")} checked={cw.showResumePromptOnLaunch} onChange={(v) => setCw({ showResumePromptOnLaunch: v })} />
         </Row>
         <Row title={t("Mostrar episódios ainda não exibidos")} description={t("Próximos episódios com data futura na fila.")}>
           <Toggle label={t("Mostrar episódios ainda não exibidos")} checked={cw.showUnairedNextUp} onChange={(v) => setCw({ showUnairedNextUp: v })} />

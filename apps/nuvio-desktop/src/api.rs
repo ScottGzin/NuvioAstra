@@ -1,7 +1,7 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, search, servers, tmdb, tracking};
+use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, mdblist, meta, parental, playback, plugins, search, servers, tmdb, tracking};
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
 use nuvio_core::catalog::{CatalogPage, MetaPreview};
@@ -280,8 +280,15 @@ pub async fn livetv_toggle_favorite(state: State<'_, AppState>, key: String) -> 
 #[tauri::command]
 pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String, refresh: Option<bool>) -> Result<Vec<StreamGroup>, String> {
     let loaded = state.addons.loaded().await?;
-    let debrid = debrid::access(&state.app_store, loaded.profile).is_some();
-    Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), debrid).await)
+    let choices: Vec<(String, String)> = debrid::available(&state.app_store, loaded.profile)
+        .into_iter()
+        .map(|active| (active.provider.code().to_string(), active.provider.id().to_string()))
+        .collect();
+    let mut groups = streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), None).await;
+    let found = state.plugins.search(loaded.profile, &content_type, &id).await;
+    groups.extend(streams::plugin_groups(&state.streams, found, None));
+    streams::duplicate_for_providers(&state.streams, &mut groups, &choices);
+    Ok(groups)
 }
 
 /// Updates Discord Rich Presence (only when enabled in Settings → Serviços → Integrações).
@@ -788,6 +795,44 @@ pub async fn debrid_settings_set(state: State<'_, AppState>, settings: debrid::S
     Ok(view)
 }
 
+// --- Nuvio scraper plugins (Settings → Addons → Plugins) ---
+
+#[tauri::command]
+pub fn plugins_list(state: State<'_, AppState>) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    Ok(state.plugins.view(state.active_profile()))
+}
+
+#[tauri::command]
+pub async fn plugins_add(state: State<'_, AppState>, url: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.add(state.active_profile(), &url).await
+}
+
+#[tauri::command]
+pub async fn plugins_refresh(state: State<'_, AppState>, key: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.refresh(state.active_profile(), &key).await
+}
+
+#[tauri::command]
+pub fn plugins_set_enabled(state: State<'_, AppState>, enabled: bool) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.set_enabled(state.active_profile(), enabled)
+}
+
+#[tauri::command]
+pub fn plugins_set_scraper_enabled(state: State<'_, AppState>, key: String, enabled: bool) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.set_scraper_enabled(state.active_profile(), &key, enabled)
+}
+
+#[tauri::command]
+pub fn plugins_remove(state: State<'_, AppState>, key: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.remove(state.active_profile(), &key)
+}
+
 /// TMDB settings of the active profile (the key itself never leaves Rust; `apiKeyFromOriginal`
 /// says the original app's key is the one in use).
 #[tauri::command]
@@ -869,8 +914,7 @@ pub async fn livetv_resolve(state: State<'_, AppState>, key: String) -> Result<V
     if owner.is_empty() {
         return Err("the addon of this channel is not enabled".into());
     }
-    let debrid = debrid::access(&state.app_store, loaded.profile).is_some();
-    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id, false, debrid).await)
+    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id, false, None).await)
 }
 
 /// Program guide of one channel (see `services::epg`): asked only for the channel the user picked,
@@ -1241,11 +1285,13 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nuvio-api-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let state = AppState {
+            relay: Mutex::new(None),
             api: Mutex::new(None),
             player: Mutex::new(None),
             session: AtomicU64::new(0),
             hwnd: Mutex::new(0),
             addons: AddonContext::preloaded(client.clone(), loaded),
+            plugins: crate::services::plugins::Manager::new(dir.clone(), client.clone()),
             client,
             streams: crate::streams::StreamCache::default(),
             downloads: crate::services::downloads::Manager::new(),

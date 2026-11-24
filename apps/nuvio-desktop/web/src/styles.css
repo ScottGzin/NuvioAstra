@@ -465,6 +465,7 @@ body.playing .livetv-preview { background: transparent; }
 .full-player.chrome-hidden { cursor: none; }
 .full-player.chrome-hidden .controls, .full-player.chrome-hidden .full-player-top { opacity: 0; }
 
+
 /* ---------- Self-test view ---------- */
 .selftest-page { position: fixed; inset: 0; }
 .selftest-hole { position: absolute; }
@@ -804,6 +805,7 @@ button.profile-chip:hover { background: var(--surface); }
 
 /* ---------- P2P (torrent sources) ---------- */
 .stream-tag { margin-left: 8px; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); vertical-align: middle; }
+.stream-tag.debrid-tag { background: rgba(255, 165, 53, .16); color: #ffa535; border: 1px solid rgba(255, 165, 53, .35); }
 .torrent-start { width: min(460px, calc(100vw - 32px)); gap: 12px; }
 .torrent-start h2 { margin: 0; font-size: 18px; }
 .torrent-phase { display: flex; align-items: center; gap: 10px; }

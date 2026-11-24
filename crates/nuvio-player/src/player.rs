@@ -55,6 +55,10 @@ pub struct VideoConfig {
     pub motion: Motion,
     pub enhancement: Enhancement,
     pub picture: Picture,
+    /// Bitstream compressed audio instead of decoding it to PCM.
+    pub audio_passthrough: bool,
+    /// `sub-codepage` for SRT files without a BOM (empty = mpv default).
+    pub subtitle_codepage: String,
 }
 
 /// What to play.
@@ -429,6 +433,20 @@ pub(crate) fn startup_options(video: &VideoConfig, unified_memory_gpu: bool, sha
     set("keep-open", "yes");
     set("idle", "yes");
     set("volume-max", "200");
+    set("audio-channels", "auto");
+    if video.audio_passthrough {
+        // mpv falls back to decoded PCM when the endpoint rejects a bitstream.
+        set("audio-spdif", "ac3,eac3,dts,dts-hd,truehd");
+        if let Ok(device) = std::env::var("NUVIO_MPV_AUDIO_DEVICE") {
+            let device = device.trim();
+            if !device.is_empty() {
+                set("audio-device", device);
+            }
+        }
+    }
+    if !video.subtitle_codepage.trim().is_empty() {
+        set("sub-codepage", video.subtitle_codepage.trim());
+    }
     set("vo", "gpu-next,gpu,");
     if rtx {
         set("gpu-api", "d3d11");
@@ -1157,6 +1175,16 @@ mod tests {
         assert_eq!(value(&rtx, "d3d11-adapter"), vec!["NVIDIA"]);
         assert!(value(&rtx, "vf")[0].contains("scaling-mode=nvidia") && value(&rtx, "vf")[0].contains("nvidia-true-hdr"));
         assert!(value(&rtx, "profile").is_empty()); // RTX disables the fast profile
+
+        let advanced = startup_options(
+            &VideoConfig { audio_passthrough: true, subtitle_codepage: "cp1256".into(), ..Default::default() },
+            false,
+            None,
+        );
+        assert_eq!(value(&advanced, "audio-spdif"), vec!["ac3,eac3,dts,dts-hd,truehd"]);
+        assert_eq!(value(&advanced, "sub-codepage"), vec!["cp1256"]);
+        assert!(value(&default, "audio-spdif").is_empty());
+        assert!(value(&default, "sub-codepage").is_empty());
     }
 
     #[test]

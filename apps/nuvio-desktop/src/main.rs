@@ -55,6 +55,8 @@ pub struct AppState {
     pub sync_signals: Arc<account::SyncSignals>,
     /// The picture-in-picture window while it exists (`pip.rs`).
     pub pip: Mutex<Option<tauri::WebviewWindow>>,
+    /// Local relay for streams that need request headers on every HLS request.
+    pub relay: Mutex<Option<nuvio_core::relay::Relay>>,
     pub pin_gate: Mutex<account::PinGate>,
     /// P2P session (original's Nuvio Engine) of torrent streams.
     pub p2p: Arc<nuvio_p2p::P2pService>,
@@ -68,6 +70,8 @@ pub struct AppState {
     pub updates: updater::UpdateState,
     /// Program guides of the live channels opened (memory only, bounded).
     pub epg: services::epg::EpgStore,
+    /// Nuvio scraper plugins (repositories, validated scripts and their runs).
+    pub plugins: services::plugins::Manager,
     /// The movie or episode playing (subtitles, skip buttons).
     pub playing: Mutex<Option<Arc<watching::Playing>>>,
     pub subtitle_choice: Mutex<Option<watching::Choice>>,
@@ -172,6 +176,8 @@ impl AppState {
         }
         // Dropping moves the video back out of the PiP window, which can then go.
         drop(player);
+        // The local relay only exists for the stream that was playing.
+        *self.relay.lock().expect("relay lock") = None;
         pip::close_window(self);
     }
 
@@ -220,23 +226,48 @@ async fn stream_play(
 ) -> Result<PlayerInfo, String> {
     let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
     let kind = streams::kind_of(&stream);
-    // With a debrid service connected, a torrent source is played through it (`LocalTorrentResolve`
-    // in the original): the local P2P engine is not started.
-    let debrid_key = match kind {
-        streams::StreamKind::Torrent | streams::StreamKind::Debrid => {
-            let profile = state.active_profile();
-            services::debrid::access(&state.app_store, profile)
+    // With debrid services connected, torrent sources are resolved to direct links instead of
+    // starting P2P. Every connected provider is tried in turn (preferred one first), so a torrent
+    // that is not cached on TorBox can still play from Real-Debrid.
+    let profile = state.active_profile();
+    let direct = stream.playable_direct_url().unwrap_or_default();
+    let is_share = services::debrid::is_share_url(direct);
+    let use_debrid = matches!(kind, streams::StreamKind::Torrent | streams::StreamKind::Debrid) || is_share;
+    let mut providers = if use_debrid { services::debrid::available(&state.app_store, profile) } else { Vec::new() };
+    // A duplicated card is bound to one provider; a normal card tries them all in order.
+    if let Some(id) = stream.forced_debrid.as_deref() {
+        providers.retain(|active| active.provider.id() == id);
+    }
+
+    let mut resolved: Option<String> = None;
+    let mut last_error: Option<String> = None;
+    for active in &providers {
+        let attempt = if matches!(kind, streams::StreamKind::Torrent | streams::StreamKind::Debrid) {
+            services::debrid::resolve(active, &stream).await
+        } else {
+            services::debrid::unrestrict_share(active, direct).await.ok_or_else(|| "Não é uma ligação de partilha deste serviço.".to_string())
+        };
+        match attempt {
+            Ok(link) => {
+                eprintln!("[debrid] {} resolved", active.provider.code());
+                resolved = Some(link);
+                break;
+            }
+            Err(error) => {
+                eprintln!("[debrid] {} failed: {error}", active.provider.code());
+                last_error = Some(error);
+            }
         }
-        _ => None,
-    };
-    let torrent = kind == streams::StreamKind::Torrent && debrid_key.is_none();
+    }
+    if use_debrid && resolved.is_none() && (kind == streams::StreamKind::Debrid || is_share) {
+        return Err(last_error.unwrap_or_else(|| "Nenhum serviço de debrid conseguiu resolver esta fonte.".into()));
+    }
+    let torrent = kind == streams::StreamKind::Torrent && resolved.is_none();
     // `ytId` sources are resolved by the in-app YouTube extractor, like a trailer, and played
     // with their separate audio track when the extractor found one.
     let mut youtube_audio: Option<String> = None;
-    let url = if let Some(debrid_key) = debrid_key {
-        // TorBox (Settings → Services → Connected Services): the addon left the magnet, the app
-        // asks the provider for a direct link (`DirectDebridPlaybackResolver` in the original).
-        services::debrid::resolve_torbox(&debrid_key, &stream).await?
+    let mut url = if let Some(link) = resolved {
+        link
     } else if torrent {
         p2p::prepared_url(&state, &key)?
     } else if kind == streams::StreamKind::YouTube {
@@ -260,7 +291,18 @@ async fn stream_play(
         Some(_) => services::playback::video_config(&settings),
         None => services::playback::video_config_unenhanced(&settings),
     };
-    let headers = if torrent { Vec::new() } else { stream.playback_request_headers() };
+    let url_host = url.split("://").nth(1).unwrap_or(&url).split('/').next().unwrap_or("").to_string();
+    eprintln!("[play] kind={:?} forced={:?} providers={:?} url_host={url_host:?}", kind, stream.forced_debrid, services::debrid::available_codes(&state.app_store, profile));
+    let mut headers = if torrent { Vec::new() } else { stream.playback_request_headers() };
+    // A player applies headers to the main URL only. When the addon needs them, put them on every
+    // request through a local relay (HLS playlists and segments included). `NUVIO_RELAY=0` disables.
+    *state.relay.lock().expect("relay lock") = None;
+    if !headers.is_empty() && std::env::var("NUVIO_RELAY").ok().as_deref() != Some("0") {
+        let relay = nuvio_core::relay::Relay::start(url.clone(), headers.clone()).await.map_err(|e| e.to_string())?;
+        url = relay.url().to_string();
+        *state.relay.lock().expect("relay lock") = Some(relay);
+        headers = Vec::new();
+    }
     if previous_finished == Some(true) {
         state.progress.mark_finished();
     }
@@ -493,6 +535,7 @@ fn main() {
                 session: AtomicU64::new(0),
                 hwnd: Mutex::new(0),
                 addons: services::addons::AddonContext::new(client.clone(), store.dir().to_path_buf()),
+                plugins: services::plugins::Manager::new(store.dir().to_path_buf(), client.clone()),
                 client,
                 streams: streams::StreamCache::default(),
                 downloads: services::downloads::Manager::new(),
@@ -508,6 +551,7 @@ fn main() {
                 sync_wake: Arc::new(tokio::sync::Notify::new()),
                 sync_signals: Default::default(),
                 pip: Default::default(),
+                relay: Mutex::new(None),
                 pin_gate: Mutex::new(account::PinGate {
                     locked_active: store.profiles().ok().and_then(|p| p.get(p.active).filter(|x| x.pin_enabled).map(|x| x.index)),
                     ..Default::default()
@@ -572,6 +616,12 @@ fn main() {
             api::streams_settings_set,
             api::debrid_settings,
             api::debrid_settings_set,
+            api::plugins_list,
+            api::plugins_add,
+            api::plugins_refresh,
+            api::plugins_set_enabled,
+            api::plugins_set_scraper_enabled,
+            api::plugins_remove,
             api::mdblist_settings,
             api::mdblist_settings_set,
             api::more_like_this,

@@ -19,6 +19,7 @@ pub mod mdblist;
 pub mod next_up;
 pub mod parental;
 pub mod playback;
+pub mod plugins;
 pub mod progress;
 pub mod search;
 pub mod servers;

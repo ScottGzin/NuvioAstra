@@ -195,6 +195,12 @@ pub struct PlayerSettings {
     pub maintain_original_audio_on_downmix: bool,
     /// -10–30 dB, used by the downmix center filter.
     pub center_mix_level_db: i64,
+    /// Bitstream AC3/E-AC3/DTS/DTS-HD/TrueHD to an AV receiver instead of decoding to PCM.
+    #[serde(default)]
+    pub audio_passthrough: bool,
+    /// Encoding for subtitle files without a BOM (`mpv sub-codepage`), e.g. `cp1256` for Arabic SRT.
+    #[serde(default)]
+    pub subtitle_codepage: String,
 
     // ---- Buffer / disk cache (PlaybackBufferSettings / VodCacheSizing) ----
     pub buffer_enabled: bool,
@@ -273,6 +279,8 @@ impl Default for PlayerSettings {
             audio_output_channels: "2.0".into(),
             maintain_original_audio_on_downmix: true,
             center_mix_level_db: 0,
+            audio_passthrough: false,
+            subtitle_codepage: String::new(),
 
             buffer_enabled: false,
             min_buffer_ms: 15_000,
@@ -506,6 +514,10 @@ pub struct ProfileSettings {
 pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
 pub const REUSE_LINK_CACHE_HOURS: &[i64] = &[1, 2, 3, 6, 12, 24, 48, 72, 168];
 pub const AUDIO_OUTPUT_CHANNELS: &[&str] = &["2.0", "2.1", "3.0", "3.1", "4.0", "4.1", "5.0", "5.1", "7.0", "7.1"];
+/// Values accepted for mpv's `sub-codepage` (legacy SRT encodings). Empty means mpv's default.
+pub const SUBTITLE_CODEPAGES: &[&str] = &[
+    "", "auto", "UTF-8", "cp1250", "cp1251", "cp1252", "cp1253", "cp1254", "cp1255", "cp1256", "cp1257", "cp1258", "iso-8859-1", "iso-8859-6", "gbk", "big5", "shift_jis", "euc-kr",
+];
 pub const AUTO_PLAY_MODES: &[&str] = &["manual", "firstStream", "regexMatch"];
 pub const AUTO_PLAY_SOURCES: &[&str] = &["allSources", "installedAddonsOnly", "enabledPluginsOnly"];
 
@@ -657,6 +669,12 @@ impl PlayerSettings {
             self.audio_output_channels = d.audio_output_channels;
         }
         self.center_mix_level_db = self.center_mix_level_db.clamp(-10, 30);
+        self.subtitle_codepage = SUBTITLE_CODEPAGES
+            .iter()
+            .find(|code| code.eq_ignore_ascii_case(self.subtitle_codepage.trim()))
+            .copied()
+            .unwrap_or_default()
+            .to_string();
         // Buffer/caches: ms values, as in the original's sliders.
         self.min_buffer_ms = self.min_buffer_ms.clamp(5_000, 120_000);
         self.max_buffer_ms = self.max_buffer_ms.clamp(5_000, 1_200_000);
@@ -790,6 +808,8 @@ impl LegacyStore {
             audio_output_channels: get("audio_output_channels").unwrap_or(d.audio_output_channels),
             maintain_original_audio_on_downmix: boolean("maintain_original_audio_on_downmix").unwrap_or(d.maintain_original_audio_on_downmix),
             center_mix_level_db: int("center_mix_level_db").unwrap_or(d.center_mix_level_db),
+            audio_passthrough: boolean("audio_passthrough").unwrap_or(d.audio_passthrough),
+            subtitle_codepage: get("subtitle_codepage").unwrap_or(d.subtitle_codepage),
 
             buffer_enabled: boolean("buffer_engine_enabled").unwrap_or(d.buffer_enabled),
             min_buffer_ms: int("min_buffer_ms").unwrap_or(d.min_buffer_ms),
@@ -841,6 +861,18 @@ mod tests {
         let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();
         assert_eq!((bad.style.as_str(), bad.sort_mode.as_str(), bad.click_action.as_str()), ("card", "default", "stream"));
         assert_eq!(ProfileSettings::default().continue_watching, ContinueWatchingSettings::default());
+    }
+
+    #[test]
+    fn advanced_audio_and_codepage_defaults_are_sanitized() {
+        let p = PlayerSettings::default();
+        assert!(!p.audio_passthrough);
+        assert!(p.subtitle_codepage.is_empty());
+        let bad = PlayerSettings { subtitle_codepage: "not;a;codepage".into(), ..Default::default() }.sanitized();
+        assert!(bad.subtitle_codepage.is_empty());
+        let arabic = PlayerSettings { subtitle_codepage: "CP1256".into(), audio_passthrough: true, ..Default::default() }.sanitized();
+        assert_eq!(arabic.subtitle_codepage, "cp1256");
+        assert!(arabic.audio_passthrough);
     }
 
     #[test]

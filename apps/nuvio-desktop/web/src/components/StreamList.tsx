@@ -198,7 +198,8 @@ export function StreamList({ contentType, id, onPlay, downloadProgress }: Props)
               >
                 <span className="stream-name">
                   {stream.name || t("Fonte")}
-                  {stream.kind === "torrent" && <span className="stream-tag">P2P</span>}
+                  {stream.kind === "torrent" && !stream.debridProvider && <span className="stream-tag">P2P</span>}
+                  {stream.debridProvider && <span className="stream-tag debrid-tag" title={t("Resolvido por debrid")}>{stream.debridProvider}</span>}
                   {stream.kind === "youTube" && <span className="stream-tag">YouTube</span>}
                   {stream.kind === "external" && <span className="stream-tag">↗</span>}
                 </span>

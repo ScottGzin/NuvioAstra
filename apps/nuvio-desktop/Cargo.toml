@@ -19,6 +19,7 @@ sha2 = { workspace = true }
 base64 = { workspace = true }
 nuvio-player = { path = "../../crates/nuvio-player" }
 nuvio-core = { path = "../../crates/nuvio-core" }
+nuvio-plugins = { path = "../../crates/nuvio-plugins" }
 nuvio-store = { path = "../../crates/nuvio-store" }
 nuvio-sync = { path = "../../crates/nuvio-sync" }
 nuvio-p2p = { path = "../../crates/nuvio-p2p" }

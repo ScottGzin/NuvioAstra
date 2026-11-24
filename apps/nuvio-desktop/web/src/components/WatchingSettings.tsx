@@ -81,6 +81,25 @@ export function WatchingSettings({ value: p, onChange }: { value: PlayerSettings
         <Toggle label={t("Avisos de conteúdo")} checked={p.showParentalGuide} onChange={(v) => onChange((x) => ({ ...x, showParentalGuide: v }))} />
       </Row>
 
+      <h3 className="settings-subhead">{t("Áudio e legendas avançados")}</h3>
+      <Row title={t("Passagem de áudio (passthrough)")} description={t("Envia AC3, E-AC3, DTS, DTS-HD e TrueHD diretos para o recetor. Se o equipamento não aceitar, o mpv volta a PCM.")}>
+        <Toggle label={t("Passagem de áudio (passthrough)")} checked={p.audioPassthrough} onChange={(v) => onChange((x) => ({ ...x, audioPassthrough: v }))} />
+      </Row>
+      <Row title={t("Página de código das legendas")} description={t("Para ficheiros SRT antigos sem BOM. Para árabe, escolha cp1256.")}>
+        <select aria-label={t("Página de código das legendas")} value={p.subtitleCodepage} onChange={(e) => onChange((x) => ({ ...x, subtitleCodepage: e.target.value }))}>
+          {[
+            ["", t("Automático")],
+            ["UTF-8", "UTF-8"],
+            ["cp1252", "cp1252 · Latin-1"],
+            ["cp1256", "cp1256 · Árabe"],
+            ["cp1251", "cp1251 · Cirílico"],
+            ["cp1254", "cp1254 · Turco"],
+            ["iso-8859-6", "iso-8859-6 · Árabe"],
+            ["gbk", "GBK · Chinês"],
+          ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </Row>
+
       <h3 className="settings-subhead">{t("Pular introdução e créditos")}</h3>
       <Row title={t("Botões de pular")} description={t("Os tempos vêm dos capítulos do vídeo, do IntroDB e, para animes, do AniSkip. Para isso o app envia a esses serviços o código público do título e o número do episódio.")}>
         <Toggle label={t("Botões de pular")} checked={p.skipSegmentsEnabled} onChange={(v) => onChange((x) => ({ ...x, skipSegmentsEnabled: v }))} />

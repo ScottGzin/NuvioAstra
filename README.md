@@ -39,13 +39,25 @@
 
 ### Fontes e downloads
 
-- **TorBox:** com a sua chave de API, torrents que já estão no cache aparecem como **TB Instant** e abrem na hora, sem P2P. Funciona também com addons de torrent configurados sem chave.
+- **Debrid:** com a sua chave de API, torrents que já estão no cache abrem na hora como link direto, sem P2P. São suportados **TorBox, Real-Debrid, AllDebrid, Premiumize e Debrid-Link** (o primeiro serviço ligado é usado por padrão; a escolha fica em Configurações → Serviços → Serviços conectados). Funciona também com addons de torrent configurados sem chave. As chaves são sincronizadas com a conta Nuvio por perfil (`ProviderCredentialSync`).
 - **Downloads** de fontes HTTP, TorBox ou torrent, pelo botão no player ou com o botão direito na fonte, para a pasta que você escolher. Usa várias conexões ao mesmo tempo e continua de onde parou.
 - **Etiquetas nas fontes:** qualidade, HDR/Dolby Vision, codec, áudio, tamanho e seeds.
 
+### Plugins de fontes
+
+- **Repositórios de scrapers Nuvio** (`manifest.json`): adicione a URL em Configurações → Addons → Plugins. Os scripts são baixados, validados e executados num motor QuickJS isolado, sem acesso a ficheiros, à rede local ou à sessão; as fontes que encontram aparecem na lista de fontes de cada título, iguais às dos addons. Funciona com os repositórios de scrapers da comunidade Nuvio. O estado fica no perfil e não é sincronizado com a conta.
+
+  O sandbox inclui a API `crypto-js` usada por esses scrapers (`WordArray`, `enc.Utf8/Hex/Base64`, MD5/SHA1/SHA256/SHA512, HmacSHA256, PBKDF2 e AES-CBC com PKCS#7, incluindo envelopes OpenSSL `Salted__`). Os primitivos são executados em Rust, não em JavaScript interpretado.
+
+  Para verificar um repositório sem abrir o aplicativo:
+
+  ```bash
+  cargo run -p nuvio-plugins --example live_check -- <url-do-manifest.json> <tmdb-id> <movie|tv> <limite>
+  ```
+
 ### Player
 
-- **Player embutido** (libmpv), com aceleração por hardware, faixas de áudio e controle de velocidade.
+- **Player embutido** (libmpv), com aceleração por hardware, faixas de áudio e controle de velocidade. Em **Configurações → Reprodução → Áudio e legendas avançados** há *Passagem de áudio (passthrough)* para AC3/E-AC3/DTS/DTS-HD/TrueHD (com fallback automático para PCM se o equipamento recusar) e a *Página de código das legendas* para SRT antigo sem BOM (por exemplo `cp1256` para árabe). A variável `NUVIO_MPV_AUDIO_DEVICE` fixa o dispositivo de saída, como no Nuvio original.
 - **Legendas dentro do player:** do arquivo, da fonte e dos addons, com atraso, tamanho e posição.
 - **Estilo das legendas:** fontes do sistema ou importadas, cores, contorno, sombra, fundo e alinhamento.
 - **Pular introdução, recapitulação e créditos**, usando os capítulos do vídeo, IntroDB e AniSkip, sem precisar de chave. Também pode pular automaticamente.
@@ -97,6 +109,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-rele
 ```
 
 Configurações opcionais de build (servidor da conta, repositório de atualizações) estão em [`local.properties.example`](local.properties.example). Publicação e releases automáticas: [`GITHUB_PUBLISH.md`](GITHUB_PUBLISH.md). Detalhes técnicos: [`docs/`](docs/).
+
+### Rede: DNS bloqueado e cabeçalhos das fontes
+
+As requisições dos addons e dos serviços de debrid usam um cliente HTTP com fallback para **DNS-over-HTTPS**: se o DNS local falhar, não responder ou devolver um endereço morto, o nome é resolvido por HTTPS (Cloudflare, por padrão) e a ligação é feita para esse endereço com o nome original no TLS. Variáveis opcionais:
+
+- `NUVIO_DOH_URL` — endpoint DNS JSON (padrão: `https://cloudflare-dns.com/dns-query`).
+- `NUVIO_DOH_FORCE=1` — consultar DoH primeiro para qualquer nome público.
+- `NUVIO_DOH_POISONED` — IPs adicionais que contam como resposta envenenada (separados por vírgula).
+
+Fontes que precisam de cabeçalhos (`proxyHeaders`, comuns em HLS) são servidas por um **relé local** em `127.0.0.1`: o player recebe uma URL local e o relé coloca os cabeçalhos em todos os pedidos, incluindo os segmentos do playlist. O relé existe apenas enquanto a fonte está a tocar. `NUVIO_RELAY=0` desativa esse comportamento.
 
 ### Linux (experimental — fase 1 do port)
 

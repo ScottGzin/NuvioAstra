@@ -114,6 +114,7 @@ export interface PlayerSettings {
   rememberAudioDelayPerDevice: boolean; persistAudioAmplification: boolean;
   audioAmplificationDb: number; downmixEnabled: boolean; audioOutputChannels: string;
   maintainOriginalAudioOnDownmix: boolean; centerMixLevelDb: number;
+  audioPassthrough: boolean; subtitleCodepage: string;
   // Buffer / cache
   bufferEnabled: boolean; minBufferMs: number; maxBufferMs: number; bufferForPlaybackMs: number;
   bufferForPlaybackAfterRebufferMs: number; backBufferDurationMs: number; targetBufferSizeMb: number;
@@ -235,6 +236,8 @@ export interface StreamEntry {
   filename: string | null; videoSize: number | null; kind: StreamKind;
   /** Played through the connected debrid service instead of local P2P. */
   debridPlayable: boolean;
+  /** Name of the active provider (TorBox, Real-Debrid…) when this source uses debrid. */
+  debridProvider: string | null;
   headerNames: string[]; notWebReady: boolean;
   /** Upstream alias of videoSize used by the stream badge parser. */
   size?: number | null;
@@ -265,12 +268,35 @@ export interface MdblistSettingsInput {
   useTrakt: boolean; useLetterboxd: boolean; useAudience: boolean; useMal: boolean;
 }
 
-/** Settings → Services → Connected Services (debrid; TorBox for now). Keys are never returned. */
-export interface DebridSettingsView {
-  enabled: boolean; torboxConnected: boolean; torboxFromAccount: boolean; torboxFromOriginal: boolean;
+/** Settings → Services → Connected Services (debrid). Keys are never returned. */
+export interface DebridProviderView {
+  id: string; label: string; connected: boolean; fromAccount: boolean; fromOriginal: boolean;
   account: string | null;
 }
-export interface DebridSettingsInput { enabled: boolean; torboxApiKey?: string | null }
+export interface DebridSettingsView {
+  enabled: boolean; providers: DebridProviderView[]; active: string | null;
+  // Kept for older builds of the UI.
+  torboxConnected: boolean; torboxFromAccount: boolean; torboxFromOriginal: boolean;
+  account: string | null;
+}
+export interface DebridSettingsInput {
+  enabled: boolean; torboxApiKey?: string | null;
+  keys?: Record<string, string | null>; active?: string | null;
+}
+
+/** Settings → Addons → Plugins (Nuvio scraper repositories). The manifest URL stays in Rust. */
+export interface PluginRepositoryView {
+  key: string; name: string; version: string; description: string | null;
+  scraperCount: number; lastUpdated: number; refreshDue: boolean;
+}
+export interface PluginScraperView {
+  key: string; repositoryKey: string; name: string; version: string;
+  supportedTypes: string[]; enabled: boolean; manifestEnabled: boolean;
+}
+export interface PluginsView {
+  profile: number; enabled: boolean; repositories: PluginRepositoryView[];
+  scrapers: PluginScraperView[]; error: string | null;
+}
 
 /** Settings → Services → TMDB (the key never leaves Rust). */
 export interface TmdbSettingsView {

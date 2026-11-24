@@ -12,6 +12,8 @@ pub mod client;
 pub mod error;
 pub mod manifest;
 pub mod meta;
+pub mod net;
+pub mod relay;
 pub mod shuffle;
 pub mod skip;
 pub mod stream;

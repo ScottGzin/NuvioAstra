@@ -90,6 +90,8 @@ pub struct VideoConfig {
     pub motion: Motion,
     pub enhancement: Enhancement,
     pub picture: Picture,
+    pub audio_passthrough: bool,
+    pub subtitle_codepage: String,
 }
 
 /// What to play.
@@ -324,10 +326,31 @@ struct PipSession {
 // all calls happen on the UI thread except the PiP watcher, which owns its own).
 // ---------------------------------------------------------------------------
 mod x11 {
-    use std::ffi::{c_char, CStr, CString};
+    use std::ffi::{c_char, c_int, CStr, CString};
     use std::ptr;
     use std::sync::{Arc, Mutex, OnceLock};
     use x11::xlib::*;
+
+    /// The embedded player touches X11 windows that the window manager can reparent or destroy at
+    /// any moment (especially on XWayland). The default Xlib handler aborts the process on
+    /// BadWindow, so install a quiet handler once for our process.
+    unsafe extern "C" fn ignore_x_error(_display: *mut Display, _event: *mut XErrorEvent) -> c_int {
+        0
+    }
+
+    // Xlib installs error handlers per thread, so each thread that touches X11 needs its own.
+    thread_local! {
+        static QUIET: bool = unsafe { XSetErrorHandler(Some(ignore_x_error)); true };
+    }
+
+    fn quiet_x_errors() {
+        let _ = QUIET.with(|installed| *installed);
+    }
+
+    fn alive(dpy: *mut Display, window: Window) -> bool {
+        let mut attrs: XWindowAttributes = unsafe { std::mem::zeroed() };
+        unsafe { XGetWindowAttributes(dpy, window, &mut attrs) != 0 }
+    }
 
     /// One connection for the whole process. An X client's windows are destroyed when its
     /// connection closes, so this must NOT be closed until the app exits.
@@ -338,6 +361,7 @@ mod x11 {
     static DISPLAY: OnceLock<DisplayPtr> = OnceLock::new();
 
     pub fn display() -> Option<*mut Display> {
+        quiet_x_errors();
         let p = DISPLAY.get_or_init(|| unsafe {
             let d = XOpenDisplay(ptr::null());
             DisplayPtr(if d.is_null() { XOpenDisplay(b":0\0".as_ptr().cast()) } else { d })
@@ -436,14 +460,19 @@ mod x11 {
     pub fn input_transparent(window: isize) {
         if window == 0 { return; }
         let Some(dpy) = display() else { return };
+        quiet_x_errors();
         unsafe {
             const SHAPE_INPUT: i32 = 2;
             const SHAPE_SET: i32 = 0;
+            if !alive(dpy, window as Window) { return; }
             XShapeCombineRectangles(dpy, window as Window, SHAPE_INPUT, 0, 0, std::ptr::null_mut(), 0, SHAPE_SET, 0);
             let (mut root, mut parent, mut kids, mut n) = (0, 0, std::ptr::null_mut(), 0);
             if XQueryTree(dpy, window as Window, &mut root, &mut parent, &mut kids, &mut n) != 0 && !kids.is_null() {
                 for i in 0..n as usize {
-                    XShapeCombineRectangles(dpy, *kids.add(i), SHAPE_INPUT, 0, 0, std::ptr::null_mut(), 0, SHAPE_SET, 0);
+                    let child = *kids.add(i);
+                    if alive(dpy, child) {
+                        XShapeCombineRectangles(dpy, child, SHAPE_INPUT, 0, 0, std::ptr::null_mut(), 0, SHAPE_SET, 0);
+                    }
                 }
                 XFree(kids.cast());
             }
@@ -500,12 +529,16 @@ mod x11 {
 
     /// The window manager reparents the Tauri window into its frame (and unmaps children) shortly
     /// after creation, so the video container must be mapped again once the host is visible.
-    pub fn map(window: isize) {
+    pub fn map(window: isize, host: isize) {
         let Some(dpy) = display() else { return };
+        quiet_x_errors();
         unsafe {
             XMapWindow(dpy, window as Window);
             XLowerWindow(dpy, window as Window);
-            input_transparent(window as isize);
+            // Tauri draws its WebView into the host window itself, so the video child has to be
+            // input-transparent for clicks to reach the player controls painted underneath.
+            input_transparent(window);
+            XSetInputFocus(dpy, host as Window, RevertToParent, CurrentTime);
             XFlush(dpy);
         }
     }
@@ -522,11 +555,18 @@ mod x11 {
                     if dpy.is_null() {
                         continue;
                     }
+                    // A fresh display connection also needs the quiet handler for *this* thread.
+                    unsafe { XSetErrorHandler(Some(ignore_x_error)); }
+                    if !alive(dpy, host as Window) || !alive(dpy, window as Window) {
+                        XCloseDisplay(dpy);
+                        break;
+                    }
                     let (w, h) = size(dpy, host as Window);
                     XMoveResizeWindow(dpy, window as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
                     XMapWindow(dpy, window as Window);
                     XLowerWindow(dpy, window as Window);
                     input_transparent(window as isize);
+                    XSetInputFocus(dpy, host as Window, RevertToParent, CurrentTime);
                     XFlush(dpy);
                     XCloseDisplay(dpy);
                 }
@@ -731,6 +771,18 @@ fn startup_options(video: &VideoConfig, gpu_context: &str, hwdec: &str) -> Vec<(
     set("force-window", "immediate");
     set("force-seekable", "yes");
     set("audio-channels", "auto");
+    if video.audio_passthrough {
+        set("audio-spdif", "ac3,eac3,dts,dts-hd,truehd");
+        if let Ok(device) = std::env::var("NUVIO_MPV_AUDIO_DEVICE") {
+            let device = device.trim();
+            if !device.is_empty() {
+                set("audio-device", device);
+            }
+        }
+    }
+    if !video.subtitle_codepage.trim().is_empty() {
+        set("sub-codepage", video.subtitle_codepage.trim());
+    }
     set("hwdec", hwdec);
     set("gpu-hwdec-interop", "auto");
     set("hwdec-codecs", "all");
@@ -784,6 +836,8 @@ pub struct Player {
     video_rect: Mutex<Option<(f64, f64, f64, f64)>>,
     resize_mode: Mutex<ResizeMode>,
     pip: Mutex<Option<PipSession>>,
+    /// Keeps mpv's recreated video children input-transparent so the HTML controls stay clickable.
+    input_watcher: Option<JoinHandle<()>>,
 }
 
 impl Player {
@@ -833,7 +887,7 @@ impl Player {
                 Ok(()) => {
                     // mpv/WM may have left the foreign `wid` unmapped; make it visible now and
                     // again after the WM finishes reparenting the host window.
-                    x11::map(container);
+                    x11::map(container, host);
                     x11::ensure_visible_later(container, host);
                     break candidate;
                 }
@@ -857,6 +911,17 @@ impl Player {
                 .spawn(move || event_loop(mpv, stop, snapshot, sink))
                 .map_err(|e| PlayerError::Mpv(format!("event thread: {e}")))?
         };
+        // mpv recreates its GL child on every file load; reapply the empty input shape so pointer
+        // events keep falling through to the Tauri WebView that paints the player controls.
+        let input_watcher = {
+            let stop = stop.clone();
+            std::thread::Builder::new().name("nuvio-x11-input".into()).spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    std::thread::sleep(Duration::from_millis(250));
+                    x11::input_transparent(container);
+                }
+            }).ok()
+        };
         // The WebView control strip is kept visible below the video window (see set_video_rect);
         // capturing WebKit pixels for overlay-add is not reliable across compositors.
         let player = Self {
@@ -870,6 +935,7 @@ impl Player {
             video_rect: Mutex::new(None),
             resize_mode: Mutex::new(ResizeMode::Fit),
             pip: Mutex::new(None),
+            input_watcher,
         };
         player.apply_subtitle_style(&SubtitleStyle::default())?;
         player.load(request)?;
@@ -1046,7 +1112,7 @@ impl Player {
     pub fn fit_to_host(&self) {
         if self.pip.lock().expect("pip lock").is_none() {
             // Re-map in case the WM reparented the host after the container was created.
-            x11::map(self.container);
+            x11::map(self.container, self.host);
             let rect = *self.video_rect.lock().expect("rect lock");
             let _ = self.set_video_rect(rect);
         }
@@ -1105,6 +1171,7 @@ impl Player {
         self.stop.store(true, Ordering::SeqCst);
         if let Some(mpv) = &self.mpv { mpv.wakeup(); }
         if let Some(events) = self.events.take() { let _ = events.join(); }
+        if let Some(watcher) = self.input_watcher.take() { let _ = watcher.join(); }
         self.mpv.take();
         x11::destroy(self.container);
     }
@@ -1151,8 +1218,8 @@ fn error_text(code: i32) -> String {
 fn overlay_loop(mpv: Arc<Mpv>, stop: Arc<AtomicBool>, host: isize) {
     const STRIP: i32 = 420;
     while !stop.load(Ordering::SeqCst) {
-        // mpv recreates its GL child on file load; keep the whole tree input-transparent.
-        x11::input_transparent(x11::container_of(host));
+        // Kept for parity with the original's OSD strip; the active Linux path raises the WebView
+        // above the video instead, so no XShape manipulation is done here.
         if x11::display().is_some() {
             let (w, h) = x11::client_size(host);
             if let Some((pixels, iw, ih, stride)) = x11::grab_strip(host, h - STRIP, w, STRIP) {
