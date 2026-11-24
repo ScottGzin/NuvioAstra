@@ -369,6 +369,21 @@ mod x11 {
         if p.0.is_null() { None } else { Some(p.0) }
     }
 
+    /// A thread-owned X connection. Xlib connections must not be shared across threads.
+    pub fn open_private_display() -> *mut Display {
+        let dpy = unsafe { XOpenDisplay(ptr::null()) };
+        if !dpy.is_null() {
+            unsafe { XSetErrorHandler(Some(ignore_x_error)); }
+        }
+        dpy
+    }
+
+    pub fn close_private_display(dpy: *mut Display) {
+        if !dpy.is_null() {
+            unsafe { XCloseDisplay(dpy); }
+        }
+    }
+
     /// Finds the real Tauri window (WM_CLASS `nuvio-desktop`), not the WM's frame window that
     /// shares the same title. The app forces the X11 GDK backend at startup, so the GTK/WebKit
     /// window is an X11 window even on a Wayland session.
@@ -519,12 +534,17 @@ mod x11 {
     }
 
     /// Makes a window (and its children) input-transparent: pointer events fall through to the
-    /// WebView below, while mpv keeps drawing the controls it receives via `overlay-add`.
+    /// WebView, which paints the player controls in the areas cut out of the video window.
     pub fn input_transparent(window: isize) {
-        if window == 0 { return; }
         let Some(dpy) = display() else { return };
-        quiet_x_errors();
+        input_transparent_on(dpy, window);
+    }
+
+    /// Same operation on a thread-owned display connection (never share Xlib connections across threads).
+    pub fn input_transparent_on(dpy: *mut Display, window: isize) {
+        if window == 0 || dpy.is_null() { return; }
         unsafe {
+            XSetErrorHandler(Some(ignore_x_error));
             const SHAPE_INPUT: i32 = 2;
             const SHAPE_SET: i32 = 0;
             if !alive(dpy, window as Window) { return; }
@@ -540,37 +560,6 @@ mod x11 {
                 XFree(kids.cast());
             }
             XFlush(dpy);
-        }
-    }
-
-    /// Captures a strip of the Tauri (WebView) window as BGRA pixels. WebKit paints its content
-    /// into the main window, so XGetImage returns the HTML controls even though the video child
-    /// covers them on screen.
-    pub fn grab_strip(window: isize, y: i32, w: i32, h: i32) -> Option<(Vec<u8>, i32, i32, usize)> {
-        let dpy = display()?;
-        unsafe {
-            let image = XGetImage(dpy, window as Window, 0, y, w as u32, h as u32, !0u64, ZPixmap);
-            if image.is_null() { return None; }
-            let img = &*image;
-            let stride = img.bytes_per_line as usize;
-            let (iw, ih) = (img.width as i32, img.height as i32);
-            let has_alpha = img.depth == 32;
-            let data = img.data as *const u8;
-            let mut bgra = vec![0u8; stride * ih as usize];
-            for row in 0..ih as usize {
-                let src = data.add(row * stride);
-                let dst = bgra.as_mut_ptr().add(row * stride);
-                for x in 0..iw as usize {
-                    let s = src.add(x * 4);
-                    let d = dst.add(x * 4);
-                    *d = *s;
-                    *d.add(1) = *s.add(1);
-                    *d.add(2) = *s.add(2);
-                    *d.add(3) = if has_alpha { *s.add(3) } else { 255 };
-                }
-            }
-            XDestroyImage(image);
-            Some((bgra, iw, ih, stride))
         }
     }
 
@@ -601,6 +590,22 @@ mod x11 {
             // Tauri draws its WebView into the host window itself, so the video child has to be
             // input-transparent for clicks to reach the player controls painted underneath.
             input_transparent(window);
+            XSetInputFocus(dpy, host as Window, RevertToParent, CurrentTime);
+            XFlush(dpy);
+        }
+    }
+
+    /// Keeps keyboard focus on the Tauri host (where the WebView controls live). mpv can grab it
+    /// back when it creates its GL child, so this is called repeatedly while playing.
+    pub fn focus_host(host: isize) {
+        let Some(dpy) = display() else { return };
+        focus_host_on(dpy, host);
+    }
+
+    pub fn focus_host_on(dpy: *mut Display, host: isize) {
+        if dpy.is_null() || host == 0 { return; }
+        unsafe {
+            XSetErrorHandler(Some(ignore_x_error));
             XSetInputFocus(dpy, host as Window, RevertToParent, CurrentTime);
             XFlush(dpy);
         }
@@ -673,8 +678,12 @@ mod x11 {
 
     pub fn client_size(window: isize) -> (i32, i32) {
         let Some(dpy) = display() else { return (1280, 720) };
-        let result = size(dpy, window as Window);
-        result
+        client_size_on(dpy, window)
+    }
+
+    pub fn client_size_on(dpy: *mut Display, window: isize) -> (i32, i32) {
+        if dpy.is_null() { return (1280, 720); }
+        size(dpy, window as Window)
     }
 
     fn parent(dpy: *mut Display, window: Window) -> Option<Window> {
@@ -1000,10 +1009,13 @@ impl Player {
         let input_watcher = {
             let stop = stop.clone();
             std::thread::Builder::new().name("nuvio-x11-input".into()).spawn(move || {
+                let dpy = x11::open_private_display();
                 while !stop.load(Ordering::SeqCst) {
                     std::thread::sleep(Duration::from_millis(250));
-                    x11::input_transparent(container);
+                    x11::input_transparent_on(dpy, container);
+                    x11::focus_host_on(dpy, host);
                 }
+                x11::close_private_display(dpy);
             }).ok()
         };
         // The page reserves the video rectangle on Linux (the WebView cannot paint over the
@@ -1314,28 +1326,6 @@ fn error_text(code: i32) -> String {
         -16 => "video output initialization failed".into(),
         -17 => "audio output initialization failed".into(),
         other => format!("playback failed (mpv error {other})"),
-    }
-}
-
-/// Pushes the WebView controls strip into mpv as an OSD overlay (the same technique as the
-/// original Nuvio Desktop Linux bridge): the controls are then drawn by mpv itself, above video.
-fn overlay_loop(mpv: Arc<Mpv>, stop: Arc<AtomicBool>, host: isize) {
-    const STRIP: i32 = 420;
-    while !stop.load(Ordering::SeqCst) {
-        // Kept for parity with the original's OSD strip; the active Linux path raises the WebView
-        // above the video instead, so no XShape manipulation is done here.
-        if x11::display().is_some() {
-            let (w, h) = x11::client_size(host);
-            if let Some((pixels, iw, ih, stride)) = x11::grab_strip(host, h - STRIP, w, STRIP) {
-                let addr = format!("&{}", pixels.as_ptr() as usize);
-                let sw = iw.to_string();
-                let sh = ih.to_string();
-                let st = stride.to_string();
-                let y = (h - STRIP).to_string();
-                let _ = mpv.command(&["overlay-add", "0", "0", &y, &addr, "0", "bgra", &sw, &sh, &st]);
-            }
-        }
-        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }
 
