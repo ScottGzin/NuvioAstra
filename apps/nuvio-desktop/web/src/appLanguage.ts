@@ -3,13 +3,48 @@
 
 import { api, onDataEpoch, onRemoteSettingsChanged } from "./api";
 import { getLang, setLang, type Lang } from "./i18n";
+import { langFromTag } from "./i18nLangs";
 
-/** Codes of the original's `AppLanguage`. */
-const ACCOUNT_CODE: Record<Lang, string> = { pt: "pt-BR", en: "en", ar: "ar" };
+/** Codes of the original's `AppLanguage`; the source language is Brazilian Portuguese. */
+const ACCOUNT_CODE: Record<Lang, string> = {
+  pt: "pt-BR",
+  "pt-PT": "pt",
+  ar: "ar",
+  bn: "bn",
+  bg: "bg",
+  hr: "hr",
+  cs: "cs",
+  nl: "nl",
+  en: "en",
+  fr: "fr",
+  de: "de",
+  el: "el",
+  he: "he",
+  hu: "hu",
+  id: "id",
+  it: "it",
+  pl: "pl",
+  ro: "ro",
+  ru: "ru",
+  sk: "sk",
+  es: "es",
+  ta: "ta",
+  tr: "tr",
+  uk: "uk",
+  ur: "ur",
+  nb: "nb",
+  ja: "ja",
+  vi: "vi",
+  zh: "zh",
+};
 
 function fromAccount(code: string | null | undefined): Lang | null {
-  const found = (Object.keys(ACCOUNT_CODE) as Lang[]).find((lang) => ACCOUNT_CODE[lang].toLowerCase() === code?.toLowerCase());
-  return found ?? null;
+  const value = (code ?? "").trim().toLowerCase();
+  if (!value) return null;
+  // The source language is Brazilian Portuguese; the original also offers Portugal's.
+  if (value === "pt-br") return "pt";
+  if (value === "pt") return "pt-PT";
+  return langFromTag(value);
 }
 
 // Changing the language re-mounts the interface; not while a video is on screen.
@@ -47,6 +82,8 @@ export async function chooseAppLanguage(lang: Lang): Promise<void> {
     const before = view.settings;
     const edited = { ...before, player: { ...before.player, appLanguage: ACCOUNT_CODE[lang] } };
     await api.settingsSet(edited, before, view.profile.index);
+  } catch {
+    /* the profile may be unavailable; the choice still applies to this session */
   } finally {
     window.clearTimeout(waiting);
     setLang(lang);

@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { start as startAccount } from "./account";
+import { startAppLanguage } from "./appLanguage";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
 import { useGamepad, useInputNavigation } from "./input/navigation";
 import { listen } from "./tauri";
@@ -76,6 +77,7 @@ export function App() {
     api.profilesList().then(setProfiles, () => setProfilesFailed(true));
     api.welcomeNeeded().then((needed) => setWelcome(needed ? "waiting" : "none"), () => setWelcome("none"));
     startAccount();
+    startAppLanguage();
     // The event listeners just registered must hear the first sync.
     const ready = window.setTimeout(() => void api.appReady().catch(() => {}), 200);
     return () => window.clearTimeout(ready);

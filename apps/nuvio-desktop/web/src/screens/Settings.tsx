@@ -32,7 +32,8 @@ import { TrackingCredentialsPanel } from "../components/TrackingCredentialsPanel
 import { WatchingSettings } from "../components/WatchingSettings";
 import { refreshLibraryViews } from "../library";
 import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, MetaScreenSettings, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
-import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, setLang, t, useLang, type Lang } from "../i18n";
+import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, t, useLang, type Lang } from "../i18n";
+import { chooseAppLanguage } from "../appLanguage";
 import { message } from "../rustErrors";
 
 type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
@@ -823,7 +824,7 @@ export function Settings() {
               </div>
             </div>
             <Row title={t("Idioma da interface")} description={t("Aplicado imediatamente a todo o aplicativo.")}>
-              <select aria-label={t("Idioma da interface")} value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+              <select aria-label={t("Idioma da interface")} value={lang} onChange={(e) => void chooseAppLanguage(e.target.value as Lang)}>
                 {LANGUAGES_UI.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </Row>
