@@ -230,6 +230,15 @@ pub struct PlayerSnapshot {
     pub av_sync: f64,
     pub dropped_frames: i64,
     pub decoder_dropped_frames: i64,
+    /// Measured monitor refresh (`estimated-display-fps`), 0 when unknown.
+    pub display_fps: f64,
+    /// Refresh rate reported by Windows for the window's monitor (`display-fps`), 0 when unknown.
+    pub display_rate: f64,
+    /// Video timed to the monitor (`display-sync-active`, read every 500 ms): with interpolation, one
+    /// new frame per refresh.
+    pub display_sync: bool,
+    /// Frames shown late because rendering did not keep up (`vo-delayed-frame-count`).
+    pub delayed_frames: i64,
     pub aid: Option<String>,
     pub sid: Option<String>,
     pub tracks: Vec<Track>,
@@ -322,6 +331,9 @@ const OBSERVED: &[(u64, &str, std::ffi::c_int)] = &[
     (24, "video-out-params/dw", FORMAT_INT64),
     (25, "video-out-params/dh", FORMAT_INT64),
     (26, "chapter-list", FORMAT_NONE),
+    (27, "estimated-display-fps", FORMAT_DOUBLE),
+    (29, "vo-delayed-frame-count", FORMAT_INT64),
+    (30, "display-fps", FORMAT_DOUBLE),
 ];
 
 /// Minimum interval between two snapshots sent to the UI (position updates are frequent).
@@ -1014,6 +1026,8 @@ fn event_loop(
 ) {
     let mut last_emit = Instant::now() - EMIT_INTERVAL;
     let mut dirty = false;
+    // mpv sends no change event for `display-sync-active`: read it twice a second.
+    let mut sync_read = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         // SAFETY: this thread is the only one waiting for events on this handle.
         let event = unsafe { &*mpv.wait_event(0.25) };
@@ -1032,8 +1046,16 @@ fn event_loop(
             let _ = tuner.set_compare(compare).map_err(|e| eprintln!("[player] compare: {e}"));
         }
         let lowered = tuner.poll();
+        let display_sync = (sync_read.elapsed() >= Duration::from_millis(500)).then(|| {
+            sync_read = Instant::now();
+            mpv.get_flag("display-sync-active").unwrap_or(false)
+        });
         {
             let mut s = snapshot.lock().expect("snapshot lock");
+            if let Some(active) = display_sync.filter(|&active| active != s.display_sync) {
+                s.display_sync = active;
+                dirty = true;
+            }
             match event.event_id {
                 EVENT_NONE => {}
                 EVENT_SHUTDOWN => break,
@@ -1095,6 +1117,9 @@ fn event_loop(
                         "estimated-vf-fps" => s.fps = f64v().unwrap_or(0.0),
                         "frame-drop-count" => s.dropped_frames = i64v().unwrap_or(0),
                         "decoder-frame-drop-count" => s.decoder_dropped_frames = i64v().unwrap_or(0),
+                        "estimated-display-fps" => s.display_fps = f64v().unwrap_or(0.0),
+                        "display-fps" => s.display_rate = f64v().unwrap_or(0.0),
+                        "vo-delayed-frame-count" => s.delayed_frames = i64v().unwrap_or(0),
                         "aid" => { s.aid = string(); urgent = true; }
                         "sid" => { s.sid = string(); urgent = true; }
                         "track-list" => { s.tracks = read_tracks(&mpv); urgent = true; }

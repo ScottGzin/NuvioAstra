@@ -2,6 +2,7 @@
 // is saved through Rust (`settings_set`, validated into the original's ranges) and read back.
 // The original's other settings pages are listed under t("Ainda não disponível") (no controls).
 
+import { ReleaseNotes } from "../components/ReleaseNotes";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon, TvLine as DetailsIcon,
@@ -896,7 +897,7 @@ function UpdatesSection() {
           {u.available && (
             <div className="update-card">
               <div className="setting-title">{t("Nova versão")} {u.available.version}</div>
-              {u.available.notes && <pre className="update-notes">{u.available.notes}</pre>}
+              {u.available.notes && <div className="update-notes"><ReleaseNotes notes={u.available.notes} /></div>}
               <div className="account-actions">
                 <button className="primary" disabled={!!u.installing && u.installing.phase !== "error"} onClick={() => void installUpdate()}>
                   {u.installing && u.installing.phase !== "error" ? t("Atualizando…") : t("Atualizar agora")}

@@ -336,7 +336,8 @@ export interface PlayerSnapshot {
   timePos: number; duration: number; cacheSeconds: number; volume: number; mute: boolean; speed: number;
   subDelayMs: number; audioDelayMs: number; subVisible: boolean; hwdecCurrent: string | null;
   videoCodec: string | null; width: number; height: number; fps: number; droppedFrames: number;
-  decoderDroppedFrames: number; aid: string | null; sid: string | null; tracks: Track[]; chapters: Chapter[];
+  decoderDroppedFrames: number; displayFps: number; displayRate: number; displaySync: boolean; delayedFrames: number;
+  aid: string | null; sid: string | null; tracks: Track[]; chapters: Chapter[];
   pictureInPicture: boolean; motion: MotionName; enhancement: EnhancementName; picture: PictureSettings;
   autoChanges: number; autoReason: "motion" | "enhancement" | "effects" | null; error: string | null;
 }

@@ -9,7 +9,8 @@
 # VERSION_PATCH_OFFSET skips that many extra steps. Numbers stay consecutive even when runs are
 # cancelled or fail.
 # Notes: the commits since the previous release; a commit's description (extended description on
-# GitHub) is used when it has one, otherwise its title, skipping GitHub's automatic titles
+# GitHub, emojis and simple Markdown kept: shown in the app's update window) is used when it has one,
+# otherwise its title, skipping GitHub's automatic titles
 # ("Add files via upload", "Update …", "Create …", "Delete …").
 # Nothing is published unless every step (tests, build, packaging, signing) succeeded: the release is
 # created as a draft with all its files and only then made public.
@@ -180,7 +181,10 @@ jobs:
             $title = (git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%s $c | Out-String).Trim()
             $desc = @(git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%b $c | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             if ($desc.Count -gt 0) {
-              foreach ($d in $desc) { $lines += "- " + ($d -replace '^[-*•]\s*', '') }
+              foreach ($d in $desc) {
+                # Titles (#), quotes (>) and rules (---) stay as written; every other line is an item.
+                if ($d -match '^(#{1,3}\s|>|-{3,}$)') { $lines += $d } else { $lines += "- " + ($d -replace '^[-*•]\s*', '') }
+              }
             } elseif ($title -and $title -notmatch $generic) {
               $lines += "- $title"
             }

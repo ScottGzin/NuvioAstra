@@ -235,7 +235,7 @@ export function App() {
           <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para")} {switching || t("outro perfil")}…</div>
         )}
         <main className="content">
-          <UpdateBanner automatic={appMode === "app"} />
+          <UpdateBanner automatic={appMode === "app"} waiting={full} />
           {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra:")} {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
           <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
