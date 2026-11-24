@@ -119,6 +119,8 @@ pub fn video_config(settings: &PlayerSettings) -> VideoConfig {
         motion: Motion::from_name(&settings.motion_smoothing),
         enhancement: Enhancement::from_name(&settings.video_enhancement),
         picture: picture(settings),
+        audio_passthrough: settings.audio_passthrough,
+        subtitle_codepage: settings.subtitle_codepage.clone(),
     }
 }
 
@@ -196,10 +198,28 @@ pub fn startup_commands(settings: &PlayerSettings, audio: &[String], font: (Stri
     if !audio.is_empty() {
         commands.push(PlayerCommand::SetAudioLanguages { languages: audio.to_vec() });
     }
+    // Audio gain: each session starts at 0 dB unless the user asked to keep it (`persistAudioAmplification`).
+    commands.push(PlayerCommand::SetAudioAmplification {
+        db: if settings.persist_audio_amplification { settings.audio_amplification_db } else { 0 },
+    });
+    // The original's `effectiveDownmixEnabled`: only with software decoding.
+    if settings.downmix_enabled && settings.decoder_priority == 2 {
+        let layout = if settings.audio_output_channels == "2.0" { "stereo" } else { settings.audio_output_channels.as_str() };
+        commands.push(PlayerCommand::SetAudioDownmix { layout: layout.to_string() });
+    }
+    if settings.buffer_enabled {
+        commands.push(PlayerCommand::SetBuffer {
+            max_seconds: settings.max_buffer_ms as f64 / 1000.0,
+            back_seconds: settings.back_buffer_duration_ms as f64 / 1000.0,
+            max_bytes: settings.target_buffer_size_mb * 1024 * 1024,
+        });
+    }
     commands
 }
 
-/// Windows user locale (`Locale.getDefault().toLanguageTag()` of the original on Windows).
+/// User locale (`Locale.getDefault().toLanguageTag()` of the original on Windows; `LANG` and
+/// friends on Linux), normalised to the BCP-47 style the audio/subtitle preferences expect.
+#[cfg(windows)]
 pub fn device_languages() -> Vec<String> {
     let mut buffer = [0u16; 85];
     // SAFETY: the buffer is LOCALE_NAME_MAX_LENGTH wide, as the API requires.
@@ -208,6 +228,26 @@ pub fn device_languages() -> Vec<String> {
         return Vec::new();
     }
     vec![String::from_utf16_lossy(&buffer[..(len as usize - 1)])]
+}
+
+#[cfg(not(windows))]
+pub fn device_languages() -> Vec<String> {
+    let mut out = Vec::new();
+    for key in ["LC_ALL", "LANGUAGE", "LANG"] {
+        let Ok(value) = std::env::var(key) else { continue };
+        let value = value.trim();
+        if value.is_empty() || value == "C" || value == "POSIX" {
+            continue;
+        }
+        // "pt_PT.UTF-8" → "pt-PT"; "pt:en" → "pt", "en".
+        for part in value.split([':', ',']) {
+            let tag = part.split('.').next().unwrap_or(part).replace('_', "-");
+            if !tag.is_empty() && !out.contains(&tag) {
+                out.push(tag);
+            }
+        }
+    }
+    out
 }
 
 /// Waits (up to `timeout`) for the tracks of `session`, then selects the preferred ones once.

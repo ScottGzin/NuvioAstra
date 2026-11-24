@@ -14,10 +14,18 @@ interface Props {
   onLoaded?(row: HomeRow, items: MetaPreview[]): void;
   /** Genre filter (catalogs of a collection folder). */
   genre?: string | null;
+  /** Set for a TMDB source of a collection folder (its page comes from Rust, not the addon). */
+  tmdb?: { collectionId: string; folderId: string; sourceId: string };
+  /** Set for a Trakt list source of a collection folder. */
+  trakt?: { collectionId: string; folderId: string; sourceId: string };
+  /** Custom-poster screen key (`home`, `collections`, `search`…). */
+  surface?: string;
+  /** Opens the full catalog grid (the original's "See all"). */
+  onSeeAll?(row: HomeRow): void;
 }
 
-export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
-  const [ref, inView] = useInView<HTMLElement>();
+export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, surface = "home", onSeeAll }: Props) {
+  const [ref, inView] = useInView<HTMLElement>("1200px");
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nextSkip, setNextSkip] = useState<number | null>(null);
@@ -29,7 +37,12 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
       if (loading.current) return;
       loading.current = true;
       try {
-        const page = await api.catalogPage(row.key, skip, genre);
+        // TMDB/Trakt folder sources use a 1-based page number instead of a skip.
+        const page = tmdb
+          ? await api.tmdbSourcePage(tmdb.collectionId, tmdb.folderId, tmdb.sourceId, skip ?? 1)
+          : trakt
+            ? await api.traktSourcePage(trakt.collectionId, trakt.folderId, trakt.sourceId, skip ?? 1)
+            : await api.catalogPage(row.key, skip, genre, surface);
         setItems((prev) => {
           const seen = new Set((prev ?? []).map((i) => i.id));
           return [...(prev ?? []), ...page.items.filter((i) => !seen.has(i.id))];
@@ -42,7 +55,7 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
         loading.current = false;
       }
     },
-    [row, onLoaded, genre],
+    [row, onLoaded, genre, surface, tmdb?.collectionId, tmdb?.folderId, tmdb?.sourceId, trakt?.collectionId, trakt?.folderId, trakt?.sourceId],
   );
 
   useEffect(() => {
@@ -65,6 +78,9 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null }: Props) {
         <h2>{localizeCatalogTitle(row.title)}</h2>
         <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
+        {items && onSeeAll && !genre && !tmdb && (
+          <button className="see-all-btn" data-see-all={row.key} onClick={() => onSeeAll(row)}>{t("Ver todos")}</button>
+        )}
         {items && (
           <>
             <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>

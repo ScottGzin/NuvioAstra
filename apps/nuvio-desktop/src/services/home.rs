@@ -27,10 +27,16 @@ pub struct HomeRow {
 }
 
 /// Local date `YYYY-MM-DD` (`CurrentDateProvider.todayIsoDate`).
+#[cfg(windows)]
 pub fn today_iso() -> String {
     // SAFETY: plain Win32 call without arguments.
     let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
     format!("{:04}-{:02}-{:02}", t.wYear, t.wMonth, t.wDay)
+}
+
+#[cfg(not(windows))]
+pub fn today_iso() -> String {
+    jiff::Zoned::now().strftime("%Y-%m-%d").to_string()
 }
 
 /// `YYYY-MM-DD` at the start of an ISO date/time, if any.
@@ -234,7 +240,7 @@ mod tests {
             {"id":"c2","title":"Fixa","pinToTop":true,"folders":[{"id":"g","title":"G"}]},
             {"id":"c3","title":"Oculta","folders":[{"id":"h","title":"H"}]}
         ]);
-        let collections = crate::services::collections::views(&stored, &[manifest()], true);
+        let collections = crate::services::collections::views(&stored, &[manifest()], true, false, false);
         let settings = HomeCatalogSettings {
             items: vec![
                 HomeCatalogPreference { key: "collection_c1".into(), order: 0, ..Default::default() },

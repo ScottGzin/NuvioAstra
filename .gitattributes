@@ -1,0 +1,8 @@
+* text=auto
+*.png binary
+*.ico binary
+*.nsi text eol=crlf
+*.ps1 text eol=crlf
+*.glsl linguist-vendored linguist-detectable=false
+
+crates/nuvio-store/src/nextgen.rs -text

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { AnimeModeName, EnhancementName, MotionName, PictureSettings, PlayerSnapshot } from "../types";
 import { t } from "../i18n";
+import { FpsMeter } from "./FpsMeter";
 
 export const ENHANCEMENTS: { value: EnhancementName; label: string; hint: string }[] = [
   { value: "off", label: "Desligado", hint: "Imagem original" },
@@ -253,6 +254,7 @@ export function EnhanceMenu({ snapshot }: { snapshot: PlayerSnapshot }) {
                 <small>{t(option.hint)}</small>
               </button>
             ))}
+            {tab === "motion" && <FpsMeter snapshot={snapshot} chosen={motion} />}
           </div>
           {changed && tab !== "motion" && (
             <button

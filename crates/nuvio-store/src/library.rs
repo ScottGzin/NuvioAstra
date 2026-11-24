@@ -631,6 +631,25 @@ impl AppStore {
         Ok(Some(entry))
     }
 
+    /// Marks or unmarks a movie/episode manually (`WatchedRepository` in the original). Returns
+    /// whether it is now watched. The change is queued for the account's watched-items sync.
+    pub fn toggle_watched(&self, profile: i64, item: WatchedItem) -> Result<bool, StoreError> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let key = watched_key(&item.content_type, &item.id, item.season, item.episode);
+        let mut watched = self.watched(profile)?;
+        let exists = watched.iter().any(|w| watched_key(&w.content_type, &w.id, w.season, w.episode) == key);
+        if exists {
+            watched.retain(|w| watched_key(&w.content_type, &w.id, w.season, w.episode) != key);
+            self.write(&watched_doc(profile), &WatchedDoc { items: watched })?;
+            self.note(profile, Change::HistoryRemoved { progress: None, watched: vec![item] })?;
+        } else {
+            watched.push(item.clone());
+            self.write(&watched_doc(profile), &WatchedDoc { items: dedupe_watched(watched) })?;
+            self.note(profile, Change::Progress { key: &key, completed: Some(item) })?;
+        }
+        Ok(!exists)
+    }
+
     /// Removes a movie/episode from the history: its progress (`removeProgress`) and its watched
     /// mark (`unmarkWatched`). Returns whether anything was removed.
     pub fn remove_history(&self, profile: i64, key: &str) -> Result<bool, StoreError> {
@@ -683,6 +702,35 @@ impl AppStore {
     }
     pub(crate) fn import_watched(&self, profile: i64, items: Vec<WatchedItem>) -> Result<(), StoreError> {
         self.write(&watched_doc(profile), &WatchedDoc { items: dedupe_watched(items) })
+    }
+}
+
+#[cfg(test)]
+mod watched_toggle_tests {
+    use super::*;
+
+    #[test]
+    fn manual_watched_toggle_adds_and_removes_only_that_item() {
+        let dir = std::env::temp_dir().join(format!("nuvio-watched-toggle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let store = AppStore::open(&dir).unwrap();
+        let movie = WatchedItem {
+            id: "tt1".into(), content_type: "movie".into(), name: "Movie".into(), poster: None,
+            release_info: None, season: None, episode: None, video_id: None, marked_at_epoch_ms: 10,
+        };
+        assert!(store.toggle_watched(1, movie.clone()).unwrap(), "first call marks it");
+        assert_eq!(store.watched(1).unwrap().len(), 1);
+        assert!(!store.toggle_watched(1, movie.clone()).unwrap(), "second call unmarks it");
+        assert!(store.watched(1).unwrap().is_empty());
+        let episode = WatchedItem { id: "tt2".into(), content_type: "series".into(), name: "Ep".into(), poster: None, release_info: None, season: Some(1), episode: Some(2), video_id: None, marked_at_epoch_ms: 11 };
+        store.toggle_watched(1, movie.clone()).unwrap();
+        store.toggle_watched(1, episode.clone()).unwrap();
+        assert_eq!(store.watched(1).unwrap().len(), 2);
+        store.toggle_watched(1, episode).unwrap();
+        assert_eq!(store.watched(1).unwrap().len(), 1, "only the episode was removed");
+        assert_eq!(watched_key("series", "tt2", Some(1), Some(2)), "series:tt2:1:2");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

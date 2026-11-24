@@ -5,7 +5,23 @@
 
 use crate::AppState;
 use crate::PlayerInfo;
+use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
+
+/// Resolved trailer URL for the hover preview (no player session is opened).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedTrailer {
+    pub video_url: String,
+    pub audio_url: Option<String>,
+}
+
+#[tauri::command]
+pub async fn trailer_resolve(state: State<'_, AppState>, key: String) -> Result<ResolvedTrailer, String> {
+    let id = nuvio_core::youtube::video_id(&key).ok_or("Endereço de trailer inválido.")?;
+    let source = state.youtube.resolve(&id).await?;
+    Ok(ResolvedTrailer { video_url: source.video_url, audio_url: source.audio_url })
+}
 
 #[tauri::command]
 pub async fn trailer_play(app: AppHandle, state: State<'_, AppState>, key: String) -> Result<PlayerInfo, String> {

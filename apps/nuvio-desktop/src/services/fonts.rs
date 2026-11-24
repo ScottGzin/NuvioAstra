@@ -5,9 +5,13 @@
 use nuvio_store::nextgen::AppStore;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use windows::core::{w, PWSTR};
+#[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM};
+#[cfg(windows)]
 use windows::Win32::Graphics::Gdi::{EnumFontFamiliesExW, GetDC, ReleaseDC, DEFAULT_CHARSET, LOGFONTW, TEXTMETRICW};
+#[cfg(windows)]
 use windows::Win32::UI::Controls::Dialogs::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW};
 
 /// `MaxSubtitleFontBytes`.
@@ -143,6 +147,7 @@ pub fn data(store: &AppStore, id: &str) -> Result<Vec<u8>, String> {
     std::fs::read(dir(store).join(file)).map_err(|_| "Fonte não encontrada.".into())
 }
 
+#[cfg(windows)]
 unsafe extern "system" fn on_family(font: *const LOGFONTW, _: *const TEXTMETRICW, _: u32, data: LPARAM) -> i32 {
     // SAFETY: GDI passes a valid LOGFONTW; `data` is the Vec given to EnumFontFamiliesExW.
     unsafe {
@@ -154,6 +159,7 @@ unsafe extern "system" fn on_family(font: *const LOGFONTW, _: *const TEXTMETRICW
 }
 
 /// Font families installed in Windows (vertical `@` variants left out).
+#[cfg(windows)]
 fn system_families() -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     // SAFETY: the DC is released below; the callback runs inside the call, while `names` lives.
@@ -170,6 +176,7 @@ fn system_families() -> Vec<String> {
 }
 
 /// The Windows file dialog. `None` = cancelled.
+#[cfg(windows)]
 pub fn choose_file(owner: isize) -> Option<PathBuf> {
     let mut path = [0u16; 2048];
     let mut dialog = OPENFILENAMEW {
@@ -190,10 +197,35 @@ pub fn choose_file(owner: isize) -> Option<PathBuf> {
     (len > 0).then(|| PathBuf::from(String::from_utf16_lossy(&path[..len])))
 }
 
+#[cfg(not(windows))]
+fn system_families() -> Vec<String> {
+    // Fontconfig is the Linux equivalent; keep the subtitle font list useful there too.
+    std::process::Command::new("fc-list")
+        .arg(":")
+        .arg("family")
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .flat_map(|l| l.split(','))
+                .map(|f| f.trim().to_string())
+                .filter(|f| !f.is_empty())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+pub fn choose_file(_owner: isize) -> Option<PathBuf> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
     #[test]
     fn imports_a_windows_font_once_and_rejects_other_files() {
         let dir = std::env::temp_dir().join(format!("nuvio-fonts-{}", std::process::id()));

@@ -1,14 +1,16 @@
 // App shell: sidebar + current screen. Screens stay mounted while hidden behind the full-window
 // player, so returning keeps scroll position and loaded rows.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { start as startAccount } from "./account";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
+import { useGamepad, useInputNavigation } from "./input/navigation";
 import { listen } from "./tauri";
 import { LockScreen } from "./screens/LockScreen";
 import { Welcome } from "./screens/Welcome";
 import { PinDialog } from "./components/PinDialog";
 import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
+import { ResumePrompt } from "./components/ResumePrompt";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FullPlayer } from "./player/FullPlayer";
@@ -26,10 +28,26 @@ import { t } from "./i18n";
 
 
 export function App() {
+  useInputNavigation();
+  useGamepad();
   const player = usePlayer();
   const [appMode, setAppMode] = useState<string>("");
   useEffect(() => {
     api.appMode().then(setAppMode, () => setAppMode("app"));
+  }, []);
+
+  // OAuth callbacks arrive through the `nuvio://` scheme; forward them to the settings panel.
+  // On Linux/Windows the scheme starts a new instance, so also read the URL that started this one.
+  useEffect(() => {
+    const forward = (urls: string[] | null) => {
+      const url = urls?.[0] ?? "";
+      if (url.startsWith("nuvio://auth/simkl")) {
+        window.dispatchEvent(new CustomEvent("nuvio-simkl-callback", { detail: url }));
+      }
+    };
+    const unlisten = listen<string[]>("deep-link://new-url", forward);
+    void api.deepLinkCurrent().then(forward, () => {});
+    return unlisten;
   }, []);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
@@ -160,6 +178,23 @@ export function App() {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title, resume: resumeTarget(entry) });
   }, []);
+  // Resume prompt on launch shows the most recent title once per app session.
+  const [resumeEntry, setResumeEntry] = useState<HistoryEntry | null>(null);
+  const resumePrompted = useRef(false);
+  useEffect(() => {
+    if (resumePrompted.current) return;
+    const timer = window.setTimeout(() => {
+      void Promise.all([api.settingsGet(), api.libraryContinueWatching()]).then(([settings, entries]) => {
+        if (resumePrompted.current) return;
+        resumePrompted.current = true;
+        if (settings.settings.continueWatching.showResumePromptOnLaunch && entries.length > 0) {
+          setResumeEntry(entries[0]);
+        }
+      }, () => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const openEntry = useCallback((entry: HistoryEntry) => {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title });
@@ -200,7 +235,7 @@ export function App() {
           <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para")} {switching || t("outro perfil")}…</div>
         )}
         <main className="content">
-          <UpdateBanner automatic={appMode === "app"} />
+          <UpdateBanner automatic={appMode === "app"} waiting={full} />
           {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra:")} {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
           <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
@@ -217,10 +252,20 @@ export function App() {
           {tab === "settings" && <div className="screen screen-fill" hidden={details !== null}><Settings key={profileEpoch} /></div>}
           {details && (
             <div className="screen">
-              <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} />
+              <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} onOpen={open} />
             </div>
           )}
         </main>
+      </div>
+      {resumeEntry && !full && (
+        <ResumePrompt
+          entry={resumeEntry}
+          onResume={() => { const entry = resumeEntry; setResumeEntry(null); resume(entry); }}
+          onDismiss={() => setResumeEntry(null)}
+        />
+      )}
+      <div className="gamepad-hints" aria-hidden>
+        <span>✕ / A — {t("Selecionar")}</span><span>○ / B — {t("Voltar")}</span><span>✛ — {t("Navegar")}</span>
       </div>
       {full && <FullPlayer />}
     </>

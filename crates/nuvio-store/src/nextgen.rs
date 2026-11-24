@@ -10,6 +10,7 @@
 //!   original files are never modified.
 
 use crate::settings::ProfileSettings;
+use nuvio_core::downloads::DownloadItem;
 use crate::{LegacyStore, StoreError};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -30,7 +31,15 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> StoreError + '_ {
 }
 
 pub fn default_app_dir() -> Result<PathBuf, StoreError> {
+    // Windows keeps roaming data in %APPDATA%; Linux follows the XDG base directory spec,
+    // falling back to ~/.local/share (the same layout used by the legacy store resolver).
+    #[cfg(windows)]
     let base = std::env::var_os("APPDATA").map(PathBuf::from).ok_or(StoreError::DataDirNotFound)?;
+    #[cfg(not(windows))]
+    let base = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")))
+        .ok_or(StoreError::DataDirNotFound)?;
     Ok(base.join("NuvioNextGen"))
 }
 
@@ -40,6 +49,7 @@ struct SyncBase<T> {
     value: T,
 }
 
+#[derive(Clone)]
 pub struct AppStore {
     dir: PathBuf,
 }
@@ -179,6 +189,67 @@ impl AppStore {
         self.write("livetv-favorites", &all)
     }
 
+    /// Catalog chosen in Discover, per profile (`DiscoverSelectionStorage` in the original: key
+    /// `<manifestId>:<type>:<catalogId>`, an empty map until something is chosen).
+    pub fn discover_selection(&self) -> Result<BTreeMap<i64, String>, StoreError> {
+        Ok(self.read("discover-selection")?.unwrap_or_default())
+    }
+
+    pub fn set_discover_selection(&self, profile: i64, key: String) -> Result<(), StoreError> {
+        let mut all = self.discover_selection()?;
+        all.insert(profile, key);
+        self.write("discover-selection", &all)
+    }
+
+    /// Provider credentials the Nuvio account holds for each profile (`tmdb`, `mdblist`,
+    /// `debrid:torbox`, `debrid:premiumize`, `debrid:realdebrid`, ...). `ProviderCredentialSync` in
+    /// the original keeps them apart from the settings blob; Astra stores them here.
+/// Tracking OAuth app credentials (Trakt/Simkl). Kept in a separate Rust-only document because
+/// the account's `provider-credentials` blob is replaced wholesale on every sync.
+pub fn tracking_credentials(&self, profile: i64) -> Result<BTreeMap<String, String>, StoreError> {
+    Ok(self
+        .read::<BTreeMap<i64, BTreeMap<String, String>>>("tracking-credentials")?
+        .unwrap_or_default()
+        .remove(&profile)
+        .unwrap_or_default())
+}
+
+pub fn set_tracking_credential(&self, profile: i64, key: String, value: String) -> Result<BTreeMap<String, String>, StoreError> {
+    let _guard = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut all = self
+        .read::<BTreeMap<i64, BTreeMap<String, String>>>("tracking-credentials")?
+        .unwrap_or_default();
+    let entry = all.entry(profile).or_default();
+    if value.trim().is_empty() {
+        entry.remove(&key);
+    } else {
+        entry.insert(key, value.trim().to_string());
+    }
+    let result = entry.clone();
+    self.write("tracking-credentials", &all)?;
+    Ok(result)
+}
+
+    pub fn provider_credentials(&self) -> Result<BTreeMap<i64, BTreeMap<String, String>>, StoreError> {
+        Ok(self.read("provider-credentials")?.unwrap_or_default())
+    }
+
+    /// Replaces one profile's credentials (the account's copy after a sync).
+    pub fn set_provider_credentials(&self, profile: i64, credentials: BTreeMap<String, String>) -> Result<(), StoreError> {
+        let mut all = self.provider_credentials()?;
+        if credentials.is_empty() {
+            all.remove(&profile);
+        } else {
+            all.insert(profile, credentials);
+        }
+        self.write("provider-credentials", &all)
+    }
+
+    /// One provider key of a profile, if the account sent it.
+    pub fn provider_key(&self, profile: i64, provider: &str) -> Option<String> {
+        self.provider_credentials().ok()?.remove(&profile)?.remove(provider).filter(|key| !key.trim().is_empty())
+    }
+
     /// Settings of every profile that has its own (`settings.json`).
     pub fn all_settings(&self) -> Result<BTreeMap<i64, ProfileSettings>, StoreError> {
         Ok(self.read("settings")?.unwrap_or_default())
@@ -186,7 +257,16 @@ impl AppStore {
 
     /// Settings of one profile; the original's defaults when it never had any.
     pub fn profile_settings(&self, profile: i64) -> Result<ProfileSettings, StoreError> {
-        Ok(self.all_settings()?.remove(&profile).unwrap_or_default())
+        let mut settings = self.all_settings()?.remove(&profile).unwrap_or_default();
+        // One-time migration: the original defaults Continue watching to the wide info card.
+        if !self.read::<bool>("cw-wide-migrated")?.unwrap_or(false) && settings.continue_watching.style == "card" {
+            settings.continue_watching.style = "wide".into();
+            let mut all = self.all_settings()?;
+            all.insert(profile, settings.clone());
+            self.write("settings", &all)?;
+            self.write("cw-wide-migrated", &true)?;
+        }
+        Ok(settings)
     }
 
     /// Validates (original ranges) and saves one profile's settings; other profiles untouched.
@@ -536,6 +616,82 @@ pub fn migrate_from_legacy(app: &AppStore, legacy: &LegacyStore) -> Result<Migra
     Ok(record)
 }
 
+/// One show's shuffle preference (`EpisodeShuffleSettings` in the original).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShuffleShowSettings {
+    pub enabled: bool,
+    pub include_watched: bool,
+}
+
+/// Per-profile shuffle state (`EpisodeShuffleProfile`) of the original.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct EpisodeShuffleProfile {
+    pub available: bool,
+    #[serde(default)]
+    pub shows: BTreeMap<String, ShuffleShowSettings>,
+}
+
+impl ShuffleShowSettings {
+    pub fn sanitized(mut self) -> Self {
+        self.include_watched = self.include_watched && self.enabled;
+        self
+    }
+}
+
+static DOWNLOADS_LOCK: Mutex<()> = Mutex::new(());
+
+impl AppStore {
+    pub fn downloads(&self, profile: i64) -> Result<Vec<DownloadItem>, StoreError> {
+        Ok(self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default().remove(&profile).unwrap_or_default())
+    }
+
+    pub fn set_downloads(&self, profile: i64, items: Vec<DownloadItem>) -> Result<(), StoreError> {
+        let _guard = DOWNLOADS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default();
+        all.insert(profile, items);
+        self.write("downloads", &all)
+    }
+
+    /// Read-modify-write under the lock so a background downloader and the UI never overwrite
+    /// each other's progress.
+    pub fn edit_downloads(&self, profile: i64, change: impl FnOnce(&mut Vec<DownloadItem>)) -> Result<Vec<DownloadItem>, StoreError> {
+        let _guard = DOWNLOADS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.read::<BTreeMap<i64, Vec<DownloadItem>>>("downloads")?.unwrap_or_default();
+        let items = all.entry(profile).or_default();
+        change(items);
+        let result = items.clone();
+        self.write("downloads", &all)?;
+        Ok(result)
+    }
+}
+
+static SHUFFLE_LOCK: Mutex<()> = Mutex::new(());
+
+impl AppStore {
+    pub fn all_shuffle(&self) -> Result<BTreeMap<i64, EpisodeShuffleProfile>, StoreError> {
+        Ok(self.read("episode_shuffle")?.unwrap_or_default())
+    }
+
+    pub fn shuffle_profile(&self, profile: i64) -> Result<EpisodeShuffleProfile, StoreError> {
+        Ok(self.all_shuffle()?.remove(&profile).unwrap_or_default())
+    }
+
+    pub fn set_shuffle(&self, profile: i64, content_id: String, settings: ShuffleShowSettings) -> Result<EpisodeShuffleProfile, StoreError> {
+        let _guard = SHUFFLE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut all = self.all_shuffle()?;
+        let result = {
+            let entry = all.entry(profile).or_default();
+            entry.available = true;
+            entry.shows.insert(content_id, settings.sanitized());
+            entry.clone()
+        };
+        self.write("episode_shuffle", &all)?;
+        Ok(result)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,6 +711,38 @@ mod tests {
         fs::write(store.dir().join("livetv-favorites.json"), b"{broken").unwrap();
         // Falls back to the .bak written before the last successful write.
         assert_eq!(store.live_tv_favorites().unwrap().get(&1), Some(&vec!["a".to_string()]));
+    }
+
+    #[test]
+    fn provider_credentials_are_per_profile_and_replace_whole() {
+        let store = AppStore::open(temp("providers")).unwrap();
+        let mut one = std::collections::BTreeMap::new();
+        one.insert("tmdb".to_string(), "a".to_string());
+        one.insert("debrid:torbox".to_string(), "b".to_string());
+        store.set_provider_credentials(1, one).unwrap();
+        assert_eq!(store.provider_key(1, "tmdb").as_deref(), Some("a"));
+        assert_eq!(store.provider_key(1, "debrid:torbox").as_deref(), Some("b"));
+        assert!(store.provider_key(2, "tmdb").is_none());
+        // A sync replaces the whole profile (a credential removed on the account disappears).
+        let mut two = std::collections::BTreeMap::new();
+        two.insert("tmdb".to_string(), "c".to_string());
+        store.set_provider_credentials(1, two).unwrap();
+        assert_eq!(store.provider_key(1, "tmdb").as_deref(), Some("c"));
+        assert!(store.provider_key(1, "debrid:torbox").is_none());
+        store.set_provider_credentials(1, std::collections::BTreeMap::new()).unwrap();
+        assert!(store.provider_key(1, "tmdb").is_none());
+    }
+
+    #[test]
+    fn discover_selection_is_per_profile_and_keeps_the_last_choice() {
+        let store = AppStore::open(temp("discover")).unwrap();
+        assert!(store.discover_selection().unwrap().is_empty(), "nothing chosen yet");
+        store.set_discover_selection(1, "a:movie:top".into()).unwrap();
+        store.set_discover_selection(2, "b:series:popular".into()).unwrap();
+        store.set_discover_selection(1, "a:movie:new".into()).unwrap();
+        let all = store.discover_selection().unwrap();
+        assert_eq!(all[&1], "a:movie:new");
+        assert_eq!(all[&2], "b:series:popular");
     }
 
     #[test]
@@ -901,5 +1089,29 @@ mod transaction_tests {
         assert_eq!(app.progress(2).unwrap().len(), 1, "unvalidated document re-imported");
         assert!(app.progress(1).unwrap().is_empty(), "document not created by the interrupted run is kept as it was");
         assert!(!app.dir().join("migration-journal.json").exists());
+    }
+
+    #[test]
+    fn shuffle_settings_are_per_profile_and_per_show() {
+        let app = AppStore::open(&dir("shuffle-store")).unwrap();
+        assert!(!app.shuffle_profile(1).unwrap().available);
+        app.set_shuffle(1, "tt1".into(), ShuffleShowSettings { enabled: true, include_watched: true }).unwrap();
+        let profile = app.shuffle_profile(1).unwrap();
+        assert!(profile.available);
+        assert_eq!(profile.shows["tt1"], ShuffleShowSettings { enabled: true, include_watched: true });
+        assert!(app.shuffle_profile(2).unwrap().shows.is_empty());
+        app.set_shuffle(1, "tt1".into(), ShuffleShowSettings { enabled: false, include_watched: true }).unwrap();
+        assert!(!app.shuffle_profile(1).unwrap().shows["tt1"].include_watched);
+    }
+
+    #[test]
+    fn downloads_are_per_profile_and_editable() {
+        let app = AppStore::open(&dir("downloads-store")).unwrap();
+        let item = DownloadItem { id: "d1".into(), parent_meta_id: "tt1".into(), file_name: "a.mp4".into(), ..Default::default() };
+        app.set_downloads(1, vec![item.clone()]).unwrap();
+        assert_eq!(app.downloads(1).unwrap().len(), 1);
+        assert!(app.downloads(2).unwrap().is_empty());
+        app.edit_downloads(1, |items| items[0].downloaded_bytes = 42).unwrap();
+        assert_eq!(app.downloads(1).unwrap()[0].downloaded_bytes, 42);
     }
 }

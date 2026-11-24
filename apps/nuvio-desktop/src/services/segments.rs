@@ -8,8 +8,8 @@
 //! buttons are on.
 
 use nuvio_core::client::AddonClient;
-use nuvio_core::skip::{parse_aniskip, parse_introdb, Kind, Segment};
-use serde_json::Value;
+use nuvio_core::skip::{parse_animeskip, parse_aniskip, parse_introdb, Kind, Segment};
+use serde_json::{json, Value};
 use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_secs(8);
@@ -24,6 +24,17 @@ fn aniskip_base() -> &'static str {
 
 fn mapping_base() -> &'static str {
     option_env!("NUVIO_ANIME_MAPPING_API_URL").unwrap_or("https://arm.haglund.dev/api/v2")
+}
+
+fn anime_skip_base() -> &'static str {
+    option_env!("NUVIO_ANIMESKIP_API_URL").unwrap_or("https://api.anime-skip.com")
+}
+
+/// Personal keys of the original's Anime-Skip / IntroDB services. They stay in Rust.
+#[derive(Debug, Clone, Default)]
+pub struct SkipConfig {
+    pub anime_skip_enabled: bool,
+    pub anime_skip_client_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +84,24 @@ fn mal_of_season(payload: &str, season: i64) -> Option<u64> {
     }
 }
 
+/// The AniList id of one season in ARM's answer, only when a single entry can be it.
+fn anilist_of_season(root: &Value, season: i64) -> Option<u64> {
+    let entries = root.as_array()?;
+    let season_of = |e: &Value| e.get("thetvdb-season").and_then(Value::as_i64).or_else(|| e.get("themoviedb-season").and_then(Value::as_i64));
+    let anilist = |e: &Value| e.get("anilist").and_then(Value::as_u64);
+    if season == 1 && entries.len() == 1 {
+        return anilist(&entries[0]);
+    }
+    let same: Vec<&Value> = entries.iter().filter(|e| season_of(e) == Some(season)).collect();
+    // A split season has several independent AniList entries: do not guess.
+    let candidates: Vec<&Value> = same.iter().copied().filter(|e| e.get("media").and_then(Value::as_str) == Some("TV")).collect();
+    match (candidates.as_slice(), same.as_slice()) {
+        ([only], _) => anilist(only),
+        ([], [only]) => anilist(only),
+        _ => None,
+    }
+}
+
 async fn get(client: &AddonClient, url: String) -> Option<std::sync::Arc<str>> {
     // Not an error for the user: the player just has no button.
     tokio::time::timeout(TIMEOUT, client.get_text(&url, false)).await.ok()?.ok()
@@ -86,19 +115,92 @@ async fn aniskip(client: &AddonClient, mal: u64, episode: i64) -> Vec<Segment> {
     get(client, url).await.and_then(|payload| parse_aniskip(&payload).ok()).unwrap_or_default()
 }
 
-/// The segments of each service, by priority.
-pub async fn fetch(client: &AddonClient, target: &Target) -> Vec<Vec<Segment>> {
-    match target {
-        Target::Mal { id, episode } => vec![aniskip(client, *id, *episode).await],
-        Target::Kitsu { id, episode } => {
-            let mapped = get(client, format!("{}/ids?source=kitsu&id={id}", mapping_base()))
-                .await
-                .and_then(|payload| serde_json::from_str::<Value>(&payload).ok())
-                .and_then(|v| v.get("myanimelist").and_then(Value::as_u64));
-            match mapped {
-                Some(mal) => vec![aniskip(client, mal, *episode).await],
-                None => Vec::new(),
+async fn graphql(client: &reqwest::Client, query: &str, client_id: &str) -> Option<Value> {
+    let response = tokio::time::timeout(
+        TIMEOUT,
+        client
+            .post(format!("{}/graphql", anime_skip_base()))
+            .header("X-Client-ID", client_id)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .json(&json!({ "query": query }))
+            .send(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.json::<Value>().await.ok()
+}
+
+/// Anime-Skip as an extra source: AniList id → show id → this episode's timestamp markers.
+/// Both queries need the user's own client id; no mapping means no segments, never a guess.
+async fn anime_skip(client_id: &str, anilist: u64, season: Option<i64>, episode: i64) -> Vec<Segment> {
+    if client_id.trim().is_empty() {
+        return Vec::new();
+    }
+    let Some(http) = reqwest::Client::builder().build().ok() else { return Vec::new() };
+    let show_query = format!("{{ findShowsByExternalId(service: ANILIST, serviceId: \"{anilist}\") {{ id }} }}");
+    let Some(shows_response) = graphql(&http, &show_query, client_id).await else { return Vec::new() };
+    let Some(shows) = shows_response
+        .pointer("/data/findShowsByExternalId")
+        .and_then(Value::as_array)
+    else { return Vec::new() };
+    shows
+        .iter()
+        .filter_map(|show| show.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect::<Vec<_>>();
+    for show_id in shows {
+        let episodes_query = format!(
+            "{{ findEpisodesByShowId(showId: \"{show_id}\") {{ season number baseDuration timestamps {{ at type {{ name }} }} }} }}"
+        );
+        if let Some(body) = graphql(&http, &episodes_query, client_id).await {
+            let segments = parse_animeskip(&body, season, episode);
+            if !segments.is_empty() {
+                return segments;
             }
+        }
+    }
+    Vec::new()
+}
+
+/// The segments of each service, by priority.
+pub async fn fetch(client: &AddonClient, target: &Target, config: &SkipConfig) -> Vec<Vec<Segment>> {
+    let anime_skip = |anilist: Option<u64>, season: Option<i64>, episode: i64| async move {
+        if !config.anime_skip_enabled {
+            return Vec::new();
+        }
+        match anilist {
+            Some(anilist) => anime_skip(&config.anime_skip_client_id, anilist, season, episode).await,
+            None => Vec::new(),
+        }
+    };
+    match target {
+        Target::Mal { id, episode } => {
+            let mapped = get(client, format!("{}/ids?source=myanimelist&id={id}", mapping_base())).await;
+            let anilist = mapped.as_ref().and_then(|p| serde_json::from_str::<Value>(p).ok())
+                .and_then(|v| v.get("anilist").and_then(Value::as_u64));
+            vec![
+                aniskip(client, *id, *episode).await,
+                anime_skip(anilist, None, *episode).await,
+            ]
+        }
+        Target::Kitsu { id, episode } => {
+            let mapped = get(client, format!("{}/ids?source=kitsu&id={id}", mapping_base())).await;
+            let value = mapped.as_ref().and_then(|p| serde_json::from_str::<Value>(p).ok());
+            let mal = value.as_ref().and_then(|v| v.get("myanimelist").and_then(Value::as_u64));
+            let anilist = value.as_ref().and_then(|v| v.get("anilist").and_then(Value::as_u64));
+            let mut out = Vec::new();
+            if let Some(mal) = mal {
+                out.push(aniskip(client, mal, *episode).await);
+            }
+            let extra = anime_skip(anilist, None, *episode).await;
+            if !extra.is_empty() {
+                out.push(extra);
+            }
+            out
         }
         Target::Imdb { id, episode } => {
             let query = match episode {
@@ -112,16 +214,88 @@ pub async fn fetch(client: &AddonClient, target: &Target) -> Vec<Vec<Segment>> {
             let mut out = vec![introdb];
             if let Some((season, number)) = episode {
                 let missing = [Kind::Intro, Kind::Outro].iter().any(|kind| !out[0].iter().any(|s| s.kind == *kind));
-                if missing {
-                    let mapped = get(client, format!("{}/imdb?id={id}", mapping_base())).await.and_then(|p| mal_of_season(&p, *season));
-                    if let Some(mal) = mapped {
-                        out.push(aniskip(client, mal, *number).await);
+                if missing || config.anime_skip_enabled {
+                    let mapping = get(client, format!("{}/imdb?id={id}", mapping_base())).await;
+                    let value = mapping.as_ref().and_then(|p| serde_json::from_str::<Value>(p).ok());
+                    if missing {
+                        if let Some(mal) = mapping.as_deref().and_then(|p| mal_of_season(p, *season)) {
+                            out.push(aniskip(client, mal, *number).await);
+                        }
+                    }
+                    let anilist = value.as_ref().and_then(|v| anilist_of_season(v, *season));
+                    let extra = anime_skip(anilist, Some(*season), *number).await;
+                    if !extra.is_empty() {
+                        out.push(extra);
                     }
                 }
             }
             out
         }
     }
+}
+
+/// IntroDB `POST /submit` (`SkipIntroRepository.submitIntro`). Times are sent in both seconds and
+/// milliseconds, exactly as the original does.
+pub async fn submit_intro(
+    api_key: &str,
+    imdb_id: &str,
+    season: i64,
+    episode: i64,
+    segment_type: &str,
+    start: f64,
+    end: f64,
+) -> Result<bool, String> {
+    if api_key.trim().is_empty() || !start.is_finite() || !end.is_finite() || end <= start {
+        return Err("Tempos inválidos ou chave da IntroDB ausente.".into());
+    }
+    let client = reqwest::Client::builder().build().map_err(|e| e.to_string())?;
+    let response = tokio::time::timeout(
+        TIMEOUT,
+        client
+            .post(format!("{}/submit", introdb_base()))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "imdb_id": imdb_id,
+                "season": season,
+                "episode": episode,
+                "start_sec": start,
+                "end_sec": end,
+                "start_ms": (start * 1000.0).round() as i64,
+                "end_ms": (end * 1000.0).round() as i64,
+                "segment_type": segment_type,
+            }))
+            .send(),
+    )
+    .await
+    .map_err(|_| "A IntroDB demorou demais para responder.".to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(response.status() == reqwest::StatusCode::OK || response.status() == reqwest::StatusCode::CREATED)
+}
+
+/// The original's key check quirk: an empty body returns 400 for a *valid* key (auth passes,
+/// payload is rejected), 200/201 also means valid, 401/403 means invalid.
+pub async fn verify_introdb_key(api_key: &str) -> Result<bool, String> {
+    if api_key.trim().is_empty() {
+        return Ok(false);
+    }
+    let client = reqwest::Client::builder().build().map_err(|e| e.to_string())?;
+    let response = tokio::time::timeout(
+        TIMEOUT,
+        client
+            .post(format!("{}/submit", introdb_base()))
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("Content-Type", "application/json")
+            .body("{}")
+            .send(),
+    )
+    .await
+    .map_err(|_| "A IntroDB demorou demais para responder.".to_string())?
+    .map_err(|e| e.to_string())?;
+    Ok(matches!(
+        response.status(),
+        reqwest::StatusCode::OK | reqwest::StatusCode::CREATED | reqwest::StatusCode::BAD_REQUEST
+    ))
 }
 
 #[cfg(test)]
@@ -136,6 +310,18 @@ mod tests {
         assert_eq!(target("kitsu:7442", "kitsu:7442:3", Some(1), Some(3), false), Some(Target::Kitsu { id: 7442, episode: 3 }));
         assert_eq!(target("mal:16498", "mal:16498:5", None, None, false), Some(Target::Mal { id: 16498, episode: 5 }));
         assert_eq!(target("tmdb:1", "tmdb:1:1:1", Some(1), Some(1), false), None);
+    }
+
+    #[test]
+    fn anilist_ids_are_only_used_for_unambiguous_seasons() {
+        let list: Value = serde_json::from_str(r#"[
+            {"anilist":16498,"media":"TV","thetvdb-season":1},
+            {"anilist":18397,"media":"OVA","thetvdb-season":0},
+            {"anilist":35760,"media":"TV","thetvdb-season":3},
+            {"anilist":38524,"media":"TV","thetvdb-season":3}
+        ]"#).unwrap();
+        assert_eq!(anilist_of_season(&list, 1), Some(16498));
+        assert_eq!(anilist_of_season(&list, 3), None);
     }
 
     #[test]

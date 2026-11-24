@@ -1,7 +1,7 @@
 # Changelog
 
 From the first public release on, every push to `main` publishes a new version
-(`0.1.<build>`); its notes are the commit messages since the previous release and appear in the
+(the last number goes up to 9, then the middle one advances: `0.2.9` → `0.3.0`); its notes are the commit messages since the previous release and appear in the
 app's update notice and on the GitHub Release page.
 
 ## 0.1.0 — first version (before GitHub releases)

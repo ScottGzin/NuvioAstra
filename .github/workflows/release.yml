@@ -3,11 +3,14 @@
 #   Nuvio-Astra-<v>-x64-setup.exe.sig    updater signature (minisign, bound to <v>)
 #   latest.json                          updater manifest (read by installed apps)
 #   SHA256SUMS.txt                       checksums
-# Version: <major>.<minor> from apps/nuvio-desktop/tauri.conf.json, patch = the last published
-# v<major>.<minor>.N tag + 1 (+ optional repository variable VERSION_PATCH_OFFSET): consecutive numbers
-# even when runs are cancelled or fail.
+# Version: one step after the highest of the published v<x>.<y>.<z> tags and the version in
+# apps/nuvio-desktop/tauri.conf.json (raise that one to jump ahead). The last number goes up to 9 and
+# then the middle one advances: 0.2.8 → 0.2.9 → 0.3.0. Optional repository variable
+# VERSION_PATCH_OFFSET skips that many extra steps. Numbers stay consecutive even when runs are
+# cancelled or fail.
 # Notes: the commits since the previous release; a commit's description (extended description on
-# GitHub) is used when it has one, otherwise its title, skipping GitHub's automatic titles
+# GitHub, emojis and simple Markdown kept: shown in the app's update window) is used when it has one,
+# otherwise its title, skipping GitHub's automatic titles
 # ("Add files via upload", "Update …", "Create …", "Delete …").
 # Nothing is published unless every step (tests, build, packaging, signing) succeeded: the release is
 # created as a draft with all its files and only then made public.
@@ -61,16 +64,18 @@ jobs:
           OFFSET: ${{ vars.VERSION_PATCH_OFFSET }}
         run: |
           $conf = Get-Content apps/nuvio-desktop/tauri.conf.json -Raw | ConvertFrom-Json
-          $parts = $conf.version.Split('.')
           $offset = if ($env:OFFSET) { [int]$env:OFFSET } else { 0 }
           git fetch --tags --force
-          $prefix = "v$($parts[0]).$($parts[1])."
-          $published = git tag --list "$prefix*" | ForEach-Object {
-            if ($_ -match "^v$($parts[0])\.$($parts[1])\.(\d+)$") { [int]$Matches[1] }
+          $published = @(git tag --list "v*" | ForEach-Object {
+            if ($_ -match '^v(\d+)\.(\d+)\.(\d+)$') { [version]"$($Matches[1]).$($Matches[2]).$($Matches[3])" }
+          })
+          $last = @($published + [version]$conf.version) | Sort-Object -Descending | Select-Object -First 1
+          $major = $last.Major; $minor = $last.Minor; $patch = $last.Build
+          for ($step = 0; $step -le $offset; $step++) {
+            $patch++
+            if ($patch -gt 9) { $patch = 0; $minor++ }
           }
-          $last = if ($published) { ($published | Measure-Object -Maximum).Maximum } else { [int]$parts[2] }
-          $patch = $last + 1 + $offset
-          $version = "$($parts[0]).$($parts[1]).$patch"
+          $version = "$major.$minor.$patch"
           if (git tag --list "v$version") { throw "Tag v$version already exists (raise VERSION_PATCH_OFFSET)" }
           "version=$version" >> $env:GITHUB_OUTPUT
           Write-Host "Version $version"
@@ -176,7 +181,10 @@ jobs:
             $title = (git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%s $c | Out-String).Trim()
             $desc = @(git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%b $c | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             if ($desc.Count -gt 0) {
-              foreach ($d in $desc) { $lines += "- " + ($d -replace '^[-*•]\s*', '') }
+              foreach ($d in $desc) {
+                # Titles (#), quotes (>) and rules (---) stay as written; every other line is an item.
+                if ($d -match '^(#{1,3}\s|>|-{3,}$)') { $lines += $d } else { $lines += "- " + ($d -replace '^[-*•]\s*', '') }
+              }
             } elseif ($title -and $title -notmatch $generic) {
               $lines += "- $title"
             }

@@ -162,7 +162,7 @@ fn preview_rect(window: &tauri::WebviewWindow) -> Option<(f64, f64, f64, f64)> {
 fn set_rect(app: &AppHandle, rect: Option<(f64, f64, f64, f64)>) {
     // The UI mirrors the rect so its overlay controls sit exactly on the video.
     let _ = app.emit("selftest-rect", rect.map(|(x, y, w, h)| [x, y, w, h]));
-    let _ = app.state::<AppState>().with_player(|p| p.set_video_rect(rect).map_err(|e| e.to_string()));
+    let _ = app.state::<AppState>().with_player(|p| p.set_video_rect(rect, Vec::new()).map_err(|e| e.to_string()));
 }
 
 /// Video area to measure, in physical client pixels, leaving out the controls overlay at the bottom.
@@ -195,9 +195,15 @@ fn check(report: &mut SourceReport, name: &str, passed: bool, detail: impl Into<
     report.checks.push(Check { name: name.into(), passed, detail: detail.into() });
 }
 
+#[cfg(windows)]
 fn host_mpv_windows(app: &AppHandle) -> usize {
     let window = app.get_webview_window("main").expect("main window");
     nuvio_player::win::count_mpv_windows(windows::Win32::Foundation::HWND(window.hwnd().expect("hwnd").0))
+}
+
+#[cfg(not(windows))]
+fn host_mpv_windows(_app: &AppHandle) -> usize {
+    0
 }
 
 fn run(app: &AppHandle, request: &Request) -> Report {

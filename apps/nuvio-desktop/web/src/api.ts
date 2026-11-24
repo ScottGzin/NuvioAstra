@@ -2,16 +2,36 @@ import { invoke } from "./tauri";
 import { message } from "./rustErrors";
 import type {
   EpgView,
+  MatchesView,
   SubtitleFont,
   SubtitleFontList,
   SubtitleList,
+  AutoSyncStatus,
+  TraktList,
+  TraktResolvedList,
+  TraktCommentsPage,
+  PlexPin,
+  SiloInfo,
+  SiloCode,
   Moments,
   UpdateInfo,
   UpdateStatus,
   P2pStatus,
   TorrentPrepared,
-  AddonPreview, AddonsView, Bootstrap, CatalogPage, ChannelList, CssRect, Details, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, SearchSection, SettingsView, StreamGroup,
+  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, Channel, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
+  DiscoverPage, DiscoverView,
+  WatchedItem,
+  StreamBadgeRules,
+  TmdbSettingsInput,
+  TmdbSettingsView,
+  DebridSettingsInput,
+  DebridSettingsView,
+  PluginsView,
+  ParentalGuide,
+  MdblistSettingsInput,
+  MdblistSettingsView,
+  MetaPreview, MetaVideo,
   TitleProgress,
 } from "./types";
 
@@ -78,14 +98,107 @@ function cached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Prom
 
 export const api = {
   bootstrap: () => invoke<Bootstrap>("app_bootstrap"),
+  /** The host OS (`linux`, `windows`, `macos`…). */
+  platform: () => invoke<string>("platform"),
   homeRows: () => invoke<HomeView>("home_rows"),
-  /** `genre`: a collection folder's catalog filtered by genre. */
-  catalogPage: (key: string, skip: number | null, genre: string | null = null) =>
-    cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre })),
+  /** Genre options of a Home catalog key, for "See all". */
+  catalogGenres: (key: string) => invoke<CatalogGenres>("catalog_genres", { key }),
+  /** `genre`: a collection folder's catalog filtered by genre; `surface` selects the custom-poster setting. */
+  catalogPage: (key: string, skip: number | null, genre: string | null = null, surface: string = "home") =>
+    cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}#${surface}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre, surface })),
+  /** Discover picker: the addons' listable catalogs + the catalog saved for this profile. */
+  discoverSources: () => invoke<DiscoverView>("discover_sources"),
+  /** Remembers the catalog chosen in Discover (per profile). */
+  discoverSelect: (key: string) => invoke<void>("discover_select", { key }),
+  /** One Discover page. `existingKeys` are `type:id` of the items already shown; `reset` starts a
+   *  new catalog/genre. Paging rules (duplicate pages, full page) are applied by Rust. */
+  discoverPage: (key: string, skip: number, reset: boolean, existingKeys: string[], duplicatePages: number, genre: string | null) =>
+    invoke<DiscoverPage>("discover_page", { key, skip, reset, existingKeys, duplicatePages, genre }),
+  /** One page of a TMDB collection source (`provider: "tmdb"` in a folder); `page` is 1-based. */
+  tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
+    invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
+  /** One page of a Trakt folder source (`provider: "trakt"`); `page` is 1-based. */
+  traktSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
+    invoke<CatalogPage>("trakt_source_page", { collectionId, folderId, sourceId, page }),
+  traktSearchLists: (query: string) => invoke<TraktList[]>("trakt_search_lists", { query }),
+  traktTrendingLists: () => invoke<TraktList[]>("trakt_trending_lists"),
+  traktPopularLists: () => invoke<TraktList[]>("trakt_popular_lists"),
+  traktResolveListInput: (input: string) => invoke<TraktResolvedList>("trakt_resolve_list_input", { input }),
+  traktMyLists: () => invoke<TraktList[]>("trakt_my_lists"),
+  traktComments: (contentType: string, id: string, page: number) =>
+    invoke<TraktCommentsPage>("trakt_comments", { contentType, id, page }),
+  trailerResolve: (key: string) => invoke<{ videoUrl: string; audioUrl: string | null }>("trailer_resolve", { key }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  streamsSettings: () => invoke<StreamsSettingsView>("streams_settings"),
+  streamsSettingsSet: (settings: StreamsSettings) => invoke<StreamsSettingsView>("streams_settings_set", { settings }),
+  /** Trakt/Simkl OAuth app credentials (values never returned to the UI). */
+  trackingCredentials: () => invoke<TrackingCredentialsView>("tracking_credentials"),
+  trackingCredentialSet: (key: string, value: string) => invoke<TrackingCredentialsView>("tracking_credential_set", { key, value }),
+  traktDeviceStart: () => invoke<TraktDeviceStart>("trakt_device_start"),
+  traktDevicePoll: () => invoke<TrackingPollResult>("trakt_device_poll"),
+  mdblistDeviceStart: () => invoke<TraktDeviceStart>("mdblist_device_start"),
+  mdblistDevicePoll: () => invoke<TrackingPollResult>("mdblist_device_poll"),
+  simklAuthorizeUrl: () => invoke<string>("simkl_authorize_url"),
+  simklComplete: (code: string, stateValue: string) => invoke<boolean>("simkl_complete", { code, stateValue }),
+  trackingDisconnect: (provider: string) => invoke<TrackingCredentialsView>("tracking_disconnect", { provider }),
+  trackingResume: (contentId: string) => invoke<RemoteResume[]>("tracking_resume", { contentId }),
+  trackingSync: (provider: string) => invoke<TrackingSyncResult>("tracking_sync", { provider }),
+  /** Media servers (the user's own Jellyfin/Emby credentials stay on that server). */
+  serverList: () => invoke<ServerConnection[]>("server_list"),
+  serverAdd: (provider: string, address: string, username: string, password: string) =>
+    invoke<ServerConnection>("server_add", { provider, address, username, password }),
+  serverRemove: (id: string) => invoke<ServerConnection[]>("server_remove", { id }),
+  serverLibraries: (id: string) => invoke<ServerLibrary[]>("server_libraries", { id }),
+  serverCatalog: (id: string, libraryId: string, skip: number) => invoke<CatalogPage>("server_catalog", { id, libraryId, skip }),
+  serverPlexPinStart: () => invoke<PlexPin>("server_plex_pin_start"),
+  serverPlexPinPoll: (pinId: string) => invoke<string | null>("server_plex_pin_poll", { pinId }),
+  serverPlexConnect: (accountToken: string) => invoke<ServerConnection>("server_plex_connect", { accountToken }),
+  serverSiloDiscover: (address: string) => invoke<SiloInfo>("server_silo_discover", { address }),
+  serverSiloLogin: (address: string, username: string, password: string) => invoke<ServerConnection>("server_silo_login", { address, username, password }),
+  serverSiloCodeStart: (address: string) => invoke<SiloCode>("server_silo_code_start", { address }),
+  serverSiloCodeConnect: (address: string, deviceCode: string) => invoke<ServerConnection | null>("server_silo_code_connect", { address, deviceCode }),
+  serverStream: (connectionId: string, itemId: string) => invoke<string>("server_stream", { connectionId, itemId }),
+  partyConfig: () => invoke<{ url: string; key: string }>("party_config"),
+  skipCredentials: () => invoke<{ animeSkipClientId: string; introDbApiKey: string }>("skip_credentials"),
+  skipCredentialsSet: (animeSkipClientId: string, introDbApiKey: string) =>
+    invoke<{ animeSkipClientId: string; introDbApiKey: string }>("skip_credentials_set", { animeSkipClientId, introDbApiKey }),
+  skipSubmitTiming: (session: number, segmentType: "intro" | "recap" | "outro", start: number, end: number) =>
+    invoke<boolean>("skip_submit_timing", { session, segmentType, start, end }),
+  /** Collections editor: the raw document is validated and saved by Rust. */
+  collectionsEditorLoad: () => invoke<unknown>("collections_editor_load"),
+  collectionsEditorSave: (value: unknown) => invoke<unknown>("collections_editor_save", { value }),
+  /** Direct downloads: URLs and headers stay in Rust. */
+  downloadList: () => invoke<DownloadItem[]>("download_list"),
+  downloadFromStream: (key: string, progress: PlaybackItem) => invoke<DownloadItem>("download_from_stream", { key, progress }),
+  downloadControl: (id: string, action: "pause" | "resume" | "retry" | "remove" | "clearCompleted") =>
+    invoke<DownloadItem[]>("download_control", { id, action }),
+  downloadPlay: (id: string, startSeconds: number | null) => invoke<PlayerInfo>("download_play", { id, startSeconds }),
+  /** Episode shuffle settings and a random pick for one title. */
+  shuffleView: (contentId: string, contentType: string) => invoke<ShuffleView>("shuffle_view", { contentId, contentType }),
+  shuffleSet: (contentId: string, enabled: boolean, includeWatched: boolean) => invoke<ShuffleView>("shuffle_set", { contentId, enabled, includeWatched }),
+  shufflePick: (contentId: string, contentType: string, surface: string, season: number | null, episode: number | null) =>
+    invoke<MetaVideo | null>("shuffle_pick", { contentId, contentType, surface, currentSeason: season, currentEpisode: episode }),
+  /** Discord Rich Presence (no-op when disabled in Settings). */
+  discordActivity: (activity: DiscordActivity | null) => invoke<void>("discord_activity", { activity }),
+  /** IMDb parents-guide warnings, only when enabled in Settings → Reprodução. */
+  parentalGuide: (id: string) => invoke<ParentalGuide | null>("parental_guide", { id }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
-  streams: (contentType: string, id: string) => invoke<StreamGroup[]>("title_streams", { contentType, id }),
+  streams: (contentType: string, id: string, refresh = false) =>
+    invoke<StreamGroup[]>("title_streams", { contentType, id, refresh }),
+  /** Settings → Services → TMDB (key and language). */
+  tmdbSettings: () => invoke<TmdbSettingsView>("tmdb_settings"),
+  tmdbSettingsSet: (settings: TmdbSettingsInput) => invoke<TmdbSettingsView>("tmdb_settings_set", { settings }),
+  /** Settings → Services → MDBList Ratings. */
+  mdblistSettings: () => invoke<MdblistSettingsView>("mdblist_settings"),
+  mdblistSettingsSet: (settings: MdblistSettingsInput) => invoke<MdblistSettingsView>("mdblist_settings_set", { settings }),
+  /** Settings → Services → Connected Services (debrid). */
+  debridSettings: () => invoke<DebridSettingsView>("debrid_settings"),
+  debridSettingsSet: (settings: DebridSettingsInput) => invoke<DebridSettingsView>("debrid_settings_set", { settings }),
+  /** Badge rules imported in the original app (empty when it has none). */
+  streamBadges: () => invoke<StreamBadgeRules>("stream_badge_rules"),
+  /** TMDB "More Like This" of a title (empty without a TMDB key or when TMDB does not know it). */
+  moreLikeThis: (contentType: string, id: string) => invoke<MetaPreview[]>("more_like_this", { contentType, id }),
   settingsGet: () => invoke<SettingsView>("settings_get"),
   /** Saves and returns what was stored (validated by Rust). `previous`: what was loaded before the
    *  edit, so only the edit is written. `profile`: the one edited. Home changes drop the cached pages. */
@@ -107,10 +220,16 @@ export const api = {
   subtitleFontData: (id: string) => invoke<ArrayBuffer>("subtitle_font_data", { id }),
   appMode: () => invoke<"app" | "selftest" | "uitest">("app_mode"),
   liveTvChannels: () => invoke<ChannelList>("livetv_channels"),
+  /** Imports a public M3U playlist into the current session (for testing without an addon). */
+  liveTvImportM3u: (url: string) => invoke<ChannelList>("livetv_import_m3u", { url }),
+  liveTvFallbackChannels: () => invoke<ChannelList>("livetv_fallback_channels"),
   liveTvFavorites: () => invoke<string[]>("livetv_favorites"),
   liveTvToggleFavorite: (key: string) => invoke<string[]>("livetv_toggle_favorite", { key }),
   /** Asks only the channel's own addon, only when the user picks the channel. */
   liveTvResolve: (key: string) => invoke<StreamGroup[]>("livetv_resolve", { key }),
+  /** Today's ESPN fixtures with the installed channels whose EPG lists each match. */
+  liveTvMatches: (channels: Channel[], tzOffsetMinutes: number) =>
+    invoke<MatchesView>("livetv_matches", { channels, tzOffsetMinutes }),
 
   // Addons of the active profile (Settings → Addons). Every change starts a new data epoch.
   addonsList: () => invoke<AddonsView>("addons_list"),
@@ -121,6 +240,14 @@ export const api = {
   addonMove: (key: string, delta: number) => changed("addons", invoke<AddonsView>("addon_move", { key, delta })),
   addonRefresh: (key: string) => changed("addons", invoke<AddonsView>("addon_refresh", { key })),
   addonConfigure: (key: string) => invoke<void>("addon_configure", { key }),
+
+  // Nuvio scraper plugins (manifest.json repositories). Adding/refreshing runs the sandbox.
+  pluginsList: () => invoke<PluginsView>("plugins_list"),
+  pluginsAdd: (url: string) => invoke<PluginsView>("plugins_add", { url }),
+  pluginsRefresh: (key: string) => invoke<PluginsView>("plugins_refresh", { key }),
+  pluginsSetEnabled: (enabled: boolean) => invoke<PluginsView>("plugins_set_enabled", { enabled }),
+  pluginsSetScraperEnabled: (key: string, enabled: boolean) => invoke<PluginsView>("plugins_set_scraper_enabled", { key, enabled }),
+  pluginsRemove: (key: string) => invoke<PluginsView>("plugins_remove", { key }),
 
   // Profiles. A switch closes the player in Rust and starts a new data epoch.
   profilesList: () => invoke<ProfilesView>("profiles_list"),
@@ -162,20 +289,42 @@ export const api = {
   /** The row completed with next episodes (asks the addons for the episode lists it lacks). */
   libraryNextUp: () => invoke<HistoryEntry[]>("library_next_up"),
   libraryHistory: (offset: number, limit: number) => invoke<HistoryPage>("library_history", { offset, limit }),
+  /** Marks or unmarks a movie/episode as watched manually. */
+  libraryToggleWatched: (item: WatchedItem) => invoke<boolean>("library_toggle_watched", { item }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
+  /** Upstream account-downloads compatibility surface (maps to the local download commands). */
+  downloadsList: () => invoke<DownloadItem[]>("download_list"),
+  downloadsFolder: () => invoke<DownloadsFolder>("downloads_folder"),
+  downloadsChooseFolder: () => invoke<DownloadsFolder>("downloads_choose_folder"),
+  downloadStart: (request: DownloadRequest) => invoke<DownloadItem>("download_from_stream", { key: request.key, progress: request.playback }),
+  downloadPause: (id: string) => invoke<DownloadItem[]>("download_control", { id, action: "pause" }),
+  downloadResume: (id: string) => invoke<DownloadItem[]>("download_control", { id, action: "resume" }),
+  downloadShow: (_id: string) => invoke<void>("open_downloads_folder"),
+  downloadRemove: (id: string, _deleteFile?: boolean) => invoke<DownloadItem[]>("download_control", { id, action: "remove" }),
+  torboxPrepare: (_key: string, _season?: number | null, _episode?: number | null) => invoke<void>("torbox_prepare"),
+  torboxStatus: () => invoke<TorboxStatus>("torbox_status"),
+  torboxSaveKey: (key: string) => invoke<TorboxStatus>("torbox_save_key", { key }),
+  torboxRemoveKey: () => invoke<TorboxStatus>("torbox_remove_key"),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
+  /** URLs that opened this instance through `nuvio://` (Linux/Windows start a new instance). */
+  deepLinkCurrent: () => invoke<string[]>("plugin:deep-link|get_current"),
+  /** Opens an `externalUrl` source in the browser. */
+  streamOpenExternal: (key: string) => invoke<void>("stream_open_external", { key }),
 
   /** `progress`: the movie/episode, so Rust saves its position (absent for live TV). */
   playStream: (key: string, startSeconds: number | null, progress: PlaybackItem | null = null, previousFinished = false) =>
     invoke<PlayerInfo>("stream_play", { key, startSeconds, progress, previousFinished }),
   playerSubtitles: (session: number) => invoke<SubtitleList>("player_subtitles", { session }),
   playerSubtitleLoad: (session: number, index: number) => invoke<void>("player_subtitle_load", { session, index }),
+  playerSubtitleAutosync: (session: number) => invoke<AutoSyncStatus>("player_subtitle_autosync", { session }),
   playerSubtitleStyle: () => invoke<void>("player_subtitle_style"),
   playerMoments: (session: number) => invoke<Moments>("player_moments", { session }),
   playerCommand: (command: PlayerCommand) => invoke<void>("player_command", { command }).catch(() => {}),
-  /** `rect` in CSS pixels; `null` = whole window. */
-  playerRect: (rect: CssRect | null) =>
-    invoke<void>("player_video_rect", { rect, scale: window.devicePixelRatio }).catch(() => {}),
+  /** `rect` in CSS pixels; `null` = whole window. `holes` are cut out of the native video window
+   *  on Linux, where the chrome cannot be painted over it. */
+  playerRect: (rect: CssRect | null, holes: CssRect[] = []) =>
+    invoke<void>("player_video_rect", { rect, holes, scale: window.devicePixelRatio }).catch(() => {}),
   playerSnapshot: () => invoke<PlayerSnapshot>("player_snapshot"),
   playerClose: () => invoke<void>("player_close"),
   /** Starts the P2P engine for a torrent stream (rejects with `P2P_CONSENT_REQUIRED` while P2P is off). */

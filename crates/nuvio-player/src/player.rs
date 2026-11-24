@@ -55,6 +55,10 @@ pub struct VideoConfig {
     pub motion: Motion,
     pub enhancement: Enhancement,
     pub picture: Picture,
+    /// Bitstream compressed audio instead of decoding it to PCM.
+    pub audio_passthrough: bool,
+    /// `sub-codepage` for SRT files without a BOM (empty = mpv default).
+    pub subtitle_codepage: String,
 }
 
 /// What to play.
@@ -226,6 +230,15 @@ pub struct PlayerSnapshot {
     pub av_sync: f64,
     pub dropped_frames: i64,
     pub decoder_dropped_frames: i64,
+    /// Measured monitor refresh (`estimated-display-fps`), 0 when unknown.
+    pub display_fps: f64,
+    /// Refresh rate reported by Windows for the window's monitor (`display-fps`), 0 when unknown.
+    pub display_rate: f64,
+    /// Video timed to the monitor (`display-sync-active`, read every 500 ms): with interpolation, one
+    /// new frame per refresh.
+    pub display_sync: bool,
+    /// Frames shown late because rendering did not keep up (`vo-delayed-frame-count`).
+    pub delayed_frames: i64,
     pub aid: Option<String>,
     pub sid: Option<String>,
     pub tracks: Vec<Track>,
@@ -275,6 +288,12 @@ pub enum PlayerCommand {
     SetSubtitleDelay { ms: i64 },
     /// ±60 000 ms. Not exposed by the original Windows player (Android only); added on request.
     SetAudioDelay { ms: i64 },
+    /// 0–10 dB of gain, expressed as mpv's `volume` percentage (100 × 10^(dB/20)).
+    SetAudioAmplification { db: i64 },
+    /// Downmix to an ffmpeg layout name (`stereo`, `5.1`, …); empty restores the default.
+    SetAudioDownmix { layout: String },
+    /// HTTP stream buffer: `cache-secs`, `demuxer-readahead-secs` and `demuxer-max-bytes`.
+    SetBuffer { max_seconds: f64, back_seconds: f64, max_bytes: i64 },
     ApplySubtitleStyle { style: SubtitleStyle },
     SetResizeMode { mode: ResizeMode },
     SetMotion { motion: Motion },
@@ -312,6 +331,9 @@ const OBSERVED: &[(u64, &str, std::ffi::c_int)] = &[
     (24, "video-out-params/dw", FORMAT_INT64),
     (25, "video-out-params/dh", FORMAT_INT64),
     (26, "chapter-list", FORMAT_NONE),
+    (27, "estimated-display-fps", FORMAT_DOUBLE),
+    (29, "vo-delayed-frame-count", FORMAT_INT64),
+    (30, "display-fps", FORMAT_DOUBLE),
 ];
 
 /// Minimum interval between two snapshots sent to the UI (position updates are frequent).
@@ -423,6 +445,20 @@ pub(crate) fn startup_options(video: &VideoConfig, unified_memory_gpu: bool, sha
     set("keep-open", "yes");
     set("idle", "yes");
     set("volume-max", "200");
+    set("audio-channels", "auto");
+    if video.audio_passthrough {
+        // mpv falls back to decoded PCM when the endpoint rejects a bitstream.
+        set("audio-spdif", "ac3,eac3,dts,dts-hd,truehd");
+        if let Ok(device) = std::env::var("NUVIO_MPV_AUDIO_DEVICE") {
+            let device = device.trim();
+            if !device.is_empty() {
+                set("audio-device", device);
+            }
+        }
+    }
+    if !video.subtitle_codepage.trim().is_empty() {
+        set("sub-codepage", video.subtitle_codepage.trim());
+    }
     set("vo", "gpu-next,gpu,");
     if rtx {
         set("gpu-api", "d3d11");
@@ -667,6 +703,18 @@ impl Player {
             PlayerCommand::SetAudioDelay { ms } => {
                 mpv.set_property_f64("audio-delay", (*ms).clamp(-AUDIO_DELAY_LIMIT_MS, AUDIO_DELAY_LIMIT_MS) as f64 / 1000.0)
             }
+            PlayerCommand::SetAudioAmplification { db } => {
+                let gain = 100.0 * 10f64.powf((*db).clamp(0, 10) as f64 / 20.0);
+                mpv.set_property_f64("volume", gain.min(1000.0))
+            }
+            PlayerCommand::SetAudioDownmix { layout } => {
+                mpv.set_property("audio-channels", if layout.is_empty() { "auto" } else { layout })
+            }
+            PlayerCommand::SetBuffer { max_seconds, back_seconds, max_bytes } => {
+                mpv.set_property_f64("cache-secs", max_seconds.max(0.0))?;
+                mpv.set_property_f64("demuxer-readahead-secs", back_seconds.max(0.0))?;
+                mpv.set_property("demuxer-max-bytes", &(*max_bytes).max(0).to_string())
+            }
             PlayerCommand::ApplySubtitleStyle { style } => self.apply_subtitle_style(style),
             PlayerCommand::SetResizeMode { mode } => {
                 *self.resize_mode.lock().expect("mode lock") = *mode;
@@ -783,8 +831,9 @@ impl Player {
     }
 
     /// Places the video inside `rect` (physical pixels, host client coordinates); `None` = whole
-    /// window. Ignored while in PiP (the PiP window always shows the whole video).
-    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
+    /// window. Ignored while in PiP (the PiP window always shows the whole video). `holes` are only
+    /// used by the Linux backend, where the chrome is cut out of the native video window.
+    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>, _holes: Vec<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
         *self.video_rect.lock().expect("rect lock") = rect;
         if self.pip.lock().expect("pip lock").is_some() {
             return Ok(());
@@ -977,6 +1026,8 @@ fn event_loop(
 ) {
     let mut last_emit = Instant::now() - EMIT_INTERVAL;
     let mut dirty = false;
+    // mpv sends no change event for `display-sync-active`: read it twice a second.
+    let mut sync_read = Instant::now();
     while !stop.load(Ordering::SeqCst) {
         // SAFETY: this thread is the only one waiting for events on this handle.
         let event = unsafe { &*mpv.wait_event(0.25) };
@@ -995,8 +1046,16 @@ fn event_loop(
             let _ = tuner.set_compare(compare).map_err(|e| eprintln!("[player] compare: {e}"));
         }
         let lowered = tuner.poll();
+        let display_sync = (sync_read.elapsed() >= Duration::from_millis(500)).then(|| {
+            sync_read = Instant::now();
+            mpv.get_flag("display-sync-active").unwrap_or(false)
+        });
         {
             let mut s = snapshot.lock().expect("snapshot lock");
+            if let Some(active) = display_sync.filter(|&active| active != s.display_sync) {
+                s.display_sync = active;
+                dirty = true;
+            }
             match event.event_id {
                 EVENT_NONE => {}
                 EVENT_SHUTDOWN => break,
@@ -1058,6 +1117,9 @@ fn event_loop(
                         "estimated-vf-fps" => s.fps = f64v().unwrap_or(0.0),
                         "frame-drop-count" => s.dropped_frames = i64v().unwrap_or(0),
                         "decoder-frame-drop-count" => s.decoder_dropped_frames = i64v().unwrap_or(0),
+                        "estimated-display-fps" => s.display_fps = f64v().unwrap_or(0.0),
+                        "display-fps" => s.display_rate = f64v().unwrap_or(0.0),
+                        "vo-delayed-frame-count" => s.delayed_frames = i64v().unwrap_or(0),
                         "aid" => { s.aid = string(); urgent = true; }
                         "sid" => { s.sid = string(); urgent = true; }
                         "track-list" => { s.tracks = read_tracks(&mpv); urgent = true; }
@@ -1139,6 +1201,16 @@ mod tests {
         assert_eq!(value(&rtx, "d3d11-adapter"), vec!["NVIDIA"]);
         assert!(value(&rtx, "vf")[0].contains("scaling-mode=nvidia") && value(&rtx, "vf")[0].contains("nvidia-true-hdr"));
         assert!(value(&rtx, "profile").is_empty()); // RTX disables the fast profile
+
+        let advanced = startup_options(
+            &VideoConfig { audio_passthrough: true, subtitle_codepage: "cp1256".into(), ..Default::default() },
+            false,
+            None,
+        );
+        assert_eq!(value(&advanced, "audio-spdif"), vec!["ac3,eac3,dts,dts-hd,truehd"]);
+        assert_eq!(value(&advanced, "sub-codepage"), vec!["cp1256"]);
+        assert!(value(&default, "audio-spdif").is_empty());
+        assert!(value(&default, "sub-codepage").is_empty());
     }
 
     #[test]

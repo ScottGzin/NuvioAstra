@@ -1,14 +1,15 @@
 // Details of a movie or series: artwork, info, genres, cast, seasons/episodes and the sources of
 // the chosen title or episode (asked to the addons only when the user opens them).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { FavoriteButton } from "../components/FavoriteButton";
+import { ResultRow } from "../components/ResultRow";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
-import { clock, episodeCode, libraryItemFromDetails, playbackItem, remaining, useLibraryVersion } from "../library";
+import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaRef, MetaVideo, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, RemoteResume, ShuffleView, StreamEntry, TitleProgress, TraktComment, TraktCommentsPage } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -16,13 +17,46 @@ interface Props {
    *  opened from Continue watching / history (selects that movie/episode and resumes). */
   item: MetaRef;
   onBack(): void;
+  /** Opens another title ("More Like This"); the screen remounts for it. */
+  onOpen(item: MetaPreview): void;
 }
+
+/** Short labels of the MDBList sources (`MetaExternalRating` in the original). */
+function ratingSource(source: string): string {
+  switch (source) {
+    case "imdb": return "IMDb";
+    case "tmdb": return "TMDB";
+    case "tomatoes": return "RT";
+    case "metacritic": return "MC";
+    case "trakt": return "Trakt";
+    case "letterboxd": return "LB";
+    case "audience": return "Audience";
+    case "mal": return "MAL";
+    default: return source;
+  }
+}
+
+function ratingValue(rating: { source: string; value: number }): string {
+  switch (rating.source) {
+    case "imdb":
+    case "mal":
+      return ` ${rating.value.toFixed(1)}`;
+    case "letterboxd":
+      return ` ${rating.value.toFixed(1)}/5`;
+    default:
+      return ` ${Math.round(rating.value)}%`;
+  }
+}
+
+const GUIDE_LABELS: Record<string, string> = {
+  nudity: "Nu", violence: "Violência", profanity: "Linguagem", alcohol: "Álcool e drogas", frightening: "Tensão",
+};
 
 function episodeLabel(v: MetaVideo): string {
   return v.season != null && v.episode != null ? t("T{season} E{episode}", { season: v.season, episode: v.episode }) : "";
 }
 
-export function Details({ item, onBack }: Props) {
+export function Details({ item, onBack, onOpen }: Props) {
   const { contentType, id } = item;
   const player = usePlayer();
   const [data, setData] = useState<DetailsData | null>(null);
@@ -33,6 +67,17 @@ export function Details({ item, onBack }: Props) {
   /** Torrent source being started by the P2P engine (before the player opens). */
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [trailerBusy, setTrailerBusy] = useState(false);
+  const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
+  const [comments, setComments] = useState<TraktCommentsPage | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentSelected, setCommentSelected] = useState<TraktComment | null>(null);
+  const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
+  const [metaSettings, setMetaSettings] = useState<MetaScreenSettings | null>(null);
+  const [guide, setGuide] = useState<ParentalGuide | null>(null);
+  const [shuffle, setShuffle] = useState<ShuffleView | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+  const [progressSource, setProgressSource] = useState("nuvio");
+  const [remoteResumes, setRemoteResumes] = useState<RemoteResume[]>([]);
   const [progress, setProgress] = useState<TitleProgress | null>(null);
   const version = useLibraryVersion();
   const sources = useRef<HTMLElement>(null);
@@ -45,6 +90,118 @@ export function Details({ item, onBack }: Props) {
       cancelled = true;
     };
   }, [id, version]);
+
+  useEffect(() => setWatchedKeys(data?.watchedKeys ?? []), [data?.watchedKeys]);
+
+  useEffect(() => {
+    if (!data) return;
+    let cancelled = false;
+    api.shuffleView(data.meta.id, data.meta.contentType).then((view) => !cancelled && setShuffle(view), () => {});
+    return () => { cancelled = true; };
+  }, [data?.meta.id]);
+
+  const setShuffleOption = (enabled: boolean, includeWatched: boolean) => {
+    if (!data) return;
+    const id = data.meta.id;
+    setShuffle((current) => current ? { ...current, enabled, includeWatched } : current);
+    void api.shuffleSet(id, enabled, includeWatched).then(setShuffle, () => {
+      void api.shuffleView(id, data.meta.contentType).then(setShuffle, () => {});
+    });
+  };
+
+  const playShuffled = async () => {
+    if (!data) return;
+    const video = await api.shufflePick(data.meta.id, data.meta.contentType, "detail", null, null);
+    if (video) choose(video);
+  };
+
+  // Discord presence on the details screen (the original's PresenceSnapshot.Details).
+  useEffect(() => {
+    if (!data) return;
+    void api.discordActivity({ title: data.meta.name, state: t("Vendo {title}", { title: data.meta.name }), poster: data.meta.poster, playing: false });
+    return () => { void api.discordActivity(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data?.meta.id]);
+
+
+  // Details screen settings (the original's MetaScreenSettingsRepository).
+  useEffect(() => {
+    api.settingsGet().then((v) => {
+      setMetaSettings(v.settings.metaScreen);
+      setShowGuide(v.settings.player.showParentalGuide);
+      setProgressSource(v.settings.player.progressSource || "nuvio");
+    }, () => {});
+  }, [version]);
+
+  useEffect(() => {
+    if (progressSource === "nuvio") { setRemoteResumes([]); return; }
+    let cancelled = false;
+    void api.trackingResume(id).then((list) => { if (!cancelled) setRemoteResumes(list); }, () => { if (!cancelled) setRemoteResumes([]); });
+    return () => { cancelled = true; };
+  }, [progressSource, id]);
+
+  useEffect(() => {
+    if (!showGuide) return;
+    let cancelled = false;
+    api.parentalGuide(id).then((value) => !cancelled && setGuide(value), () => !cancelled && setGuide(null));
+    return () => { cancelled = true; };
+  }, [showGuide, id]);
+  const sectionOn = (key: string) => metaSettings?.sections.find((s) => s.key === key)?.enabled ?? true;
+
+  const watchedKey = (contentType: string, id: string, season: number | null, episode: number | null) => {
+    const raw = contentType.trim().toLowerCase();
+    const kind = ["series", "tv", "show", "tvshow", "anime"].includes(raw) ? "series" : contentType.trim();
+    return `${kind}:${id}:${season ?? -1}:${episode ?? -1}`;
+  };
+
+  /** Manually mark/unmark a movie or an episode as watched (synced with the account). */
+  const toggleWatched = (contentType: string, id: string, season: number | null, episode: number | null, name: string) => {
+    const key = watchedKey(contentType, id, season, episode);
+    const wasWatched = watchedKeys.includes(key);
+    setWatchedKeys((prev) => (wasWatched ? prev.filter((k) => k !== key) : [...prev, key]));
+    void api
+      .libraryToggleWatched({ id, contentType, name, poster: m.poster, releaseInfo: m.releaseInfo, season, episode, videoId: null, markedAtEpochMs: Date.now() })
+      .then((added) => {
+        if (added !== !wasWatched) setWatchedKeys(data?.watchedKeys ?? []);
+        refreshLibraryViews();
+      })
+      .catch(() => setWatchedKeys(data?.watchedKeys ?? []));
+  };
+
+  // TMDB recommendations of this title (the original's "More Like This", powered by TMDB).
+  useEffect(() => {
+    let cancelled = false;
+    setMoreLikeThis([]);
+    api.moreLikeThis(contentType, id).then(
+      (items) => !cancelled && setMoreLikeThis(items),
+      () => {},
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [contentType, id]);
+
+  // Trakt reviews of this title. The rail stays empty until the user is connected to Trakt
+  // (`trakt_comments` returns an empty page when not connected or when the setting is off).
+  const loadComments = useCallback((page: number) => {
+    setCommentsLoading(true);
+    api.traktComments(contentType, id, page).then(
+      (result) => {
+        setComments((current) => page === 1
+          ? result
+          : { ...result, items: [...(current?.items ?? []), ...result.items] });
+        setCommentsLoading(false);
+      },
+      () => setCommentsLoading(false),
+    );
+  }, [contentType, id]);
+
+  useEffect(() => {
+    if (!sectionOn("comments") || metaSettings?.traktCommentsEnabled === false) return;
+    setComments(null);
+    loadComments(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentType, id, metaSettings?.traktCommentsEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,8 +229,17 @@ export function Details({ item, onBack }: Props) {
   }, [contentType, id]);
 
   useEffect(() => {
-    // The panel is sticky on the right: keep it in view (series: chosen far down the episode list).
-    if (selected) sources.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    // The sources panel is a modal over the details: focus it so Escape and the keyboard work.
+    if (selected) requestAnimationFrame(() => sources.current?.focus());
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelected(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, [selected]);
 
   const episodes = useMemo(
@@ -90,7 +256,18 @@ export function Details({ item, onBack }: Props) {
       : progress.entries.find((e) => e.season === target.season && e.episode === target.episode);
   };
   const selectedEntry = entryFor(selected);
-  const resumeAt = !fromStart && selectedEntry?.inProgress ? selectedEntry.positionMs : null;
+  // When a tracking service is selected as the progress source, its percentage replaces the
+  // locally saved position (the original's "resume from the chosen provider").
+  const remote = progressSource !== "nuvio"
+    ? remoteResumes.find((item) => (item.season ?? null) === (selectedEntry?.season ?? null) && (item.episode ?? null) === (selectedEntry?.episode ?? null))
+      ?? remoteResumes.find((item) => item.season === null && item.episode === null && (selected === "movie" || (selectedEntry?.season ?? null) === null))
+    : undefined;
+  const remoteMs = remote && selectedEntry && selectedEntry.durationMs > 0
+    ? Math.round(remote.progressPercent / 100 * selectedEntry.durationMs)
+    : null;
+  const resumeAt = !fromStart
+    ? (remoteMs ?? (selectedEntry?.inProgress ? selectedEntry.positionMs : null))
+    : null;
 
   const choose = (target: MetaVideo | "movie", start = false) => {
     setFromStart(start);
@@ -107,7 +284,7 @@ export function Details({ item, onBack }: Props) {
 
   const play = (stream: StreamEntry, prepared = false) => {
     if (!data) return;
-    if (stream.kind === "torrent" && !prepared) {
+    if (stream.kind === "torrent" && !prepared && !stream.debridPlayable) {
       setTorrent(stream);
       return;
     }
@@ -154,10 +331,31 @@ export function Details({ item, onBack }: Props) {
             <div className="meta-line">
               {[m.releaseInfo, m.runtime, m.imdbRating && `★ ${m.imdbRating}`, m.ageRating].filter(Boolean).join("   ")}
             </div>
+            {metaSettings?.showOverallRatings !== false && data.ratings.length > 0 && (
+              <div className="external-ratings" aria-label={t("Avaliações externas")}>
+                {data.ratings.map((rating) => (
+                  <span key={rating.source} className={`rating-chip ${rating.certified ? "certified" : ""}`} title={rating.source}>
+                    <b>{ratingSource(rating.source)}</b>
+                    {ratingValue(rating)}
+                  </span>
+                ))}
+              </div>
+            )}
             {m.genres.length > 0 && <div className="chips">{m.genres.map((g) => <span key={g} className="chip">{g}</span>)}</div>}
-            {m.description && <p className="details-desc">{m.description}</p>}
+            {guide && (
+              <div className="chips warning-chips" aria-label={t("Avisos de conteúdo")}>
+                {(Object.entries(guide) as [string, string | null][])
+                  .filter(([, severity]) => !!severity)
+                  .map(([label, severity]) => (
+                    <span key={label} className={`chip warning ${severity}`} title={t("Avisos de conteúdo")}>
+                      {t(GUIDE_LABELS[label] ?? label)}: {t(severity ?? "")}
+                    </span>
+                  ))}
+              </div>
+            )}
+            {sectionOn("overview") && m.description && <p className="details-desc">{m.description}</p>}
             {m.director.length > 0 && <div className="muted">{t("Direção:")} {m.director.join(", ")}</div>}
-            <div className="details-actions">
+            {sectionOn("actions") && <div className="details-actions">
               {!isSeries && (movieEntry?.inProgress ? (
                 <>
                   <button className="primary" data-testid="watch" onClick={() => choose("movie")}>▶ {t("Continuar de {time}", { time: clock(movieEntry.positionMs) })}</button>
@@ -171,20 +369,52 @@ export function Details({ item, onBack }: Props) {
                   {t("▶ Continuar")} {episodeCode(progress.resume)} · {clock(progress.resume.positionMs)}
                 </button>
               )}
-              {data.trailer && (
+              {sectionOn("trailers") && data.trailer && (
                 <button className="chip" data-testid="watch-trailer" disabled={trailerBusy} onClick={() => void playTrailer()}>
                   {trailerBusy ? t("Carregando trailer…") : t("▶ Assistir trailer")}
                 </button>
               )}
               <FavoriteButton item={libraryItemFromDetails(m)} variant="pill" />
-            </div>
+              {!isSeries && (
+                <button
+                  className={`chip ${watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? "active" : ""}`}
+                  data-testid="movie-watched"
+                  title={t("Marcar como assistido")}
+                  onClick={() => toggleWatched(m.contentType, m.id, null, null, m.name)}
+                >
+                  {watchedKeys.includes(watchedKey(m.contentType, m.id, null, null)) ? t("✓ Assistido") : t("Marcar como assistido")}
+                </button>
+              )}
+              {isSeries && (
+                <>
+                  <button className="chip" data-testid="shuffle-play" onClick={() => void playShuffled()}>🎲 {t("Embaralhar")}</button>
+                  <button
+                    className={`chip ${shuffle?.enabled ? "active" : ""}`}
+                    data-testid="shuffle-toggle"
+                    title={t("Embaralhar episódios")}
+                    onClick={() => setShuffleOption(!shuffle?.enabled, shuffle?.includeWatched ?? false)}
+                  >
+                    {t("Embaralhar episódios")}
+                  </button>
+                  {shuffle?.enabled && (
+                    <button
+                      className={`chip ${shuffle.includeWatched ? "active" : ""}`}
+                      data-testid="shuffle-watched"
+                      onClick={() => setShuffleOption(true, !shuffle.includeWatched)}
+                    >
+                      {t("Incluir assistidos")}
+                    </button>
+                  )}
+                </>
+              )}
+            </div>}
             {!isSeries && movieEntry && (
               <div className="muted small" data-testid="movie-progress">
                 {movieEntry.completed ? t("✓ Assistido") : [t("{time} assistidos", { time: clock(movieEntry.positionMs) }), remaining(movieEntry)].filter(Boolean).join(" · ")}
               </div>
             )}
-            <div className="muted small">{t("Detalhes por")} {addonLabel(data.addonName)}</div>
-            <dl className="facts">
+            {sectionOn("production") && <div className="muted small">{t("Detalhes por")} {addonLabel(data.addonName)}</div>}
+            {sectionOn("details") && <dl className="facts">
               {(
                 [
                   [t("Classificação"), m.ageRating],
@@ -200,14 +430,14 @@ export function Details({ item, onBack }: Props) {
                 .map(([k, v]) => (
                   <div key={k} className="fact"><dt>{k}</dt><dd>{v}</dd></div>
                 ))}
-            </dl>
+            </dl>}
           </div>
         </div>
 
         {player.error && <div className="row-error">{t("Falha ao reproduzir:")} {player.error}</div>}
 
-        {isSeries && (
-          <section className="details-section">
+        {isSeries && sectionOn("episodes") && (
+          <section className={`details-section ${metaSettings?.episodeCardStyle === "list" ? "episode-list" : ""}`}>
             <div className="season-tabs" role="tablist">
               {data.seasons.map((s) => (
                 <button key={s} role="tab" aria-selected={season === s} className={`chip ${season === s ? "active" : ""}`} onClick={() => setSeason(s)}>
@@ -218,8 +448,10 @@ export function Details({ item, onBack }: Props) {
             <div className="episodes">
               {episodes.map((v) => {
                 const e = entryFor(v);
+                const epKey = watchedKey(m.contentType, m.id, v.season ?? null, v.episode ?? null);
                 return (
-                  <button key={v.id} className={`episode ${selected !== "movie" && selected?.id === v.id ? "active" : ""}`} onClick={() => choose(v)} data-episode={`${v.season}:${v.episode}`}>
+                  <div key={v.id} className={`episode-wrap ${metaSettings?.blurUnwatchedEpisodes && !e?.completed ? "episode-blurred" : ""}`}>
+                    <button className={`episode ${selected !== "movie" && selected?.id === v.id ? "active" : ""}`} onClick={() => choose(v)} data-episode={`${v.season}:${v.episode}`}>
                     <div className="episode-thumb">
                       {v.thumbnail && <img src={v.thumbnail} alt="" loading="lazy" decoding="async" />}
                       {e && !e.completed && e.fraction > 0 && <div className="progress"><div style={{ width: `${Math.max(2, e.fraction * 100)}%` }} /></div>}
@@ -234,14 +466,22 @@ export function Details({ item, onBack }: Props) {
                       )}
                       {v.overview && <div className="episode-overview">{v.overview}</div>}
                     </div>
-                  </button>
+                    </button>
+                    <button
+                      className={`watched-toggle ${watchedKeys.includes(epKey) ? "on" : ""}`}
+                      data-episode-watched={`${v.season}:${v.episode}`}
+                      title={t("Marcar como assistido")}
+                      aria-label={t("Marcar como assistido")}
+                      onClick={() => toggleWatched(m.contentType, m.id, v.season ?? null, v.episode ?? null, v.title)}
+                    >✓</button>
+                  </div>
                 );
               })}
             </div>
           </section>
         )}
 
-        {m.cast.length > 0 && (
+        {m.cast.length > 0 && sectionOn("cast") && (
           <section className="details-section">
             <h2>{t("Elenco")}</h2>
             <div className="cast">
@@ -255,10 +495,53 @@ export function Details({ item, onBack }: Props) {
             </div>
           </section>
         )}
+
+        {sectionOn("comments") && metaSettings?.traktCommentsEnabled !== false && (comments?.items.length || commentsLoading) ? (
+          <section className="details-section" data-testid="details-comments">
+            <h2>{t("Comentários")}</h2>
+            <div className="comment-rail">
+              {comments?.items.map((comment) => (
+                <button key={comment.id} className="comment-card" data-testid="comment-card" onClick={() => setCommentSelected(comment)}>
+                  <span className="muted small">@{comment.username || comment.author}</span>
+                  {comment.review && <span className="stream-tag">{t("Review")}</span>}
+                  {comment.spoiler && <span className="stream-tag">{t("Spoiler")}</span>}
+                  <span className="comment-body">{comment.spoiler ? t("Este comentário contém spoilers.") : comment.text}</span>
+                  <span className="muted small">
+                    {comment.rating !== null && `${comment.rating}/10 · `}{comment.likes} {t("curtidas")}
+                  </span>
+                </button>
+              ))}
+              {commentsLoading && <div className="muted small">{t("Carregando…")}</div>}
+            </div>
+            {comments && comments.page < comments.pageCount && (
+              <button className="ghost" disabled={commentsLoading} onClick={() => loadComments(comments.page + 1)}>{t("Carregar mais")}</button>
+            )}
+          </section>
+        ) : null}
+
+        {moreLikeThis.length > 0 && sectionOn("moreLikeThis") && (
+          <section className="details-section more-like-this" data-testid="more-like-this">
+            <ResultRow title={t("Mais como este")} addonName="" items={moreLikeThis} onOpen={onOpen} />
+            <div className="muted small tmdb-credit">{t("Powered by TMDB")}</div>
+          </section>
+        )}
         </div>
 
-        {selected && (
-          <aside className="sources-panel" ref={sources} aria-label={t("Fontes")} data-testid="sources-panel">
+        </div>
+      </div>
+
+      {selected && (
+        <div className="sources-overlay" onClick={() => setSelected(null)}>
+          <aside
+            className="sources-panel"
+            ref={sources}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("Fontes")}
+            data-testid="sources-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
             <header className="sources-header">
               <div>
                 <h2>{t("Fontes")}</h2>
@@ -270,12 +553,16 @@ export function Details({ item, onBack }: Props) {
               <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={() => setSelected(null)}>✕</button>
             </header>
             <div className="sources-body">
-              <StreamList contentType={m.contentType} id={selected === "movie" ? m.id : selected.id} onPlay={play} />
+              <StreamList
+                contentType={m.contentType}
+                id={selected === "movie" ? m.id : selected.id}
+                onPlay={play}
+                downloadProgress={playbackItem(m, selected === "movie" ? null : selected)}
+              />
             </div>
           </aside>
-        )}
         </div>
-      </div>
+      )}
       {torrent && (
         <TorrentStart
           stream={torrent}
@@ -286,6 +573,30 @@ export function Details({ item, onBack }: Props) {
             play(s, true);
           }}
         />
+      )}
+      {commentSelected && (
+        <div className="comment-sheet-backdrop" role="presentation" onClick={() => setCommentSelected(null)}>
+          <div className="comment-sheet" role="dialog" aria-modal="true" data-testid="comment-detail" onClick={(event) => event.stopPropagation()}>
+            <div className="sources-header">
+              <div>
+                <h2>{commentSelected.author}</h2>
+                <div className="muted small">@{commentSelected.username || commentSelected.author}</div>
+              </div>
+              <button className="icon-btn" aria-label={t("Fechar")} onClick={() => setCommentSelected(null)}>✕</button>
+            </div>
+            <p className="comment-sheet-body">
+              {commentSelected.spoiler && !commentSelected.revealed
+                ? t("Este comentário contém spoilers e foi ocultado.")
+                : commentSelected.text}
+            </p>
+            {commentSelected.spoiler && !commentSelected.revealed && (
+              <button className="ghost" onClick={() => setCommentSelected({ ...commentSelected, revealed: true })}>{t("Mostrar comentário")}</button>
+            )}
+            <div className="muted small">
+              {commentSelected.rating !== null && `${commentSelected.rating}/10 · `}{commentSelected.likes} {t("curtidas")} · {commentSelected.createdAt.slice(0, 10)}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

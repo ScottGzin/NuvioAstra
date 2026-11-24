@@ -10,7 +10,6 @@ use crate::url::build_catalog_url;
 use crate::CoreError;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::OnceCell;
 
 type Shared = Arc<OnceCell<Result<Arc<str>, Arc<CoreError>>>>;
@@ -23,12 +22,7 @@ pub struct AddonClient {
 
 impl AddonClient {
     pub fn new() -> Result<Self, CoreError> {
-        let http = reqwest::Client::builder()
-            .connect_timeout(Duration::from_secs(60))
-            .read_timeout(Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .user_agent(concat!("NuvioNextGen/", env!("CARGO_PKG_VERSION")))
-            .build()?;
+        let http = crate::net::http_client()?;
         Ok(Self { http, inflight: Arc::default() })
     }
 

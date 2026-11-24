@@ -84,6 +84,11 @@ Astra only patches the fields it has into the blob it just read, and never creat
 blob on the account these preferences stay local. The first time, the account's preferences win and
 what was on the computer is kept in `settings-before-sync.json`.
 
+The blob also carries the poster card format (`poster_card_style_settings_payload`) and the
+interface language (`theme_settings.selected_app_language`: `pt-BR`, `en` or `ar`). The original
+keeps that language on the device and drops the key when it pushes its theme, so a blob without it
+leaves the language of this computer as it is, and "follow the computer" is never sent.
+
 Not synchronized: Astra-only options (motion, image improvement, P2P), hero choices (the original's payload has
 no field for them; Astra follows the ones of the Nuvio Desktop on the same computer, read only) and live TV
 favorites (local in the original too), provider/debrid credentials, media servers, plugins, watch

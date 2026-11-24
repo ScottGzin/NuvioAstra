@@ -105,6 +105,13 @@ export const UpdatesLine = () => (
   </Svg>
 );
 
+export const ServicesLine = () => (
+  <Svg>
+    <path d="M10 13.5a4.5 4.5 0 0 0 6.4 0l2.3-2.3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2" />
+    <path d="M14 10.5a4.5 4.5 0 0 0-6.4 0l-2.3 2.3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />
+  </Svg>
+);
+
 export const PendingLine = () => (
   <Svg>
     <circle cx="12" cy="12" r="8.5" />

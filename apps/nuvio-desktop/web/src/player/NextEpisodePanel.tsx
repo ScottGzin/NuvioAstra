@@ -6,7 +6,7 @@ import { api } from "../api";
 import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, playbackItem } from "../library";
-import type { MetaVideo, StreamEntry } from "../types";
+import type { MetaVideo, PlayerSettings, StreamEntry } from "../types";
 import { episodeTitle, type EpisodeContext } from "./episodes";
 import { usePlayer } from "./PlayerContext";
 import { t } from "../i18n";
@@ -17,14 +17,17 @@ interface Props {
   /** The current episode reached its end (credits): it counts as watched when the next one starts. */
   finished(): boolean;
   onClose(): void;
+  /** Settings → Reprodução: autoplay of the next episode with source fallback. */
+  autoPlay?: PlayerSettings | null;
 }
 
-export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
+export function NextEpisodePanel({ context, next, finished, onClose, autoPlay }: Props) {
   const player = usePlayer();
   const { meta } = context;
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [starting, setStarting] = useState(false);
   const [resumeAt, setResumeAt] = useState<number | null>(null);
+  const [canShuffle, setCanShuffle] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,15 +42,77 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
 
   // Preparing a torrent: only its own Cancel ends it.
   useEffect(() => {
+    let cancelled = false;
+    api.shuffleView(meta.id, meta.contentType).then((view) => !cancelled && setCanShuffle(view.enabled), () => {});
+    return () => { cancelled = true; };
+  }, [meta.id]);
+
+  const shufflePlay = async () => {
+    const picked = await api.shufflePick(meta.id, meta.contentType, "playback", context.video.season ?? null, context.video.episode ?? null);
+    if (!picked) return;
+    const groups = await api.streams(meta.contentType, picked.id);
+    const stream = groups.flatMap((group) => group.streams).find((candidate) =>
+      ["direct", "torrent", "debrid", "youTube"].includes(candidate.kind));
+    if (!stream) return;
+    const ok = await player.play(() => api.playStream(stream.key, null, playbackItem(meta, picked)), {
+      title: meta.name,
+      subtitle: episodeTitle(picked),
+      view: "full",
+      returnTo: null,
+      episode: { meta, video: picked },
+      torrent: stream.kind === "torrent" && !stream.debridPlayable,
+    });
+    if (ok) onClose();
+  };
+
+  useEffect(() => {
     if (!torrent) return;
     const block = (e: KeyboardEvent) => e.key === "Escape" && e.stopPropagation();
     window.addEventListener("keydown", block, true);
     return () => window.removeEventListener("keydown", block, true);
   }, [torrent]);
 
+  // `PlayerNextEpisodeAutoPlay`: after a short countdown, start the first eligible source. If it
+  // cannot start, try the next one (up to `autoPlayFallbackMaxSources`) before leaving the picker.
+  useEffect(() => {
+    if (!autoPlay?.autoPlayNextEpisodeEnabled) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const groups = await api.streams(meta.contentType, next.id);
+          let candidates = groups.flatMap((group) => group.streams).filter((stream) =>
+            ["direct", "torrent", "debrid", "youTube"].includes(stream.kind));
+          if (autoPlay.autoPlayMode === "regexMatch" && autoPlay.autoPlayRegex.trim()) {
+            let re: RegExp | null = null;
+            try { re = new RegExp(autoPlay.autoPlayRegex.trim(), "i"); } catch { re = null; }
+            if (re) candidates = candidates.filter((stream) => re!.test([stream.name, stream.description, stream.filename].filter(Boolean).join(" ")));
+          }
+          for (const stream of candidates.slice(0, Math.max(1, autoPlay.autoPlayFallbackMaxSources))) {
+            if (cancelled) return;
+            const resume = resumeAt !== null ? resumeAt / 1000 : null;
+            const ok = await player.play(() => api.playStream(stream.key, resume, playbackItem(meta, next), finished()), {
+              title: meta.name,
+              subtitle: episodeTitle(next),
+              view: "full",
+              returnTo: null,
+              episode: { meta, video: next },
+              torrent: stream.kind === "torrent" && !stream.debridPlayable,
+            });
+            if (ok) return; // the panel unmounts with the new session
+          }
+        } catch {
+          // Keep the manual picker on screen when no source could start.
+        }
+      })();
+    }, 3000);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlay?.autoPlayNextEpisodeEnabled, autoPlay?.autoPlayMode, autoPlay?.autoPlayRegex, autoPlay?.autoPlayFallbackMaxSources, meta.id, next.id, resumeAt]);
+
   const play = async (stream: StreamEntry, prepared = false) => {
     if (starting) return;
-    if (stream.kind === "torrent" && !prepared) {
+    if (stream.kind === "torrent" && !prepared && !stream.debridPlayable) {
       void api.playerCommand({ type: "setPaused", paused: true });
       setTorrent(stream);
       return;
@@ -87,6 +152,9 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
               {resumeAt !== null && ` · ${t("continua de {time}", { time: clock(resumeAt) })}`}
             </div>
           </div>
+          {canShuffle && (
+            <button className="chip" data-testid="shuffle-playback" onClick={() => void shufflePlay()}>🎲 {t("Embaralhar")}</button>
+          )}
           <button className="icon-btn" aria-label={t("Fechar fontes")} onClick={onClose}>✕</button>
         </header>
         <div className="sources-body">
@@ -94,7 +162,7 @@ export function NextEpisodePanel({ context, next, finished, onClose }: Props) {
           {starting ? (
             <div className="muted"><span className="spinner" aria-hidden /> {t("Abrindo o próximo episódio…")}</div>
           ) : (
-            <StreamList contentType={meta.contentType} id={next.id} onPlay={(stream) => void play(stream)} />
+            <StreamList contentType={meta.contentType} id={next.id} onPlay={(stream) => void play(stream)} downloadProgress={playbackItem(meta, next)} />
           )}
         </div>
       </aside>

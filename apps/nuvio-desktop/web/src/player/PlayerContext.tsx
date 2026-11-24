@@ -5,8 +5,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorText } from "../api";
 import { listen } from "../tauri";
-import type { PlayerInfo, PlayerSnapshot } from "../types";
+import type { DownloadRequest, PlayerCommand, PlayerInfo, PlayerSnapshot } from "../types";
 import type { EpisodeContext } from "./episodes";
+import { usePartySync } from "./usePartySync";
+import type { PartyStatus } from "./party";
 
 /** `embedded`: video inside a screen area (Live TV preview). `full`: the whole window. */
 export type PlayerView = "embedded" | "full";
@@ -23,6 +25,8 @@ export interface PlayerSession {
   episode?: EpisodeContext;
   /** Played by the P2P engine. */
   torrent?: boolean;
+  /** What "Baixar" in the player downloads. */
+  download?: DownloadRequest;
 }
 
 interface PlayerApi {
@@ -34,6 +38,17 @@ interface PlayerApi {
   close(): Promise<void>;
   windowFullscreen: boolean;
   setWindowFullscreen(on: boolean): Promise<void>;
+  /** Watch Party (Supabase Realtime broadcast): room state and actions for the player overlay. */
+  party: {
+    status: PartyStatus;
+    room: string;
+    isHost: boolean;
+    lastError: string | null;
+    configured: boolean;
+    join(room: string): void;
+    leave(): void;
+    noteLocalCommand(): void;
+  };
 }
 
 const Ctx = createContext<PlayerApi | null>(null);
@@ -50,6 +65,33 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [windowFullscreen, setFs] = useState(false);
   const sessionId = useRef(0);
+  const [partyConfig, setPartyConfig] = useState<{ url: string; key: string }>({ url: "", key: "" });
+  const [partyRoom, setPartyRoom] = useState("");
+  const actorId = useRef(
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `p-${Math.random().toString(36).slice(2)}-${Date.now()}`,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    api.partyConfig().then((config) => { if (!cancelled) setPartyConfig(config); }, () => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const partySend = useCallback((command: PlayerCommand) => {
+    void api.playerCommand(command);
+  }, []);
+  const party = usePartySync({
+    enabled: session !== null && Boolean(partyConfig.url && partyConfig.key),
+    room: "",
+    actorId: actorId.current,
+    supabaseUrl: partyConfig.url,
+    supabaseKey: partyConfig.key,
+    snapshot,
+    sendCommand: partySend,
+    title: session?.title,
+  });
 
   useEffect(
     () =>
@@ -101,9 +143,20 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setSession((s) => (s ? { ...s, view } : s));
   }, []);
 
+  const partyApi = useMemo(() => ({
+    status: party.status,
+    room: partyRoom,
+    isHost: party.isHost,
+    lastError: party.lastError,
+    configured: Boolean(partyConfig.url && partyConfig.key),
+    join: (room: string) => { setPartyRoom(room); party.startRoom(room); },
+    leave: () => { party.leaveRoom(); setPartyRoom(""); },
+    noteLocalCommand: party.noteLocalCommand,
+  }), [party.status, party.isHost, party.lastError, party.startRoom, party.leaveRoom, party.noteLocalCommand, partyRoom, partyConfig]);
+
   const value = useMemo(
-    () => ({ session, snapshot, error, play, setView, close, windowFullscreen, setWindowFullscreen }),
-    [session, snapshot, error, play, setView, close, windowFullscreen, setWindowFullscreen],
+    () => ({ session, snapshot, error, play, setView, close, windowFullscreen, setWindowFullscreen, party: partyApi }),
+    [session, snapshot, error, play, setView, close, windowFullscreen, setWindowFullscreen, partyApi],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

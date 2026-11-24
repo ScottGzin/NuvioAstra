@@ -1,13 +1,18 @@
 //! Typed commands used by the React UI for app data (the player commands are in `main.rs`).
 //! Every command returns display data only: addon URLs, stream URLs and tokens stay in Rust.
 
-use crate::services::{addons, collections, fonts, home, livetv, meta, playback, search};
+use crate::services;
+use crate::services::{addons, badges, collections, debrid, discord, discover, downloads, fonts, home, livetv, matches, mdblist, meta, parental, playback, plugins, search, segments, servers, tmdb, trakt, tracking};
+use crate::watching;
 use crate::streams::{self, StreamGroup};
 use crate::AppState;
-use nuvio_core::catalog::CatalogPage;
+use nuvio_core::catalog::{CatalogPage, MetaPreview};
+use nuvio_core::downloads::{DownloadItem, DownloadStatus, is_supported_download_url};
+use nuvio_core::meta::MetaVideo;
+use nuvio_core::shuffle::{Picker, ShuffleSettings};
 use nuvio_store::library;
 use nuvio_store::nextgen::MigrationRecord;
-use nuvio_store::settings::ProfileSettings;
+use nuvio_store::settings::{ContinueWatchingSettings, ProfileSettings};
 use serde::Serialize;
 use tauri::State;
 
@@ -36,6 +41,8 @@ pub struct HomeView {
     /// Catalog keys whose first page feeds the hero (may include catalogs hidden from Home).
     pub hero_sources: Vec<String>,
     pub rows: Vec<home::HomeRow>,
+    /// Continue watching preferences (Settings → Início → Continuar assistindo).
+    pub continue_watching: ContinueWatchingSettings,
 }
 
 /// Home rows of the active profile, with its Home settings from the NextGen store (imported
@@ -43,41 +50,271 @@ pub struct HomeView {
 #[tauri::command]
 pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
     let loaded = state.addons.loaded().await?;
-    let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type);
+    let profile_settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
+    let settings = profile_settings.home;
+    let tmdb_available = tmdb::collections_enabled(&state.app_store, loaded.profile);
+    let trakt_available = tracking_value(&state, "trakt:clientId").is_some();
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type, tmdb_available, trakt_available);
     Ok(HomeView {
         hero_enabled: settings.hero_enabled,
         hero_sources: home::hero_sources(&loaded.manifests, &settings),
         rows: home::home_rows(&loaded.manifests, Some(&settings), &collections),
+        continue_watching: profile_settings.continue_watching,
     })
 }
 
 /// One page of a catalog identified by its home key `<manifestId>:<type>:<catalogId>`; `genre`
 /// for the catalogs of a collection folder filtered by genre.
 #[tauri::command]
-pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<u32>, genre: Option<String>) -> Result<CatalogPage, String> {
+pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<u32>, genre: Option<String>, surface: Option<String>) -> Result<CatalogPage, String> {
     let loaded = state.addons.loaded().await?;
     let mut parts = key.splitn(3, ':');
     let (manifest_id, content_type, catalog_id) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-    let manifest = loaded.manifests.iter().find(|m| m.id == manifest_id).ok_or("addon not enabled")?;
+    // Several installed addons can share a manifest id: take the declared one when it has this
+    // catalog, else any enabled addon that does (`resolveCatalog` in the original).
+    let (manifest, catalog) = collections::resolve_catalog(&loaded.manifests, manifest_id, content_type, catalog_id)
+        .ok_or("catalog not found")?;
     let mut page = state
         .addons
         .client
-        .fetch_catalog_page(manifest, content_type, catalog_id, genre.as_deref().filter(|g| !g.trim().is_empty()), skip)
+        .fetch_catalog_page(manifest, &catalog.content_type, &catalog.id, genre.as_deref().filter(|g| !g.trim().is_empty()), skip)
         .await
         .map_err(|e| e.to_string())?;
     // `hideUnreleasedContent` (Settings → Início); paging still follows the raw page size.
-    if state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home.hide_unreleased_content {
+    let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
+    if settings.home.hide_unreleased_content {
         let today = home::today_iso();
         page.items.retain(|item| !home::is_unreleased(item, &today));
     }
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    apply_custom_posters(&mut page.items, &pattern, &screens, surface.as_deref().unwrap_or("home"));
     Ok(page)
 }
 
 #[tauri::command]
 pub async fn search_all(state: State<'_, AppState>, query: String) -> Result<Vec<search::SearchSection>, String> {
     let loaded = state.addons.loaded().await?;
-    Ok(search::search(&state.addons.client, &loaded.manifests, &query).await)
+    let mut sections = search::search(&state.addons.client, &loaded.manifests, &query).await;
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    for section in &mut sections {
+        apply_custom_posters(&mut section.items, &pattern, &screens, "search");
+    }
+    Ok(sections)
+}
+
+/// Genre options of a Home catalog key (`<manifestId>:<type>:<catalogId>`), used by "See all".
+#[derive(Debug, Clone, Serialize)]
+pub struct CatalogGenres {
+    pub options: Vec<String>,
+    pub required: bool,
+}
+
+#[tauri::command]
+pub async fn catalog_genres(state: State<'_, AppState>, key: String) -> Result<CatalogGenres, String> {
+    let loaded = state.addons.loaded().await?;
+    let mut parts = key.splitn(3, ':');
+    let (manifest_id, content_type, catalog_id) = (
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+        parts.next().unwrap_or(""),
+    );
+    // The same resolver the Home rows and `catalog_page` use, so the keys always agree.
+    let (_, catalog) = collections::resolve_catalog(&loaded.manifests, manifest_id, content_type, catalog_id)
+        .ok_or("catalog not found")?;
+    Ok(match catalog.genre_extra() {
+        Some(extra) => CatalogGenres { options: extra.options.clone(), required: extra.is_required },
+        None => CatalogGenres { options: Vec::new(), required: false },
+    })
+}
+
+/// One page of a TMDB collection source (`TmdbCollectionSourceResolver`). The source's kind,
+/// media type, sort and filters are read from the account's copy of the collections, never taken
+/// from the UI; `page` is 1-based, as the original's `skip` for these sources.
+#[tauri::command]
+pub async fn tmdb_source_page(
+    state: State<'_, AppState>,
+    collection_id: String,
+    folder_id: String,
+    source_id: String,
+    page: u32,
+) -> Result<CatalogPage, String> {
+    let loaded = state.addons.loaded().await?;
+    let access = tmdb::access(&state.app_store, loaded.profile).ok_or("Chave da API do TMDB não configurada.")?;
+    let stored = collections::stored(&state.app_store, loaded.profile);
+    let source = collections::tmdb_source(&stored, &collection_id, &folder_id, &source_id).ok_or("Fonte do TMDB não encontrada.")?;
+    let mut result = tmdb::page(&state.addons.client, &access, &source, page).await?;
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    apply_custom_posters(&mut result.items, &pattern, &screens, "collections");
+    Ok(result)
+}
+
+/// One page of a Trakt folder source (`TraktPublicListSourceResolver`). The list id, media type and
+/// sort are read from the account's copy of the collections, never from the UI.
+#[tauri::command]
+pub async fn trakt_source_page(
+    state: State<'_, AppState>,
+    collection_id: String,
+    folder_id: String,
+    source_id: String,
+    page: u32,
+) -> Result<CatalogPage, String> {
+    let loaded = state.addons.loaded().await?;
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let stored = collections::stored(&state.app_store, loaded.profile);
+    let source = collections::trakt_source(&stored, &collection_id, &folder_id, &source_id).ok_or("Fonte do Trakt não encontrada.")?;
+    let mut result = trakt::list_items_page(&client_id, &source, page).await?;
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    apply_custom_posters(&mut result.items, &pattern, &screens, "collections");
+    Ok(result)
+}
+
+/// Public Trakt list picker: search, trending and popular, plus resolving a typed id/URL/slug.
+async fn trakt_optional_token(state: &AppState, client_id: &str) -> Option<String> {
+    if tracking::connected(&state.app_store, state.active_profile(), "trakt") {
+        trakt_access_token(state, state.active_profile(), client_id).await
+    } else {
+        None
+    }
+}
+
+#[tauri::command]
+pub async fn trakt_search_lists(state: State<'_, AppState>, query: String) -> Result<Vec<trakt::ListResult>, String> {
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let token = trakt_optional_token(&state, &client_id).await;
+    trakt::search_lists_authed(&client_id, token.as_deref(), &query).await
+}
+
+#[tauri::command]
+pub async fn trakt_trending_lists(state: State<'_, AppState>) -> Result<Vec<trakt::ListResult>, String> {
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let token = trakt_optional_token(&state, &client_id).await;
+    trakt::prominent_lists_authed(&client_id, token.as_deref(), "trending").await
+}
+
+#[tauri::command]
+pub async fn trakt_popular_lists(state: State<'_, AppState>) -> Result<Vec<trakt::ListResult>, String> {
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let token = trakt_optional_token(&state, &client_id).await;
+    trakt::prominent_lists_authed(&client_id, token.as_deref(), "popular").await
+}
+
+#[tauri::command]
+pub async fn trakt_resolve_list_input(state: State<'_, AppState>, input: String) -> Result<trakt::ResolvedList, String> {
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let token = trakt_optional_token(&state, &client_id).await;
+    trakt::resolve_list_input_authed(&client_id, token.as_deref(), &input).await
+}
+
+#[tauri::command]
+pub async fn trakt_my_lists(state: State<'_, AppState>) -> Result<Vec<trakt::ListResult>, String> {
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let token = trakt_optional_token(&state, &client_id).await.ok_or("Conecte a conta Trakt para ver suas listas.")?;
+    trakt::my_lists(&client_id, &token).await
+}
+
+/// Access token of a connected Trakt account, refreshed once when expired (the original's
+/// `authorizedHeaders`). No token and no refresh means "no comments", never an error.
+async fn trakt_access_token(state: &AppState, profile: i64, client_id: &str) -> Option<String> {
+    let token = state.app_store.tracking_token(profile, "trakt").ok().flatten()?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as i64;
+    if token.expires_at_epoch_ms > now + 30_000 && !token.access_token.is_empty() {
+        return Some(token.access_token);
+    }
+    let refresh = token.refresh_token.as_deref().filter(|value| !value.is_empty())?;
+    let secret = tracking_value(state, "trakt:clientSecret")?;
+    let response = reqwest::Client::new()
+        .post("https://api.trakt.tv/oauth/token")
+        .header("Content-Type", "application/json")
+        .header("trakt-api-version", "2")
+        .header("trakt-api-key", client_id)
+        .json(&serde_json::json!({
+            "grant_type": "refresh_token",
+            "refresh_token": refresh,
+            "client_id": client_id,
+            "client_secret": secret,
+        }))
+        .send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    let body: serde_json::Value = response.json().await.ok()?;
+    let access = body.get("access_token")?.as_str()?.to_string();
+    let next = nuvio_store::tracking::TrackingToken {
+        access_token: access.clone(),
+        refresh_token: body.get("refresh_token").and_then(serde_json::Value::as_str).map(str::to_string),
+        expires_at_epoch_ms: now + body.get("expires_in").and_then(serde_json::Value::as_i64).unwrap_or(7_200) * 1_000,
+    };
+    let _ = state.app_store.set_tracking_token(profile, "trakt", Some(next));
+    Some(access)
+}
+
+/// Trakt comments of a title, exactly as the original: OAuth required, `sort=likes`, 100 per page,
+/// 404 → empty, section hidden when Trakt is not connected.
+#[tauri::command]
+pub async fn trakt_comments(
+    state: State<'_, AppState>,
+    content_type: String,
+    id: String,
+    page: Option<u32>,
+) -> Result<trakt::TraktCommentsPage, String> {
+    let loaded = state.addons.loaded().await?;
+    let profile = loaded.profile;
+    let empty = trakt::TraktCommentsPage { items: Vec::new(), page: page.unwrap_or(1).max(1), page_count: 1, item_count: 0 };
+    let settings = state.app_store.profile_settings(profile).map_err(|e| e.to_string())?;
+    if !settings.meta_screen.trakt_comments_enabled || !tracking::connected(&state.app_store, profile, "trakt") {
+        return Ok(empty);
+    }
+    let client_id = tracking_value(&state, "trakt:clientId").ok_or("Client ID do Trakt não configurado.")?;
+    let Some(token) = trakt_access_token(&state, profile, &client_id).await else { return Ok(empty) };
+    trakt::comments_page(&client_id, &token, &content_type, &id, page.unwrap_or(1)).await
+}
+
+/// Discover picker of the active profile: the addons' listable catalogs, the type options and the
+/// catalog remembered from the last visit (`services::discover`).
+#[tauri::command]
+pub async fn discover_sources(state: State<'_, AppState>) -> Result<discover::View, String> {
+    let loaded = state.addons.loaded().await?;
+    let sources = discover::sources(&loaded.manifests);
+    let saved = state.app_store.discover_selection().map_err(|e| e.to_string())?.remove(&loaded.profile);
+    let selected_key = discover::resolve_catalog(&sources, saved.as_deref(), None).map(|s| s.key.clone());
+    Ok(discover::View { type_options: discover::type_options(&sources), sources, selected_key })
+}
+
+/// Remembers the catalog chosen in Discover for the active profile (`DiscoverSelectionStorage`).
+#[tauri::command]
+pub fn discover_select(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let profile = state.active_profile();
+    state.app_store.set_discover_selection(profile, key).map_err(|e| e.to_string())
+}
+
+/// One Discover page of the catalog `key`, with the original's paging rules: a page that brought
+/// nothing new advances the skip by the raw page size (at most three times in a row), and a full
+/// page paginates even without a `skip` extra. `existing_keys` are the `type:id` of the items
+/// already on screen; `reset` starts a new catalog/genre.
+#[tauri::command]
+pub async fn discover_page(
+    state: State<'_, AppState>,
+    key: String,
+    genre: Option<String>,
+    skip: u32,
+    reset: bool,
+    existing_keys: Vec<String>,
+    duplicate_pages: u32,
+) -> Result<discover::Page, String> {
+    let loaded = state.addons.loaded().await?;
+    let (manifest, catalog) = discover::catalog(&loaded.manifests, &key).ok_or("catalog not found")?;
+    let mut page = state
+        .addons
+        .client
+        .fetch_catalog_page(manifest, &catalog.content_type, &catalog.id, genre.as_deref().filter(|g| !g.trim().is_empty()), Some(skip).filter(|s| *s > 0))
+        .await
+        .map_err(|e| e.to_string())?;
+    // `hideUnreleasedContent`, as on Home; paging still follows the raw page size.
+    if state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home.hide_unreleased_content {
+        let today = home::today_iso();
+        page.items.retain(|item| !home::is_unreleased(item, &today));
+    }
+    Ok(discover::page(catalog.supports_pagination(), skip, reset, &existing_keys, duplicate_pages, page))
 }
 
 /// Search with results as they arrive: `search-part` events (one per catalog with results), then
@@ -98,13 +335,82 @@ pub async fn search_stream(app: tauri::AppHandle, state: State<'_, AppState>, qu
 #[tauri::command]
 pub async fn meta_details(state: State<'_, AppState>, content_type: String, id: String) -> Result<meta::Details, String> {
     let loaded = state.addons.loaded().await?;
-    meta::details(&state.addons.client, &loaded.manifests, &content_type, &id).await
+    let mut details = meta::details(&state.addons.client, &loaded.manifests, &content_type, &id).await?;
+    // Settings → Services → TMDB: fills what the modules are switched on for (the addon's data is
+    // kept where TMDB has nothing). Nothing is fetched when TMDB is off or has no key.
+    let settings = tmdb::settings(&state.app_store, loaded.profile);
+    if let Some(access) = tmdb::access(&state.app_store, loaded.profile) {
+        // A slow TMDB must not hold the details page: after 6 s the addon's data is shown as is.
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), tmdb::enrich(&state.addons.client, &access, &settings, &mut details.meta, &id)).await;
+        details.seasons = details.meta.seasons();
+        details.trailer = nuvio_core::meta::select_trailer(&details.meta.trailers).cloned();
+    }
+    // MDBList ratings (the key comes from the Nuvio account); never holds the page for long.
+    let imdb_id = if details.meta.id.starts_with("tt") { details.meta.id.clone() } else { id.clone() };
+    let series = content_type == "series" || details.meta.content_type == "series";
+    let watched = state.app_store.watched(loaded.profile).unwrap_or_default();
+    details.watched_keys = watched
+        .iter()
+        .filter(|w| w.id == details.meta.id || w.id == id)
+        .map(|w| w.key())
+        .collect();
+    details.ratings = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mdblist::ratings(&state.app_store, loaded.profile, &imdb_id, series),
+    )
+    .await
+    .ok()
+    .unwrap_or_default();
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    details.meta.apply_custom_poster(&pattern, "details", &screens);
+    Ok(details)
 }
 
 #[tauri::command]
 pub async fn livetv_channels(state: State<'_, AppState>) -> Result<livetv::ChannelList, String> {
     let loaded = state.addons.loaded().await?;
     Ok(livetv::load(&state.addons.client, &loaded.manifests).await)
+}
+
+/// Seven public Arabic feeds for testing Live TV without a channel addon.
+#[tauri::command]
+pub fn livetv_fallback_channels(state: State<'_, AppState>) -> Result<livetv::ChannelList, String> {
+    state.ensure_unlocked()?;
+    let channels = livetv::fallback_channels();
+    livetv::remember_m3u(&channels);
+    let categories = livetv::categories(&channels);
+    Ok(livetv::ChannelList { channels, categories, failed_catalogs: 0 })
+}
+
+/// Imports a public M3U playlist for this session (no file, no account, nothing persisted).
+#[tauri::command]
+pub async fn livetv_import_m3u(state: State<'_, AppState>, url: String) -> Result<livetv::ChannelList, String> {
+    let text = state.addons.client.get_text(&url, true).await.map_err(|e| e.to_string())?;
+    let channels = livetv::parse_m3u(&text, 400);
+    if channels.is_empty() {
+        return Err("A playlist não contém canais.".into());
+    }
+    livetv::remember_m3u(&channels);
+    let categories = livetv::categories(&channels);
+    Ok(livetv::ChannelList { channels, categories, failed_catalogs: 0 })
+}
+
+/// Today's fixtures and scores, with the installed channels whose EPG lists each match.
+#[tauri::command]
+pub async fn livetv_matches(
+    state: State<'_, AppState>,
+    channels: Vec<livetv::Channel>,
+    tz_offset_minutes: i64,
+) -> Result<matches::MatchesView, String> {
+    let loaded = state.addons.loaded().await?;
+    Ok(matches::load(
+        &state.addons.client,
+        &loaded.manifests,
+        &channels,
+        &state.epg,
+        tz_offset_minutes.clamp(-14 * 60, 14 * 60),
+    )
+    .await)
 }
 
 /// "Recarregar": fetches again the manifests of the channel addons (all of them, or the ones named),
@@ -150,22 +456,801 @@ pub async fn livetv_toggle_favorite(state: State<'_, AppState>, key: String) -> 
 
 /// Sources of one title from the enabled addons (cached manifests), asked when the user opens them.
 #[tauri::command]
-pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String) -> Result<Vec<StreamGroup>, String> {
+pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String, refresh: Option<bool>) -> Result<Vec<StreamGroup>, String> {
     let loaded = state.addons.loaded().await?;
-    Ok(streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id).await)
+    let choices: Vec<(String, String)> = debrid::available(&state.app_store, loaded.profile)
+        .into_iter()
+        .map(|active| (active.provider.code().to_string(), active.provider.id().to_string()))
+        .collect();
+    let mut groups = streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), None).await;
+    let found = state.plugins.search(loaded.profile, &content_type, &id).await;
+    groups.extend(streams::plugin_groups(&state.streams, found, None));
+    streams::duplicate_for_providers(&state.streams, &mut groups, &choices);
+    Ok(groups)
+}
+
+/// Updates Discord Rich Presence (only when enabled in Settings → Serviços → Integrações).
+#[tauri::command]
+pub fn discord_activity(state: State<'_, AppState>, activity: Option<discord::Activity>) -> Result<(), String> {
+    let profile = state.active_profile();
+    if !state.app_store.profile_settings(profile).map(|s| s.discord_rpc_enabled).unwrap_or_default() {
+        return Ok(());
+    }
+    discord::publish(activity.as_ref());
+    Ok(())
+}
+
+/// IMDb parents-guide warnings of a title (Settings → Reprodução → Avisos de conteúdo).
+#[tauri::command]
+pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Option<parental::Guide>, String> {
+    let profile = state.active_profile();
+    if !state.app_store.profile_settings(profile).map(|s| s.player.show_parental_guide).unwrap_or_default() {
+        return Ok(None);
+    }
+    Ok(parental::fetch(&state.addons.client, &id).await)
+}
+
+/// Custom poster source settings of the active profile (pattern + enabled screens).
+fn poster_customization(state: &AppState, profile: i64) -> (String, Vec<String>) {
+    let cards = state.app_store.profile_settings(profile).map(|settings| settings.player.cards).unwrap_or_default();
+    (cards.custom_poster_url_pattern, cards.custom_poster_screens)
+}
+
+fn apply_custom_posters(items: &mut [nuvio_core::catalog::MetaPreview], pattern: &str, screens: &[String], screen: &str) {
+    for item in items {
+        item.apply_custom_poster(pattern, screen, screens);
+    }
+}
+
+// ---- Tracking services (Trakt / Simkl). Secrets never leave Rust. ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackingCredentialsView {
+    pub trakt_configured: bool,
+    pub simkl_configured: bool,
+    pub trakt_connected: bool,
+    pub simkl_connected: bool,
+    pub trakt_from_build: bool,
+    pub simkl_from_build: bool,
+    pub mdblist_connected: bool,
+    pub mdblist_from_build: bool,
+}
+
+/// Build-time default from the gitignored local.properties, overridden by a value entered in Settings.
+fn tracking_default(key: &str) -> Option<&'static str> {
+    match key {
+        "trakt:clientId" => option_env!("NUVIO_TRAKT_CLIENT_ID"),
+        "trakt:clientSecret" => option_env!("NUVIO_TRAKT_CLIENT_SECRET"),
+        "simkl:clientId" => option_env!("NUVIO_SIMKL_CLIENT_ID"),
+        "mdblist:clientId" => option_env!("NUVIO_MDBLIST_CLIENT_ID"),
+        _ => None,
+    }
+    .filter(|value| !value.is_empty())
+}
+
+/// Effective credential for an OAuth flow: user value first, then the build-time default.
+pub(crate) fn tracking_value(state: &AppState, key: &str) -> Option<String> {
+    state
+        .app_store
+        .tracking_credentials(state.active_profile())
+        .ok()
+        .and_then(|map| map.get(key).cloned())
+        .filter(|value| !value.is_empty())
+        .or_else(|| tracking_default(key).map(str::to_string))
+}
+
+fn tracking_view(state: &AppState) -> Result<TrackingCredentialsView, String> {
+    Ok(TrackingCredentialsView {
+        trakt_configured: tracking_value(state, "trakt:clientId").is_some()
+            && tracking_value(state, "trakt:clientSecret").is_some(),
+        simkl_configured: tracking_value(state, "simkl:clientId").is_some(),
+        trakt_connected: tracking::connected(&state.app_store, state.active_profile(), "trakt"),
+        simkl_connected: tracking::connected(&state.app_store, state.active_profile(), "simkl"),
+        trakt_from_build: tracking_default("trakt:clientId").is_some() && tracking_default("trakt:clientSecret").is_some(),
+        simkl_from_build: tracking_default("simkl:clientId").is_some(),
+        mdblist_connected: tracking::connected(&state.app_store, state.active_profile(), "mdblist")
+            || mdblist::view(&state.app_store, state.active_profile()).api_key_set,
+        mdblist_from_build: tracking_default("mdblist:clientId").is_some(),
+    })
+}
+
+#[tauri::command]
+pub fn tracking_credentials(state: State<'_, AppState>) -> Result<TrackingCredentialsView, String> {
+    tracking_view(&state)
+}
+
+/// `key`: `trakt:clientId`, `trakt:clientSecret` or `simkl:clientId`. An empty value removes it.
+#[tauri::command]
+pub fn tracking_credential_set(state: State<'_, AppState>, key: String, value: String) -> Result<TrackingCredentialsView, String> {
+    state.ensure_unlocked()?;
+    if !matches!(key.as_str(), "trakt:clientId" | "trakt:clientSecret" | "simkl:clientId") {
+        return Err("unknown tracking credential".into());
+    }
+    state.app_store.set_tracking_credential(state.active_profile(), key, value).map_err(|e| e.to_string())?;
+    tracking_view(&state)
+}
+
+// ---- Media servers (Jellyfin / Emby) ----
+
+#[tauri::command]
+pub fn server_list(state: State<'_, AppState>) -> Result<Vec<servers::Connection>, String> {
+    servers::connections(&state.app_store, state.active_profile())
+}
+
+#[tauri::command]
+pub async fn server_add(
+    state: State<'_, AppState>,
+    provider: String,
+    address: String,
+    username: String,
+    password: String,
+) -> Result<servers::Connection, String> {
+    state.ensure_unlocked()?;
+    let connection = servers::add(&state.app_store, state.active_profile(), &provider, &address, &username, &password).await?;
+    state.request_sync();
+    Ok(connection)
+}
+
+#[tauri::command]
+pub fn server_remove(state: State<'_, AppState>, id: String) -> Result<Vec<servers::Connection>, String> {
+    state.ensure_unlocked()?;
+    let items = servers::remove(&state.app_store, state.active_profile(), &id)?;
+    state.request_sync();
+    Ok(items)
+}
+
+#[tauri::command]
+pub async fn server_libraries(state: State<'_, AppState>, id: String) -> Result<Vec<servers::Library>, String> {
+    servers::libraries(&state.app_store, state.active_profile(), &id).await
+}
+
+#[tauri::command]
+pub async fn server_catalog(
+    state: State<'_, AppState>,
+    id: String,
+    library_id: String,
+    skip: u32,
+) -> Result<CatalogPage, String> {
+    servers::catalog(&state.app_store, state.active_profile(), &id, &library_id, skip).await
+}
+
+// ---- Skip services: personal Anime-Skip / IntroDB keys ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkipCredentialsView {
+    pub anime_skip_client_id: String,
+    pub intro_db_api_key: String,
+}
+
+#[tauri::command]
+pub fn skip_credentials(state: State<'_, AppState>) -> Result<SkipCredentialsView, String> {
+    let all = state.app_store.provider_credentials().map_err(|e| e.to_string())?;
+    let owned = all.get(&state.active_profile()).cloned().unwrap_or_default();
+    Ok(SkipCredentialsView {
+        anime_skip_client_id: owned.get("animeskip").cloned().unwrap_or_default(),
+        intro_db_api_key: owned.get("introdb").cloned().unwrap_or_default(),
+    })
+}
+
+#[tauri::command]
+pub async fn skip_credentials_set(
+    state: State<'_, AppState>,
+    anime_skip_client_id: Option<String>,
+    intro_db_api_key: Option<String>,
+) -> Result<SkipCredentialsView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let mut owned = state.app_store.provider_credentials().map_err(|e| e.to_string())?
+        .remove(&profile).unwrap_or_default();
+    if let Some(key) = intro_db_api_key.as_deref().map(str::trim).filter(|key| !key.is_empty() && owned.get("introdb").map(String::as_str) != Some(key)) {
+        if !services::segments::verify_introdb_key(key).await? {
+            return Err("Chave da IntroDB inválida ou conexão falhou.".into());
+        }
+    }
+    if let Some(id) = anime_skip_client_id {
+        let id = id.trim().to_string();
+        if id.is_empty() { owned.remove("animeskip"); } else { owned.insert("animeskip".into(), id); }
+    }
+    if let Some(key) = intro_db_api_key {
+        let key = key.trim().to_string();
+        if key.is_empty() { owned.remove("introdb"); } else { owned.insert("introdb".into(), key); }
+    }
+    state.app_store.set_provider_credentials(profile, owned).map_err(|e| e.to_string())?;
+    state.request_sync();
+    skip_credentials(state)
+}
+
+/// Sends a timing captured in the player to IntroDB. The title's public IMDb id comes from Rust.
+#[tauri::command]
+pub async fn skip_submit_timing(
+    state: State<'_, AppState>,
+    session: u64,
+    segment_type: String,
+    start: f64,
+    end: f64,
+) -> Result<bool, String> {
+    state.ensure_unlocked()?;
+    let playing = watching::submit_target(&state, session)?;
+    let key = state.app_store.provider_credentials().ok()
+        .and_then(|all| all.get(&state.active_profile()).and_then(|p| p.get("introdb")).cloned())
+        .ok_or("Configure a chave da IntroDB em Configurações → Reprodução.")?;
+    services::segments::submit_intro(&key, &playing.0, playing.1, playing.2, &segment_type, start, end).await
+}
+
+// ---- Watch Party: public Realtime config (the anon key is public by design) ----
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartyConfig {
+    pub url: String,
+    pub key: String,
+}
+
+#[tauri::command]
+pub fn party_config() -> PartyConfig {
+    PartyConfig {
+        url: option_env!("NUVIO_SUPABASE_URL").unwrap_or_default().to_string(),
+        key: option_env!("NUVIO_SUPABASE_ANON_KEY").unwrap_or_default().to_string(),
+    }
+}
+
+// ---- Plex / Silo sign-in and media-server playback ----
+
+#[tauri::command]
+pub async fn server_plex_pin_start(state: State<'_, AppState>) -> Result<servers::PlexPin, String> {
+    servers::plex_pin_start(&state.app_store).await
+}
+
+#[tauri::command]
+pub async fn server_plex_pin_poll(state: State<'_, AppState>, pin_id: String) -> Result<Option<String>, String> {
+    servers::plex_pin_poll(&state.app_store, &pin_id).await
+}
+
+#[tauri::command]
+pub async fn server_plex_connect(state: State<'_, AppState>, account_token: String) -> Result<servers::Connection, String> {
+    state.ensure_unlocked()?;
+    let connection = servers::plex_connect(&state.app_store, state.active_profile(), &account_token).await?;
+    state.request_sync();
+    Ok(connection)
+}
+
+#[tauri::command]
+pub async fn server_silo_discover(state: State<'_, AppState>, address: String) -> Result<servers::SiloInfo, String> {
+    servers::silo_discover(&state.app_store, &address).await
+}
+
+#[tauri::command]
+pub async fn server_silo_login(state: State<'_, AppState>, address: String, username: String, password: String) -> Result<servers::Connection, String> {
+    state.ensure_unlocked()?;
+    let connection = servers::silo_login(&state.app_store, state.active_profile(), &address, &username, &password).await?;
+    state.request_sync();
+    Ok(connection)
+}
+
+#[tauri::command]
+pub async fn server_silo_code_start(state: State<'_, AppState>, address: String) -> Result<servers::SiloCode, String> {
+    servers::silo_code_start(&state.app_store, &address).await
+}
+
+#[tauri::command]
+pub async fn server_silo_code_connect(state: State<'_, AppState>, address: String, device_code: String) -> Result<Option<servers::Connection>, String> {
+    state.ensure_unlocked()?;
+    let connection = servers::silo_code_connect(&state.app_store, state.active_profile(), &address, &device_code).await?;
+    if connection.is_some() {
+        state.request_sync();
+    }
+    Ok(connection)
+}
+
+/// Resolves a `srv1:` card into a playable stream key for `stream_play`. The token stays in Rust.
+#[tauri::command]
+pub async fn server_stream(state: State<'_, AppState>, connection_id: String, item_id: String) -> Result<String, String> {
+    let (item, descriptor) = servers::stream_item(&state.app_store, state.active_profile(), &connection_id, &item_id).await?;
+    let key = format!("server-{}-{}-{}", connection_id, item_id, servers::random_id(8));
+    state.streams.remember(key.clone(), item);
+    servers::begin_playback(descriptor);
+    Ok(key)
+}
+
+// ---- Collections editor (the original's CollectionRepository validation rules) ----
+
+#[tauri::command]
+pub fn collections_editor_load(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let profile = state.active_profile();
+    Ok(collections::stored(&state.app_store, profile))
+}
+
+#[tauri::command]
+pub fn collections_editor_save(state: State<'_, AppState>, value: serde_json::Value) -> Result<serde_json::Value, String> {
+    state.ensure_unlocked()?;
+    collections::validate_edited(&value)?;
+    let profile = state.active_profile();
+    state.app_store.set_collections(profile, &value).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(value)
+}
+
+// ---- Downloads (the original's DownloadsRepository) ----
+
+#[tauri::command]
+pub fn download_list(state: State<'_, AppState>) -> Result<Vec<DownloadItem>, String> {
+    let profile = state.active_profile();
+    let mut items = state.app_store.downloads(profile).map_err(|e| e.to_string())?;
+    let mut changed = false;
+    for item in items.iter_mut() {
+        if item.status == DownloadStatus::Downloading && !state.downloads.is_active(&item.id) {
+            item.status = DownloadStatus::Paused;
+            changed = true;
+        }
+    }
+    if changed {
+        state.app_store.set_downloads(profile, items.clone()).map_err(|e| e.to_string())?;
+    }
+    Ok(items)
+}
+
+/// Queues a direct stream for download. The URL and headers stay in Rust; the UI sends only the
+/// opaque stream key and the playback identity.
+#[tauri::command]
+pub fn download_from_stream(
+    state: State<'_, AppState>,
+    key: String,
+    progress: nuvio_store::library::PlaybackItem,
+) -> Result<DownloadItem, String> {
+    state.ensure_unlocked()?;
+    let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
+    let url = stream
+        .playable_direct_url()
+        .filter(|url| is_supported_download_url(url))
+        .ok_or("this source cannot be downloaded")?
+        .to_string();
+    let profile = state.active_profile();
+    let existing = state.app_store.downloads(profile).map_err(|e| e.to_string())?;
+    let item = downloads::item_from_stream(profile, &stream, &url, &progress, &existing);
+    // Same logical content replaces the previous download (with its files).
+    let dir = state.app_store.dir().join("downloads");
+    let replaced: Vec<DownloadItem> = existing.iter().filter(|old| old.logical_content_key() != item.logical_content_key()).cloned().collect();
+    for old in existing.iter().filter(|old| old.logical_content_key() == item.logical_content_key()) {
+        state.downloads.cancel(&old.id);
+        downloads::remove_files(&dir, &old.file_name);
+    }
+    let mut saved = replaced;
+    saved.push(item.clone());
+    state.app_store.set_downloads(profile, saved).map_err(|e| e.to_string())?;
+    state.downloads.set_headers(&item.id, stream.playback_request_headers());
+    state.downloads.start(state.app_store.clone(), profile, item.id.clone(), item.source_url.clone(), dir);
+    Ok(item)
+}
+
+#[tauri::command]
+pub fn download_control(state: State<'_, AppState>, id: String, action: String) -> Result<Vec<DownloadItem>, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let dir = state.app_store.dir().join("downloads");
+    match action.as_str() {
+        "pause" => {
+            state.downloads.cancel(&id);
+            state.app_store.edit_downloads(profile, |items| {
+                if let Some(item) = items.iter_mut().find(|item| item.id == id) { item.status = DownloadStatus::Paused; }
+            }).map_err(|e| e.to_string())?;
+        }
+        "resume" | "retry" => {
+            let item = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter()
+                .find(|item| item.id == id).ok_or("download not found")?;
+            state.app_store.edit_downloads(profile, |items| {
+                if let Some(item) = items.iter_mut().find(|item| item.id == id) {
+                    item.status = DownloadStatus::Downloading;
+                    item.error_message = None;
+                }
+            }).map_err(|e| e.to_string())?;
+            state.downloads.start(state.app_store.clone(), profile, id, item.source_url, dir);
+        }
+        "remove" => {
+            state.downloads.cancel(&id);
+            if let Some(item) = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter().find(|item| item.id == id) {
+                downloads::remove_files(&dir, &item.file_name);
+            }
+            state.app_store.edit_downloads(profile, |items| items.retain(|item| item.id != id)).map_err(|e| e.to_string())?;
+        }
+        "clearCompleted" => {
+            let done: Vec<DownloadItem> = state.app_store.downloads(profile).map_err(|e| e.to_string())?
+                .into_iter().filter(|item| item.status == DownloadStatus::Completed).collect();
+            for item in &done { downloads::remove_files(&dir, &item.file_name); }
+            let ids: Vec<&str> = done.iter().map(|item| item.id.as_str()).collect();
+            state.app_store.edit_downloads(profile, |items| items.retain(|item| !ids.contains(&item.id.as_str()))).map_err(|e| e.to_string())?;
+        }
+        _ => return Err("unknown download action".into()),
+    }
+    download_list(state)
+}
+
+/// Plays a finished download from its local file, without re-contacting the addon.
+#[tauri::command]
+pub async fn download_play(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    start_seconds: Option<f64>,
+) -> Result<crate::PlayerInfo, String> {
+    let profile = state.active_profile();
+    let item = state.app_store.downloads(profile).map_err(|e| e.to_string())?.into_iter()
+        .find(|item| item.id == id).ok_or("download not found")?;
+    let path = item.local_file_uri.filter(|p| std::path::Path::new(p).exists()).ok_or("download is not available locally")?;
+    let settings = state.app_store.profile_settings(profile).map(|s| s.player).unwrap_or_default();
+    *state.video.lock().expect("video lock") = playback::video_config(&settings);
+    Ok(state.open(&app, path, Vec::new(), start_seconds.unwrap_or(0.0))?)
+}
+
+/// Effective shuffle settings for one title (`EpisodeShuffleRepository.settings`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShuffleView {
+    pub available: bool,
+    pub enabled: bool,
+    pub include_watched: bool,
+}
+
+fn shuffle_view_for(state: &AppState, content_id: &str, content_type: &str) -> Result<ShuffleView, String> {
+    let profile = state.active_profile();
+    let profile_state = state.app_store.shuffle_profile(profile).map_err(|e| e.to_string())?;
+    let saved = profile_state.shows.get(content_id).cloned().unwrap_or_default();
+    let effective = ShuffleSettings { enabled: saved.enabled, include_watched: saved.include_watched }
+        .effective(profile_state.available, content_type);
+    Ok(ShuffleView { available: profile_state.available, enabled: effective.enabled, include_watched: effective.include_watched })
+}
+
+#[tauri::command]
+pub fn shuffle_view(state: State<'_, AppState>, content_id: String, content_type: String) -> Result<ShuffleView, String> {
+    shuffle_view_for(&state, &content_id, &content_type)
+}
+
+#[tauri::command]
+pub fn shuffle_set(state: State<'_, AppState>, content_id: String, enabled: bool, include_watched: bool) -> Result<ShuffleView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    state
+        .app_store
+        .set_shuffle(profile, content_id.clone(), nuvio_store::nextgen::ShuffleShowSettings { enabled, include_watched })
+        .map_err(|e| e.to_string())?;
+    state.request_sync();
+    // The content type is not needed to read the saved toggle here.
+    shuffle_view_for(&state, &content_id, "series")
+}
+
+/// Picks a random episode with the original's `RandomEpisodePicker` rules.
+#[tauri::command]
+pub async fn shuffle_pick(
+    state: State<'_, AppState>,
+    content_id: String,
+    content_type: String,
+    surface: String,
+    current_season: Option<i64>,
+    current_episode: Option<i64>,
+) -> Result<Option<MetaVideo>, String> {
+    let view = shuffle_view_for(&state, &content_id, &content_type)?;
+    if !view.enabled {
+        return Ok(None);
+    }
+    let loaded = state.addons.loaded().await?;
+    let details = meta::details(&state.addons.client, &loaded.manifests, &content_type, &content_id).await?;
+    let profile = state.active_profile();
+    let mut watched: std::collections::HashSet<(i64, i64)> = std::collections::HashSet::new();
+    for item in state.app_store.watched(profile).map_err(|e| e.to_string())? {
+        if let (Some(season), Some(episode)) = (item.season, item.episode) {
+            watched.insert((season as i64, episode as i64));
+        }
+    }
+    for entry in state.app_store.progress(profile).map_err(|e| e.to_string())? {
+        if entry.effectively_completed() {
+            if let (Some(season), Some(episode)) = (entry.season_number, entry.episode_number) {
+                watched.insert((season as i64, episode as i64));
+            }
+        }
+    }
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos() as u64
+        ^ (std::process::id() as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut picker = Picker::new(&details.meta.videos, &watched, &home::today_iso(), seed);
+    let current = current_season.zip(current_episode);
+    let consume = surface != "playback" || current.is_none();
+    Ok(picker.pick(view.include_watched, current, consume))
+}
+
+/// Trakt/Simkl authorization flows. Client/secret values are resolved in Rust only.
+#[tauri::command]
+pub async fn trakt_device_start(state: State<'_, AppState>) -> Result<tracking::DeviceStart, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "trakt:clientId").ok_or("Trakt client id não configurado")?;
+    tracking::trakt_start(&state.app_store, profile, &id).await
+}
+
+#[tauri::command]
+pub async fn trakt_device_poll(state: State<'_, AppState>) -> Result<tracking::PollResult, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "trakt:clientId").ok_or("Trakt client id não configurado")?;
+    let secret = crate::api::tracking_value(&state, "trakt:clientSecret").ok_or("Trakt client secret não configurado")?;
+    tracking::trakt_poll(&state.app_store, profile, &id, &secret).await
+}
+
+#[tauri::command]
+pub fn simkl_authorize_url(state: State<'_, AppState>) -> Result<String, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "simkl:clientId").ok_or("Simkl client id não configurado")?;
+    tracking::simkl_authorize_url(&state.app_store, profile, &id)
+}
+
+#[tauri::command]
+pub async fn simkl_complete(state: State<'_, AppState>, code: String, state_value: String) -> Result<bool, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "simkl:clientId").ok_or("Simkl client id não configurado")?;
+    tracking::simkl_complete(&state.app_store, profile, &id, &code, &state_value).await
+}
+
+#[tauri::command]
+pub async fn mdblist_device_start(state: State<'_, AppState>) -> Result<tracking::DeviceStart, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "mdblist:clientId").ok_or("MDBList client id não configurado")?;
+    tracking::mdblist_start(&state.app_store, profile, &id).await
+}
+
+#[tauri::command]
+pub async fn mdblist_device_poll(state: State<'_, AppState>) -> Result<tracking::PollResult, String> {
+    let profile = state.active_profile();
+    let id = crate::api::tracking_value(&state, "mdblist:clientId").ok_or("MDBList client id não configurado")?;
+    tracking::mdblist_poll(&state.app_store, profile, &id).await
+}
+
+/// Playback progress from the service selected in Settings → Tracking → Watch Progress.
+#[tauri::command]
+pub async fn tracking_resume(state: State<'_, AppState>, content_id: String) -> Result<Vec<tracking::RemoteResume>, String> {
+    let profile = state.active_profile();
+    let source = state.app_store.profile_settings(profile).map(|s| s.player.progress_source).unwrap_or_else(|_| "nuvio".into());
+    let key = match source.as_str() { "trakt" => "trakt:clientId", "simkl" => "simkl:clientId", "mdblist" => "mdblist:clientId", _ => return Ok(Vec::new()) };
+    if source == "mdblist" && state.app_store.tracking_token(profile, "mdblist").ok().flatten().is_none() {
+        return Ok(mdblist::playback(&state.app_store, profile, &content_id).await);
+    }
+    let Some(client_id) = tracking_value(&state, key) else { return Ok(Vec::new()) };
+    tracking::resume(&state.app_store, profile, &source, &content_id, &client_id).await
+}
+
+#[tauri::command]
+pub fn tracking_disconnect(state: State<'_, AppState>, provider: String) -> Result<TrackingCredentialsView, String> {
+    state.ensure_unlocked()?;
+    tracking::disconnect(&state.app_store, state.active_profile(), &provider)?;
+    tracking_view(&state)
+}
+
+#[tauri::command]
+pub async fn tracking_sync(state: State<'_, AppState>, provider: String) -> Result<tracking::SyncResult, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let key = match provider.as_str() { "trakt" => "trakt:clientId", "simkl" => "simkl:clientId", _ => return Err("unknown provider".into()) };
+    let id = crate::api::tracking_value(&state, key).ok_or("client id não configurado")?;
+    tracking::sync_watched(&state.app_store, profile, &provider, &id).await
+}
+
+/// Opens an external link in the system browser (WebView cannot navigate to it itself).
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let url = url.trim().to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err("only http(s) links can be opened".into());
+    }
+    let spawned = {
+        #[cfg(target_os = "windows")]
+        { std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn() }
+        #[cfg(target_os = "macos")]
+        { std::process::Command::new("open").arg(&url).spawn() }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        { std::process::Command::new("xdg-open").arg(&url).spawn() }
+    };
+    spawned.map_err(|e| format!("could not open the browser: {e}"))?;
+    Ok(())
+}
+
+/// Opens an `externalUrl` source in the browser, as the original does. Only http(s) links are
+/// accepted, and the UI never sees the stored stream directly, only its opaque key.
+#[tauri::command]
+pub fn stream_open_external(state: State<'_, AppState>, key: String) -> Result<(), String> {
+    let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
+    let url = stream
+        .external_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| url.starts_with("https://") || url.starts_with("http://"))
+        .ok_or("external link is not an http(s) URL")?
+        .to_string();
+    let spawned = {
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("cmd").args(["/C", "start", "", &url]).spawn()
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open").arg(&url).spawn()
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open").arg(&url).spawn()
+        }
+    };
+    spawned.map_err(|e| format!("could not open the browser: {e}"))?;
+    Ok(())
+}
+
+/// MDBList Ratings settings of the active profile (key never returned).
+#[tauri::command]
+pub fn mdblist_settings(state: State<'_, AppState>) -> mdblist::View {
+    mdblist::view(&state.app_store, state.active_profile())
+}
+
+#[tauri::command]
+pub fn mdblist_settings_set(state: State<'_, AppState>, settings: mdblist::SettingsInput) -> Result<mdblist::View, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let view = mdblist::update(&state.app_store, profile, settings)?;
+    state.request_sync();
+    Ok(view)
+}
+
+/// Manually marks (or unmarks) a movie/episode as watched (`WatchedRepository.markWatched`).
+#[tauri::command]
+pub fn library_toggle_watched(state: State<'_, AppState>, item: nuvio_store::library::WatchedItem) -> Result<bool, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let added = state.app_store.toggle_watched(profile, item).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(added)
+}
+
+/// Connected Services (debrid) of the active profile; the key itself never leaves Rust.
+#[tauri::command]
+pub async fn debrid_settings(state: State<'_, AppState>) -> Result<debrid::View, String> {
+    Ok(debrid::view(&state.app_store, state.active_profile()).await)
+}
+
+/// Saves the Connected Services page (and sends a key entered here with the account's credentials
+/// on the next sync).
+#[tauri::command]
+pub async fn debrid_settings_set(state: State<'_, AppState>, settings: debrid::SettingsInput) -> Result<debrid::View, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let view = debrid::update(&state.app_store, profile, settings).await?;
+    state.request_sync();
+    Ok(view)
+}
+
+// --- Nuvio scraper plugins (Settings → Addons → Plugins) ---
+
+#[tauri::command]
+pub fn plugins_list(state: State<'_, AppState>) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    Ok(state.plugins.view(state.active_profile()))
+}
+
+#[tauri::command]
+pub async fn plugins_add(state: State<'_, AppState>, url: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.add(state.active_profile(), &url).await
+}
+
+#[tauri::command]
+pub async fn plugins_refresh(state: State<'_, AppState>, key: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.refresh(state.active_profile(), &key).await
+}
+
+#[tauri::command]
+pub fn plugins_set_enabled(state: State<'_, AppState>, enabled: bool) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.set_enabled(state.active_profile(), enabled)
+}
+
+#[tauri::command]
+pub fn plugins_set_scraper_enabled(state: State<'_, AppState>, key: String, enabled: bool) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.set_scraper_enabled(state.active_profile(), &key, enabled)
+}
+
+#[tauri::command]
+pub fn plugins_remove(state: State<'_, AppState>, key: String) -> Result<plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    state.plugins.remove(state.active_profile(), &key)
+}
+
+/// TMDB settings of the active profile (the key itself never leaves Rust; `apiKeyFromOriginal`
+/// says the original app's key is the one in use).
+#[tauri::command]
+pub fn tmdb_settings(state: State<'_, AppState>) -> tmdb::SettingsView {
+    tmdb::view(&state.app_store, state.active_profile())
+}
+
+/// Saves the TMDB page: the key only when the field was edited (`apiKey` null keeps it, "" clears
+/// Astra's own key so the original app's is used again).
+#[tauri::command]
+pub fn tmdb_settings_set(state: State<'_, AppState>, settings: tmdb::SettingsInput) -> Result<tmdb::SettingsView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    tmdb::update(&state.app_store, profile, settings)
+}
+
+/// "More Like This" of a title: TMDB recommendations (`/movie|tv/{id}/recommendations`), resolved
+/// from the title's `tmdb:<id>`, numeric or IMDb id. Empty when no TMDB key is configured or the
+/// title is unknown to TMDB; unreleased titles are dropped (as the original).
+#[tauri::command]
+pub async fn more_like_this(state: State<'_, AppState>, content_type: String, id: String) -> Result<Vec<MetaPreview>, String> {
+    let loaded = state.addons.loaded().await?;
+    if !tmdb::more_like_this_enabled(&state.app_store, loaded.profile) {
+        return Ok(Vec::new());
+    }
+    let Some(access) = tmdb::access(&state.app_store, loaded.profile) else { return Ok(Vec::new()) };
+    let mut items = tmdb::more_like_this(&state.addons.client, &access, &content_type, &id).await;
+    let today = home::today_iso();
+    items.retain(|item| !home::is_unreleased(item, &today));
+    let (pattern, screens) = poster_customization(&state, loaded.profile);
+    apply_custom_posters(&mut items, &pattern, &screens, "details");
+    Ok(items)
+}
+
+/// Badge rules imported in the original app for the active profile (read only). Empty when it never
+/// imported a set: the sources still show each addon's own text.
+#[tauri::command]
+pub fn stream_badge_rules(state: State<'_, AppState>) -> badges::Rules {
+    let profile = state.active_profile();
+    let mut rules = badges::rules(profile);
+    let settings = state.app_store.profile_settings(profile).map(|p| p.streams).unwrap_or_default();
+    if let Some(show) = settings.show_size_badges { rules.show_file_size_badges = show; }
+    rules.placement = settings.badge_placement.clone();
+    rules
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamsSettingsView {
+    pub settings: nuvio_store::settings::StreamsSettings,
+    /// Number of imported badge rules and active filters from the original app.
+    pub imported_filters: usize,
+}
+
+#[tauri::command]
+pub fn streams_settings(state: State<'_, AppState>) -> Result<StreamsSettingsView, String> {
+    let profile = state.active_profile();
+    let settings = state.app_store.profile_settings(profile).map(|p| p.streams).map_err(|e| e.to_string())?;
+    let imported_filters = badges::rules(profile).filters.len();
+    Ok(StreamsSettingsView { settings, imported_filters })
+}
+
+#[tauri::command]
+pub fn streams_settings_set(state: State<'_, AppState>, settings: nuvio_store::settings::StreamsSettings) -> Result<StreamsSettingsView, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let mut previous = state.app_store.profile_settings(profile).map_err(|e| e.to_string())?;
+    previous.streams = settings;
+    let saved = state.app_store.set_profile_settings(profile, previous).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(StreamsSettingsView { settings: saved.streams, imported_filters: badges::rules(profile).filters.len() })
 }
 
 /// Resolves one channel, on click only: just the addon that listed it is asked (no other addon,
 /// no prefetch). The UI then plays the chosen stream key with `stream_play`.
 #[tauri::command]
 pub async fn livetv_resolve(state: State<'_, AppState>, key: String) -> Result<Vec<StreamGroup>, String> {
+    if let Some(url) = livetv::resolve_m3u(&key) {
+        let name = key.split('|').nth(2).unwrap_or("M3U").to_string();
+        let entry = state.streams.put_direct(&key, &name, &url);
+        return Ok(vec![StreamGroup { addon_name: "M3U".into(), streams: vec![entry], error: None }]);
+    }
     let loaded = state.addons.loaded().await?;
     let (instance, content_type, meta_id) = livetv::split_key(&key).ok_or("invalid channel key")?;
     let owner: Vec<_> = loaded.manifests.iter().filter(|m| addons::addon_instance_id(m) == instance).cloned().collect();
     if owner.is_empty() {
         return Err("the addon of this channel is not enabled".into());
     }
-    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id).await)
+    Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id, false, None).await)
 }
 
 /// Program guide of one channel (see `services::epg`): asked only for the channel the user picked,
@@ -223,7 +1308,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
             pin_enabled: false,
         });
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type);
+    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type, false, false);
     let catalogs = home::catalog_choices(&loaded.manifests, &settings.home, &collections);
     Ok(SettingsView {
         profile,
@@ -253,7 +1338,7 @@ pub async fn settings_set(state: State<'_, AppState>, settings: ProfileSettings,
         // "Restaurar padrões" of Início: the default order is written out (`resetToDefaults`
         // normalizes it), or the account would keep the old one.
         if let Ok(loaded) = state.addons.loaded().await {
-            let views = collections::views(&collections::stored(&state.app_store, profile), &loaded.manifests, before.home.show_catalog_type);
+            let views = collections::views(&collections::stored(&state.app_store, profile), &loaded.manifests, before.home.show_catalog_type, false, false);
             settings.home.items = home::catalog_choices(&loaded.manifests, &settings.home, &views)
                 .into_iter()
                 .zip(0..)
@@ -280,9 +1365,17 @@ pub async fn subtitle_fonts(state: State<'_, AppState>) -> Result<fonts::FontLis
 /// Opens the Windows file dialog. `None` = cancelled.
 #[tauri::command]
 pub async fn subtitle_font_import<R: tauri::Runtime>(window: tauri::WebviewWindow<R>, state: State<'_, AppState>) -> Result<Option<fonts::Font>, String> {
-    let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or_default();
-    let picked = tauri::async_runtime::spawn_blocking(move || fonts::choose_file(owner)).await.map_err(|e| e.to_string())?;
-    picked.map(|path| fonts::import(&state.app_store, &path)).transpose()
+    #[cfg(windows)]
+    {
+        let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or_default();
+        let picked = tauri::async_runtime::spawn_blocking(move || fonts::choose_file(owner)).await.map_err(|e| e.to_string())?;
+        picked.map(|path| fonts::import(&state.app_store, &path)).transpose()
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (window, state);
+        Ok(None)
+    }
 }
 
 #[tauri::command]
@@ -454,14 +1547,36 @@ mod tests {
     use tauri::webview::InvokeRequest;
     use tauri::Manager;
 
+    /// `mock_context` ships an empty ACL; allow the commands these IPC tests exercise.
+    fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
+        let mut ctx = mock_context(noop_assets());
+        for cmd in [
+            "meta_details", "settings_set", "home_rows", "library_favorite_keys", "library_favorites",
+            "library_toggle_favorite", "library_remove_favorite", "library_continue_watching",
+            "library_history", "library_remove_history", "library_title_progress",
+            "discover_sources", "discover_select", "discover_page",
+        ] {
+            let authority = ctx.runtime_authority_mut();
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
+            authority.__allow_command(
+                cmd.into(),
+                tauri::utils::acl::ExecutionContext::Remote { url: "http://tauri.localhost/".parse().unwrap() },
+            );
+        }
+        ctx
+    }
+
     const MOVIE: &str = r#"{"meta":{"id":"tt0100","type":"movie","name":"Filme Teste","releaseInfo":"2021","runtime":"1h 40min",
         "genres":["Drama"],"director":["D"],"cast":["A"],"poster":"p.jpg","background":"b.jpg"}}"#;
     const SERIES: &str = r#"{"meta":{"id":"tt0200","type":"series","name":"Série Teste","videos":[
         {"id":"tt0200:1:1","title":"Piloto","season":1,"episode":1},
         {"id":"tt0200:1:2","title":"Dois","season":1,"episode":2},
         {"id":"tt0200:2:1","title":"Volta","season":2,"episode":1}]}}"#;
+    const CATALOG: &str = r#"{"metas":[{"id":"tt0100","type":"movie","name":"Filme Teste","releaseInfo":"2021"},
+        {"id":"tt0300","type":"movie","name":"Outro Filme"}]}"#;
 
-    /// Minimal addon over HTTP on 127.0.0.1: serves the two metas, 404 otherwise.
+    /// Minimal addon over HTTP on 127.0.0.1: serves the two metas and the Discover catalog pages
+    /// (the same page again for `skip=2`, for the duplicate-page rule), 404 otherwise.
     fn addon_server() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -480,6 +1595,8 @@ mod tests {
                 let (status, body) = match path {
                     "/meta/movie/tt0100.json" => ("200 OK", MOVIE),
                     "/meta/series/tt0200.json" => ("200 OK", SERIES),
+                    "/catalog/movie/top.json" | "/catalog/movie/top/skip=2.json" => ("200 OK", CATALOG),
+                    "/catalog/movie/genres/genre=Action.json" => ("200 OK", CATALOG),
                     _ => ("404 Not Found", "{}"),
                 };
                 let mut out = stream;
@@ -493,7 +1610,10 @@ mod tests {
         let manifest_url = addon_server();
         let manifest = nuvio_core::manifest::parse_manifest(
             &manifest_url,
-            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[]}"#,
+            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[
+                {"type":"movie","id":"top","name":"Populares","extra":[{"name":"skip"}]},
+                {"type":"movie","id":"genres","name":"Por gênero","extra":[{"name":"genre","isRequired":true,"options":["Action","Drama"]}]},
+                {"type":"movie","id":"search","name":"Busca","extra":[{"name":"search","isRequired":true}]}]}"#,
         )
         .unwrap();
         let client = AddonClient::new().unwrap();
@@ -501,13 +1621,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("nuvio-api-test-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let state = AppState {
+            relay: Mutex::new(None),
             api: Mutex::new(None),
             player: Mutex::new(None),
             session: AtomicU64::new(0),
             hwnd: Mutex::new(0),
             addons: AddonContext::preloaded(client.clone(), loaded),
+            plugins: crate::services::plugins::Manager::new(dir.clone(), client.clone()),
             client,
             streams: crate::streams::StreamCache::default(),
+            downloads: crate::services::downloads::Manager::new(),
             video: Mutex::new(nuvio_player::VideoConfig::default()),
             app_store: nuvio_store::nextgen::AppStore::open(&dir).unwrap(),
             progress: crate::services::progress::ProgressTracker::new(dir.clone()),
@@ -540,9 +1663,12 @@ mod tests {
                 library_continue_watching,
                 library_history,
                 library_remove_history,
-                library_title_progress
+                library_title_progress,
+                discover_sources,
+                discover_select,
+                discover_page
             ])
-            .build(mock_context(noop_assets()))
+            .build(mock_ctx())
             .unwrap();
         let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
         (app, window, dir)
@@ -651,6 +1777,8 @@ mod tests {
             .unwrap();
             state.progress.start(session, 1, item, 90);
             state.progress.finish(Some(&nuvio_player::PlayerSnapshot { session, loaded: true, time_pos: pos, duration: 2400.0, ..Default::default() }));
+            // History sorts by millisecond timestamp: keep the two finishes distinct.
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
         let cw = call(&window, "library_continue_watching", json!({})).unwrap();
         assert_eq!(cw.as_array().unwrap().len(), 1, "one entry per series");
@@ -667,5 +1795,69 @@ mod tests {
         assert_eq!(call(&window, "library_remove_history", json!({ "key": "tt0200_s1e2" })).unwrap(), true);
         assert_eq!(call(&window, "library_continue_watching", json!({}))
             .unwrap()[0]["key"], "tt0200_s1e1");
+    }
+
+    /// Discover commands with the JSON the UI sends (`web/src/screens/Search.tsx`): the listable
+    /// catalogs of the enabled addons, the catalog remembered per profile, and a page with the
+    /// original's duplicate-page rule.
+    #[test]
+    fn discover_commands_contract() {
+        let (_app, window, dir) = app("discover");
+
+        let view = call(&window, "discover_sources", json!({})).expect("discover sources");
+        let sources = view["sources"].as_array().unwrap();
+        let keys: Vec<String> = sources.iter().map(|s| s["key"].as_str().unwrap().to_string()).collect();
+        assert_eq!(keys.len(), 2, "catalogs with a required search are not listed");
+        assert_eq!(sources[0]["catalogId"], "top");
+        assert!(keys[0].ends_with(":movie:top"), "{keys:?}");
+        assert_eq!(sources[1]["catalogId"], "genres");
+        assert_eq!(view["typeOptions"], json!(["movie"]));
+        assert_eq!(view["selectedKey"], json!(keys[0]));
+        assert_eq!(view["sources"][1]["genreOptions"], json!(["Action", "Drama"]));
+        assert_eq!(view["sources"][1]["defaultGenre"], "Action");
+        assert!(!view.to_string().contains("/manifest.json"), "no addon URL reaches the UI: {view}");
+
+        // The chosen catalog is remembered per profile.
+        call(&window, "discover_select", json!({ "key": keys[1] })).expect("select");
+        let store = nuvio_store::nextgen::AppStore::open(&dir).unwrap();
+        assert_eq!(store.discover_selection().unwrap()[&1], keys[1]);
+        assert_eq!(call(&window, "discover_sources", json!({})).unwrap()["selectedKey"], json!(keys[1]));
+
+        // First page: two items, the catalog paginates (skip extra), next skip is the raw page size.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[0], "genre": Value::Null, "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .expect("first page");
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["nextSkip"], 2);
+        assert_eq!(page["duplicatePages"], 0);
+        assert_eq!(page["supportsPagination"], true);
+
+        // The addon answered the same page again: it advances the skip and counts one duplicate.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[0], "genre": Value::Null, "skip": 2, "reset": false,
+            "existingKeys": ["movie:tt0100", "movie:tt0300"], "duplicatePages": 0
+        }))
+        .unwrap();
+        assert_eq!(page["duplicatePages"], 1);
+        assert_eq!(page["nextSkip"], 4, "duplicate page advanced by the raw page size");
+
+        // A genre-filtered catalog is asked with the genre in the URL.
+        let page = call(&window, "discover_page", json!({
+            "key": keys[1], "genre": "Action", "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .expect("genre page");
+        assert_eq!(page["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page["nextSkip"], Value::Null, "no skip extra and a short page: nothing more");
+
+        // A catalog that is no longer installed is refused.
+        let gone = call(&window, "discover_page", json!({
+            "key": "0000000000000000:movie:gone", "genre": Value::Null, "skip": 0, "reset": true,
+            "existingKeys": [], "duplicatePages": 0
+        }))
+        .unwrap_err();
+        assert!(gone.as_str().unwrap().contains("catalog not found"), "{gone}");
     }
 }

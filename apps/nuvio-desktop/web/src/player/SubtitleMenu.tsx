@@ -23,6 +23,8 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
   const unsaved = useRef<SubtitleSettings | null>(null);
   const timer = useRef(0);
   const saving = useRef<Promise<void>>(Promise.resolve());
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -65,6 +67,30 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
 
   const delay = (ms: number) => void api.playerCommand({ type: "setSubtitleDelay", ms: Math.max(-60000, Math.min(60000, ms)) });
 
+  const autoSync = () => {
+    setSyncing(true);
+    setSyncNote(null);
+    api.playerSubtitleAutosync(snapshot.session)
+      .then((result) => {
+        if (result.status === "applied" && result.offsetMs !== null) {
+          setSyncNote(t("Sincronizado em {seconds} s com {count} referência(s).", {
+            seconds: decimal(result.offsetMs / 1000, 2),
+            count: String(result.references),
+          }));
+        } else if (result.status === "no-match") {
+          setSyncNote(t("Nenhum ajuste confiável encontrado."));
+        } else if (result.status === "not-applicable") {
+          setSyncNote(t("Escolha uma legenda de addon para sincronizar."));
+        } else if (result.status === "busy") {
+          setSyncNote(t("Já existe uma sincronização em andamento."));
+        } else {
+          setSyncNote(t("Sincronização automática desativada nas Configurações."));
+        }
+      })
+      .catch(() => setSyncNote(t("Não foi possível sincronizar a legenda.")))
+      .finally(() => setSyncing(false));
+  };
+
   return (
     <>
       <span className="pc-enhance-title">{t("Atraso da legenda")}</span>
@@ -74,6 +100,13 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
         <button className="pc-level" aria-label={t("Atrasar legenda")} onClick={() => delay(snapshot.subDelayMs + 250)}>+{decimal(0.25, 2)} s</button>
         <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>{t("Zerar")}</button>
       </div>
+      <span className="pc-enhance-title">{t("Sincronização automática")}</span>
+      <div className="pc-motion">
+        <button className="pc-level" data-testid="subtitle-autosync" disabled={syncing} onClick={autoSync}>
+          {syncing ? t("Sincronizando…") : t("Sincronizar com outras legendas")}
+        </button>
+      </div>
+      {syncNote && <p className="pc-enhance-note" role="status">{syncNote}</p>}
       {style && (
         <>
           <span className="pc-enhance-title">{t("Aparência")}</span>
