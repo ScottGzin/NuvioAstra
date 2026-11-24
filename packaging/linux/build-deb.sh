@@ -104,9 +104,10 @@ fi
 [[ -n "$version" ]] || die "could not read the version from tauri.conf.json (pass --version)"
 command -v dpkg-deb >/dev/null 2>&1 || die "dpkg-deb not found (install dpkg-dev)"
 
-# Ubuntu's t64 transition changed some runtime package names; the alternatives keep the
-# package installable on Debian 12 and Ubuntu 24.04.
-depends="${NUVIO_DEB_DEPENDS:-libwebkit2gtk-4.1-37 | libwebkit2gtk-4.1-37t64, libgtk-3-0, libx11-6, libxcb1, libxrandr2, libxi6, libxkbcommon0, libayatana-appindicator3-1, libmpv2, libgbm1, libdrm2, libasound2 | libasound2t64, libc6}"
+# Runtime package names differ between distributions: Debian/Ubuntu 24.04 ship the 4.1 WebKitGTK
+# runtime as `libwebkit2gtk-4.1-0` (the `-37` suffix belongs to the older 4.0 series), and Ubuntu's
+# t64 transition renamed some libraries. The alternatives cover Debian 12, Ubuntu 24.04 and PikaOS.
+depends="${NUVIO_DEB_DEPENDS:-libwebkit2gtk-4.1-0 | libwebkit2gtk-4.1-0t64, libgtk-3-0 | libgtk-3-0t64, libx11-6, libxcb1, libxrandr2, libxi6, libxkbcommon0, libayatana-appindicator3-1, libmpv2, libgbm1, libdrm2, libasound2 | libasound2t64, libc6}"
 maintainer="${NUVIO_DEB_MAINTAINER:-Nuvio Astra <maintainer@nuvio-astra.invalid>}"
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-deb.XXXXXX")"
@@ -128,11 +129,14 @@ Type=Application
 Name=Nuvio Astra
 GenericName=Media Player
 Comment=Stremio-compatible addon media player
-Exec=/usr/bin/nuvio-astra
+Exec=/usr/bin/nuvio-astra %u
 Icon=nuvio-astra
 Terminal=false
 Categories=AudioVideo;Video;Player;
-StartupWMClass=nuvio-astra
+Keywords=stream;video;addon;stremio;
+StartupNotify=true
+StartupWMClass=nuvio-desktop
+MimeType=x-scheme-handler/nuvio;
 EOF
 
 cat > "$pkgdir/usr/bin/nuvio-astra" <<EOF

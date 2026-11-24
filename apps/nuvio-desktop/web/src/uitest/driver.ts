@@ -70,7 +70,9 @@ async function expectDetails(label: string, id: string | null, type: string): Pr
 async function playFirstSource(label: string, whilePlaying?: () => Promise<void>) {
   const list = await waitFor(() => {
     const s = $(".details .streams");
-    if (s) return s;
+    // Streamed answers: wait for the complete list (the "more sources" line disappears) so the
+    // direct source counted below is not just the first addon to answer.
+    if (s && !$('[data-testid="streams-loading"]', s)) return s;
     const msg = $$(".details .sources-panel .muted, .details .details-section .muted, .details .row-error").find((el) => /Nenhum addon|Falha/.test(el.textContent ?? ""));
     return msg ?? null;
   }, 45000);

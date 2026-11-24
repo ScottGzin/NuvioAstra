@@ -4,7 +4,7 @@
 // chips, read from its store. Direct and torrent (P2P) streams play in the app's player; the other
 // YouTube sources are resolved by the in-app extractor and external links open in the browser.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { api, errorText } from "../api";
 import type { PlaybackItem, StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup } from "../types";
@@ -100,22 +100,35 @@ function Badge({ filter }: { filter: StreamBadgeFilter }) {
 
 export function StreamList({ contentType, id, onPlay, downloadProgress }: Props) {
   const [groups, setGroups] = useState<StreamGroup[] | null>(null);
+  const [parts, setParts] = useState<{ order: number; group: StreamGroup }[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [rules, setRules] = useState<StreamBadgeRules | null>(null);
+  const loadId = useRef(0);
 
   const load = useCallback(
     async (refresh: boolean) => {
+      const seq = ++loadId.current;
       if (refresh) setRefreshing(true);
+      setLoading(true);
       try {
-        const next = await api.streams(contentType, id, refresh);
+        // Every addon/scraper group is shown as soon as it answers; the final list replaces them.
+        const next = await api.streams(contentType, id, refresh, (group, order) => {
+          if (loadId.current !== seq) return;
+          setParts((current) => [...current.filter((part) => part.order !== order), { order, group }]);
+        });
+        if (loadId.current !== seq) return;
         setGroups(next);
         setError(null);
       } catch (e) {
-        setError(errorText(e));
+        if (loadId.current === seq) setError(errorText(e));
       } finally {
-        setRefreshing(false);
+        if (loadId.current === seq) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     },
     [contentType, id],
@@ -123,9 +136,14 @@ export function StreamList({ contentType, id, onPlay, downloadProgress }: Props)
 
   useEffect(() => {
     setGroups(null);
+    setParts([]);
     setSelected(null);
     setError(null);
     void load(false);
+    // A search left behind by the previous title/episode must not touch this one.
+    return () => {
+      loadId.current += 1;
+    };
   }, [load]);
 
   // Badge rules imported in the original app; empty rules simply mean no chips.
@@ -140,15 +158,21 @@ export function StreamList({ contentType, id, onPlay, downloadProgress }: Props)
     };
   }, []);
 
-  const addonGroups = useMemo(() => (groups ?? []).filter((group) => group.streams.length > 0), [groups]);
+  const live = useMemo(
+    () => groups ?? [...parts].sort((a, b) => a.order - b.order).map((part) => part.group),
+    [groups, parts],
+  );
+  const addonGroups = useMemo(() => live.filter((group) => group.streams.length > 0), [live]);
   // A chip of an addon that answered nothing in a refresh falls back to All.
   const effective = selected && addonGroups.some((g) => g.addonName === selected) ? selected : null;
   const shown = effective ? addonGroups.filter((g) => g.addonName === effective) : addonGroups;
-  const failed = (groups ?? []).filter((group) => group.error && group.streams.length === 0);
+  const failed = live.filter((group) => group.error && group.streams.length === 0);
 
   if (error) return <div className="row-error">{t("Falha ao buscar fontes: {error}", { error })}</div>;
-  if (!groups) return <div className="muted">{t("Buscando fontes nos addons…")}</div>;
-  if (!addonGroups.length && !failed.length) return <div className="muted">{t("Nenhum addon instalado fornece fontes para este título.")}</div>;
+  if (!live.length) {
+    const waiting = loading || groups === null;
+    return <div className="muted">{waiting ? t("Buscando fontes nos addons…") : t("Nenhum addon instalado fornece fontes para este título.")}</div>;
+  }
 
   return (
     <div className="streams">
@@ -176,6 +200,12 @@ export function StreamList({ contentType, id, onPlay, downloadProgress }: Props)
           </button>
         ))}
       </div>
+
+      {loading && (
+        <div className="muted small" data-testid="streams-loading">
+          {t("Buscando mais fontes…")}
+        </div>
+      )}
 
       {failed.map((group) => (
         <div key={group.addonName} className="stream-addon-error muted small">

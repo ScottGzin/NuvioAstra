@@ -16,9 +16,12 @@ use nuvio_store::nextgen::AppStore;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const STORE_NAME: &str = "plugins";
+/// One scraper gets this much wall clock. The Sources screen shows the other answers meanwhile, and
+/// a scraper that hangs (or burns its CPU deadline) must not hold the whole answer past this.
+const SCRAPER_TIMEOUT: Duration = Duration::from_secs(20);
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
@@ -271,6 +274,20 @@ impl Manager {
     /// Runs the enabled scrapers for a title and returns streams as ordinary addon streams, so the
     /// player, headers and the relay work exactly the same way.
     pub async fn search(&self, profile: i64, content_type: &str, id: &str) -> Vec<(String, Vec<StreamItem>)> {
+        self.search_streamed(profile, content_type, id, |_, _, _| {})
+            .await
+            .into_iter()
+            .map(|(_, name, streams)| (name, streams))
+            .collect()
+    }
+
+    /// Same scrapers as `search`, all at once: every scraper's streams are handed to `emit` as soon
+    /// as it answers (and returned in the configured order), so the fastest scraper shows its
+    /// sources without waiting for the slowest one.
+    pub async fn search_streamed<F>(&self, profile: i64, content_type: &str, id: &str, mut emit: F) -> Vec<(usize, String, Vec<StreamItem>)>
+    where
+        F: FnMut(usize, &str, &[StreamItem]),
+    {
         let store = match self.store() {
             Ok(store) => store,
             Err(_) => return Vec::new(),
@@ -283,8 +300,10 @@ impl Manager {
         if tmdb_id.is_empty() {
             return Vec::new();
         }
-        let mut out = Vec::new();
-        for scraper in state.scrapers.into_iter().filter(|s| s.enabled && s.supports_type(content_type)) {
+        let scrapers: Vec<_> = state.scrapers.into_iter().filter(|s| s.enabled && s.supports_type(content_type)).collect();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        for (index, scraper) in scrapers.iter().enumerate() {
+            let tx = tx.clone();
             let call = PluginCall {
                 tmdb_id: tmdb_id.clone(),
                 media_type: content_type.to_string(),
@@ -294,13 +313,30 @@ impl Manager {
                 settings: serde_json::json!({}),
                 tmdb_api_key: String::new(),
             };
-            let run = get_streams(&scraper.code, &call).await;
-            if let Ok(run) = run {
-                let streams = run.results.into_iter().map(|r| plugin_stream(&scraper.name, &scraper.id, scraper.logo.clone(), r)).collect();
-                out.push((scraper.name.clone(), streams));
-            }
+            let code = scraper.code.clone();
+            let name = scraper.name.clone();
+            let scraper_id = scraper.id.clone();
+            let logo = scraper.logo.clone();
+            tauri::async_runtime::spawn(async move {
+                let streams = match tokio::time::timeout(SCRAPER_TIMEOUT, get_streams(&code, &call)).await {
+                    Ok(Ok(run)) => run.results.into_iter().map(|r| plugin_stream(&name, &scraper_id, logo.clone(), r)).collect(),
+                    // A scraper that fails or times out simply has nothing to offer.
+                    _ => Vec::new(),
+                };
+                let _ = tx.send((index, name, streams));
+            });
         }
-        out
+        drop(tx);
+        let mut found = Vec::with_capacity(scrapers.len());
+        while let Some((index, name, streams)) = rx.recv().await {
+            // The UI shows only groups with sources: an empty answer is not announced.
+            if !streams.is_empty() {
+                emit(index, &name, &streams);
+            }
+            found.push((index, name, streams));
+        }
+        found.sort_by_key(|(index, _, _)| *index);
+        found
     }
 }
 

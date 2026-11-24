@@ -30,3 +30,9 @@ export function listen<T>(event: string, handler: (payload: T) => void): Unliste
     unlisten?.();
   };
 }
+
+/** Subscribes and waits until the listener is registered, so no event of the request that follows
+ *  can be missed (streamed answers start arriving before the command returns). */
+export async function listenRegistered<T>(event: string, handler: (payload: T) => void): Promise<Unlisten> {
+  return tauri().event.listen<T>(event, (e) => handler(e.payload));
+}

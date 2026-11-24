@@ -1,4 +1,4 @@
-import { invoke } from "./tauri";
+import { invoke, listenRegistered } from "./tauri";
 import { message } from "./rustErrors";
 import type {
   EpgView,
@@ -19,7 +19,7 @@ import type {
   P2pStatus,
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, Channel, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
-  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
+  AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup, StreamPart,
   DiscoverPage, DiscoverView,
   WatchedItem,
   StreamBadgeRules,
@@ -39,6 +39,8 @@ import type {
 // returning to Home or reopening a title never repeats the request. Failures are not cached.
 const pageCache = new Map<string, Promise<CatalogPage>>();
 const detailsCache = new Map<string, Promise<Details>>();
+/** Id of the current streamed stream search (the interface ignores older `streams-part` events). */
+let streamsRequestId = 0;
 const homeListeners = new Set<() => void>();
 
 const remoteSettingsListeners = new Set<() => void>();
@@ -184,8 +186,21 @@ export const api = {
   parentalGuide: (id: string) => invoke<ParentalGuide | null>("parental_guide", { id }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
-  streams: (contentType: string, id: string, refresh = false) =>
-    invoke<StreamGroup[]>("title_streams", { contentType, id, refresh }),
+  /** Sources of a title. With `onPart`, every addon/scraper group is handed over as soon as it
+   *  answers (`streams-part` event), so the list fills up while the slowest ones are still asked;
+   *  the resolved value is the complete, ordered answer. */
+  async streams(contentType: string, id: string, refresh = false, onPart?: (group: StreamGroup, order: number) => void): Promise<StreamGroup[]> {
+    if (!onPart) return invoke<StreamGroup[]>("title_streams", { contentType, id, refresh, requestId: null });
+    const requestId = ++streamsRequestId;
+    const off = await listenRegistered<StreamPart>("streams-part", (part) => {
+      if (part.requestId === requestId) onPart(part.group, part.order);
+    });
+    try {
+      return await invoke<StreamGroup[]>("title_streams", { contentType, id, refresh, requestId });
+    } finally {
+      off();
+    }
+  },
   /** Settings → Services → TMDB (key and language). */
   tmdbSettings: () => invoke<TmdbSettingsView>("tmdb_settings"),
   tmdbSettingsSet: (settings: TmdbSettingsInput) => invoke<TmdbSettingsView>("tmdb_settings_set", { settings }),

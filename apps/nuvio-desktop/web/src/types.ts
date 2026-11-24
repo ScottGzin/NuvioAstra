@@ -267,6 +267,10 @@ export interface StreamEntry {
 }
 export interface StreamGroup { addonName: string; streams: StreamEntry[]; error: string | null }
 
+/** One group of a streamed answer (`streams-part`), handed over as soon as its addon or scraper
+ *  answers; `order` places it in the complete list (addons first, then the scrapers). */
+export interface StreamPart { requestId: number; order: number; group: StreamGroup }
+
 /** Badge rules imported in the original app (read only); matched by regex on the stream text. */
 export interface StreamBadgeFilter {
   name: string; pattern: string; imageUrl: string; tagColor: string; tagStyle: string;

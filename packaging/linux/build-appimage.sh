@@ -126,8 +126,9 @@ fi
 
 if command -v file >/dev/null 2>&1; then
   file "$binary" | grep -q 'ELF' || die "not an ELF binary: $binary"
-  [[ "$(file -b "$libmpv")" == *ELF* ]] || die "not an ELF shared library: $libmpv"
-  [[ "$(file -b "$engine")" == *ELF* ]] || die "not an ELF shared library: $engine"
+  # -L: the system libmpv.so.2 is usually a symlink to libmpv.so.2.x.
+  [[ "$(file -Lb "$libmpv")" == *ELF* ]] || die "not an ELF shared library: $libmpv"
+  [[ "$(file -Lb "$engine")" == *ELF* ]] || die "not an ELF shared library: $engine"
 fi
 
 work="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-appimage.XXXXXX")"
@@ -149,12 +150,20 @@ Type=Application
 Name=Nuvio Astra
 GenericName=Media Player
 Comment=Stremio-compatible addon media player
-Exec=nuvio-astra
+Exec=nuvio-astra %u
 Icon=nuvio-astra
 Terminal=false
 Categories=AudioVideo;Video;Player;
-StartupWMClass=nuvio-astra
+Keywords=stream;video;addon;stremio;
+StartupNotify=true
+StartupWMClass=nuvio-desktop
+MimeType=x-scheme-handler/nuvio;
 EOF
+# Older appimagetool builds look for the entry at the AppDir root; newer ones accept the copy in
+# usr/share/applications. Keep both so the image can be built with either.
+cp "$appdir/usr/share/applications/nuvio-astra.desktop" "$appdir/nuvio-astra.desktop"
+cp "$appdir/usr/share/icons/hicolor/256x256/apps/nuvio-astra.png" "$appdir/nuvio-astra.png"
+cp "$appdir/usr/share/icons/hicolor/256x256/apps/nuvio-astra.png" "$appdir/.DirIcon"
 
 cat > "$appdir/AppRun" <<'EOF'
 #!/bin/sh

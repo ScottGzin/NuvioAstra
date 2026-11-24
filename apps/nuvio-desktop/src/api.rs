@@ -454,17 +454,60 @@ pub async fn livetv_toggle_favorite(state: State<'_, AppState>, key: String) -> 
     Ok(keys)
 }
 
-/// Sources of one title from the enabled addons (cached manifests), asked when the user opens them.
+/// Sources of one title from the enabled addons and scraper plugins, asked when the user opens them.
+/// Every addon/scraper answer is also emitted as a `streams-part` event (with the `request_id` the
+/// interface sent), so the list fills up while the slowest addons are still answering; the returned
+/// list is the complete, ordered answer.
 #[tauri::command]
-pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String, refresh: Option<bool>) -> Result<Vec<StreamGroup>, String> {
+pub async fn title_streams<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    content_type: String,
+    id: String,
+    refresh: Option<bool>,
+    request_id: Option<u64>,
+) -> Result<Vec<StreamGroup>, String> {
+    use tauri::Emitter;
     let loaded = state.addons.loaded().await?;
     let choices: Vec<(String, String)> = debrid::available(&state.app_store, loaded.profile)
         .into_iter()
         .map(|active| (active.provider.code().to_string(), active.provider.id().to_string()))
         .collect();
-    let mut groups = streams::search_in(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), None).await;
-    let found = state.plugins.search(loaded.profile, &content_type, &id).await;
-    groups.extend(streams::plugin_groups(&state.streams, found, None));
+    let request_id = request_id.unwrap_or(0);
+    // One search id for the whole answer: addons first, then the scrapers.
+    let search = state.streams.begin();
+    let addon_count = streams::target_count(&loaded.manifests, &content_type, &id);
+    let mut scraper_groups: Vec<(usize, StreamGroup)> = Vec::new();
+    let addons = streams::search_in_streamed(
+        &state.addons.client,
+        &state.streams,
+        &loaded.manifests,
+        &content_type,
+        &id,
+        refresh.unwrap_or(false),
+        None,
+        search,
+        request_id,
+        0,
+        |part| {
+            let _ = app.emit("streams-part", part);
+        },
+    );
+    // Scraper plugins run while the addons are still answering, not after them.
+    let scrapers = async {
+        state
+            .plugins
+            .search_streamed(loaded.profile, &content_type, &id, |index, name, found| {
+                let order = addon_count + index;
+                let group = streams::plugin_group(&state.streams, search, order, name, found.to_vec(), None);
+                let _ = app.emit("streams-part", streams::StreamPart { request_id, order, group: group.clone() });
+                scraper_groups.push((order, group));
+            })
+            .await
+    };
+    let (mut groups, _) = tokio::join!(addons, scrapers);
+    scraper_groups.sort_by_key(|(order, _)| *order);
+    groups.extend(scraper_groups.into_iter().map(|(_, group)| group));
     streams::duplicate_for_providers(&state.streams, &mut groups, &choices);
     Ok(groups)
 }
@@ -1551,7 +1594,7 @@ mod tests {
     fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
         let mut ctx = mock_context(noop_assets());
         for cmd in [
-            "meta_details", "settings_set", "home_rows", "library_favorite_keys", "library_favorites",
+            "meta_details", "title_streams", "settings_set", "home_rows", "library_favorite_keys", "library_favorites",
             "library_toggle_favorite", "library_remove_favorite", "library_continue_watching",
             "library_history", "library_remove_history", "library_title_progress",
             "discover_sources", "discover_select", "discover_page",
@@ -1574,6 +1617,8 @@ mod tests {
         {"id":"tt0200:2:1","title":"Volta","season":2,"episode":1}]}}"#;
     const CATALOG: &str = r#"{"metas":[{"id":"tt0100","type":"movie","name":"Filme Teste","releaseInfo":"2021"},
         {"id":"tt0300","type":"movie","name":"Outro Filme"}]}"#;
+    const STREAMS: &str = r#"{"streams":[{"name":"HD","title":"Fonte de teste","url":"https://cdn.test/a.m3u8",
+        "behaviorHints":{"videoSize":1234,"filename":"a.m3u8"}},{"name":"Torrent","infoHash":"abc"}]}"#;
 
     /// Minimal addon over HTTP on 127.0.0.1: serves the two metas and the Discover catalog pages
     /// (the same page again for `skip=2`, for the duplicate-page rule), 404 otherwise.
@@ -1595,6 +1640,7 @@ mod tests {
                 let (status, body) = match path {
                     "/meta/movie/tt0100.json" => ("200 OK", MOVIE),
                     "/meta/series/tt0200.json" => ("200 OK", SERIES),
+                    "/stream/movie/tt0100.json" => ("200 OK", STREAMS),
                     "/catalog/movie/top.json" | "/catalog/movie/top/skip=2.json" => ("200 OK", CATALOG),
                     "/catalog/movie/genres/genre=Action.json" => ("200 OK", CATALOG),
                     _ => ("404 Not Found", "{}"),
@@ -1610,7 +1656,7 @@ mod tests {
         let manifest_url = addon_server();
         let manifest = nuvio_core::manifest::parse_manifest(
             &manifest_url,
-            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[
+            r#"{"id":"test.meta","name":"Addon de teste","version":"1","resources":["meta","stream"],"types":["movie","series"],"idPrefixes":["tt"],"catalogs":[
                 {"type":"movie","id":"top","name":"Populares","extra":[{"name":"skip"}]},
                 {"type":"movie","id":"genres","name":"Por gênero","extra":[{"name":"genre","isRequired":true,"options":["Action","Drama"]}]},
                 {"type":"movie","id":"search","name":"Busca","extra":[{"name":"search","isRequired":true}]}]}"#,
@@ -1654,6 +1700,7 @@ mod tests {
             .manage(state)
             .invoke_handler(tauri::generate_handler![
                 meta_details,
+                title_streams,
                 settings_set,
                 home_rows,
                 library_favorite_keys,
@@ -1718,6 +1765,35 @@ mod tests {
         // A type the addon does not serve gives a controlled error, not a guess.
         let wrong = invoke(&window, json!({ "contentType": "tv", "id": "tt0100" })).unwrap_err();
         assert!(wrong.as_str().unwrap().contains("no installed addon"), "{wrong}");
+    }
+
+    /// `title_streams` contract: the UI's JSON (`{ contentType, id, requestId }`) reaches the
+    /// command, the addon is asked for its streams, the answer uses the UI's casing and every
+    /// group is also emitted as a `streams-part` event carrying the interface's request id.
+    #[test]
+    fn title_streams_contract_returns_the_addon_sources() {
+        use std::sync::{Arc, Mutex as StdMutex};
+        use tauri::Listener;
+        let (app, window, _) = app("streams");
+        let parts = Arc::new(StdMutex::new(Vec::<String>::new()));
+        let captured = parts.clone();
+        app.listen("streams-part", move |event| {
+            captured.lock().unwrap().push(event.payload().to_string());
+        });
+        let groups = call(&window, "title_streams", json!({ "contentType": "movie", "id": "tt0100", "refresh": false, "requestId": 5 })).expect("streams");
+        let groups = groups.as_array().unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0]["addonName"], "Addon de teste");
+        let streams = groups[0]["streams"].as_array().unwrap();
+        assert_eq!(streams.len(), 2);
+        assert_eq!(streams[0]["name"], "HD");
+        assert_eq!(streams[0]["kind"], "direct");
+        assert_eq!(streams[0]["videoSize"], 1234);
+        assert_eq!(streams[1]["kind"], "torrent");
+        let parts = parts.lock().unwrap();
+        assert_eq!(parts.len(), 1, "one part per answering addon: {parts:?}");
+        assert!(parts[0].contains(r#""requestId":5"#), "{}", parts[0]);
+        assert!(parts[0].contains(r#""addonName":"Addon de teste""#), "{}", parts[0]);
     }
 
     /// `settings_set` contract: camelCase JSON from the UI, validated into the original's ranges,

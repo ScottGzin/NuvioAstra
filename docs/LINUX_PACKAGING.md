@@ -56,7 +56,14 @@ entry, a 256×256 icon, the GPL/third-party notices and an `AppRun` that sets
 
 The `.deb` installs the same files under `/usr/lib/nuvio-astra/`, the icon and desktop entry under
 `/usr/share/`, and a launcher `/usr/bin/nuvio-astra` (so `Exec=nuvio-astra` works from any desktop).
+The entry accepts URLs (`Exec=/usr/bin/nuvio-astra %u`) and registers `x-scheme-handler/nuvio`, so the
+Trakt/Simkl sign-in callback (`nuvio://auth/...`) reaches the app.
 Install it with `sudo apt install ./dist/nuvio-astra_<version>_amd64.deb`.
+
+If the app does not appear in the application menu after installing, check for a personal override
+with the same desktop-file id: `~/.local/share/applications/nuvio-astra.desktop` takes precedence
+over `/usr/share/applications/nuvio-astra.desktop`, and a `NoDisplay=true` copy there hides the
+installed entry. Remove that stale file and run `update-desktop-database ~/.local/share/applications`.
 
 ### Options and environment variables
 
@@ -73,10 +80,13 @@ Both scripts accept `--binary`, `--libmpv`, `--engine`, `--icon`, `--version`, `
 | `NUVIO_DEB_MAINTAINER` | Replace the `.deb` `Maintainer` field. |
 | `NUVIO_UPDATE_REPOSITORY` | `owner/repo` embedded by `build.rs` at **build time**; required for in-app updates. |
 
-The default `.deb` dependencies are `libwebkit2gtk-4.1-37` (or the Ubuntu `t64` name), `libgtk-3-0`,
-`libx11-6`, `libxcb1`, `libxrandr2`, `libxi6`, `libxkbcommon0`, `libayatana-appindicator3-1`,
-`libmpv2`, `libgbm1`, `libdrm2`, `libasound2` (or `t64`) and `libc6`. Adjust for the target distro
-with `NUVIO_DEB_DEPENDS` if needed.
+The default `.deb` dependencies are `libwebkit2gtk-4.1-0` (or its Ubuntu `t64` name), `libgtk-3-0`
+(or `libgtk-3-0t64`), `libx11-6`, `libxcb1`, `libxrandr2`, `libxi6`, `libxkbcommon0`,
+`libayatana-appindicator3-1`, `libmpv2`, `libgbm1`, `libdrm2`, `libasound2` (or `t64`) and `libc6`.
+Adjust for the target distro with `NUVIO_DEB_DEPENDS` if needed.
+
+Note: the WebKitGTK 4.1 runtime is `libwebkit2gtk-4.1-0` on Debian 12, Ubuntu 24.04 and PikaOS; the
+`-37` suffix belongs to the older WebKitGTK 4.0 series and is not installable on those systems.
 
 ## Caveats
 
