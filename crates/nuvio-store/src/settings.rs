@@ -443,7 +443,10 @@ impl MetaScreenSettings {
 }
 
 /// Interface languages Astra has (`AppLanguage` of the original).
-pub const APP_LANGUAGES: &[&str] = &["pt-BR", "en", "ar"];
+pub const APP_LANGUAGES: &[&str] = &[
+    "pt-BR", "pt", "en", "ar", "bn", "bg", "hr", "cs", "nl", "fr", "de", "el", "he", "hu",
+    "id", "it", "pl", "ro", "ru", "sk", "es", "ta", "tr", "uk", "ur", "nb", "ja", "vi", "zh",
+];
 pub const CARD_WIDTHS: &[i64] = &[104, 112, 120, 126, 134, 140];
 pub const CARD_RADII: &[i64] = &[0, 4, 8, 12, 16];
 

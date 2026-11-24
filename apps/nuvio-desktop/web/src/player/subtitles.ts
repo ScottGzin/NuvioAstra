@@ -4,14 +4,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import type { PlayerSnapshot, SubtitleList, SubtitleOption, Track } from "../types";
-import { t } from "../i18n";
+import { locale, t } from "../i18n";
 
 // ISO 639-2/B codes, which Intl does not read.
 const BIBLIOGRAPHIC: Record<string, string> = {
   fre: "fr", ger: "de", chi: "zh", cze: "cs", dut: "nl", gre: "el", rum: "ro", slo: "sk", per: "fa", alb: "sq", arm: "hy",
   baq: "eu", bur: "my", geo: "ka", ice: "is", mac: "mk", may: "ms", tib: "bo", wel: "cy", pob: "pt-BR",
 };
-const NAMES = new Intl.DisplayNames(["pt-BR"], { type: "language" });
 
 export function canonicalLanguage(code: string | null | undefined): string {
   const raw = code?.trim().replace(/_/g, "-").toLowerCase();
@@ -27,7 +26,7 @@ export function languageName(code: string): string {
   if (!code) return t("Idioma não informado");
   let name = code;
   try {
-    name = NAMES.of(code) ?? code;
+    name = new Intl.DisplayNames([locale()], { type: "language" }).of(code) ?? code;
   } catch {
     /* kept as the addon wrote it */
   }
@@ -73,7 +72,7 @@ export function subtitleGroups(tracks: Track[], options: SubtitleOption[], prefe
     const base = wanted.findIndex((w) => w.split("-")[0] === language.split("-")[0]);
     return base >= 0 ? 100 + base : 500;
   };
-  return [...groups.values()].sort((a, b) => rank(a.language) - rank(b.language) || a.name.localeCompare(b.name, "pt-BR"));
+  return [...groups.values()].sort((a, b) => rank(a.language) - rank(b.language) || a.name.localeCompare(b.name, locale()));
 }
 
 /** The list of one session, asked when a menu opens. */

@@ -77,7 +77,8 @@ are never returned to the webview.
 - Account sync of profiles, addons, favorites, progress, Home order, collections, and compatible settings.
 - **Watch Party:** create or join a room by code and watch together through Supabase Realtime, with Syncplay-style
   drift correction. Requires a Supabase project with Realtime enabled.
-- Interface languages: Portuguese, English, and Arabic (RTL).
+- Interface languages: the same 29 as Nuvio Desktop (Portuguese and Brazilian Portuguese, English, Arabic,
+  Hebrew, Urdu and 24 more), with right-to-left layouts for Arabic, Hebrew, and Urdu.
 
 ### System
 
