@@ -391,6 +391,14 @@ fn app_mode() -> &'static str {
     }
 }
 
+/// The host OS (`linux`, `windows`, `macos`…). The player needs it because on Linux the video is a
+/// native X11 window above the WebView: the page keeps the video out of the player chrome instead
+/// of drawing the chrome over it (`web/src/player/FullPlayer.tsx`).
+#[tauri::command]
+fn platform() -> &'static str {
+    std::env::consts::OS
+}
+
 #[tauri::command]
 fn player_command(state: tauri::State<'_, AppState>, command: PlayerCommand) -> Result<(), String> {
     state.with_player(|p| p.execute(&command).map_err(|e| e.to_string()))?;
@@ -407,12 +415,18 @@ fn player_command(state: tauri::State<'_, AppState>, command: PlayerCommand) -> 
     Ok(())
 }
 
-/// `rect` in CSS pixels of the webview; `None` = whole window. `scale` = devicePixelRatio.
+/// `rect` in CSS pixels of the webview; `None` = whole window. `holes` are regions of that
+/// rectangle the page needs for its chrome (Linux cuts them out of the native video window).
+/// `scale` = devicePixelRatio.
 #[tauri::command]
-fn player_video_rect(state: tauri::State<'_, AppState>, rect: Option<CssRect>, scale: f64) -> Result<(), String> {
+fn player_video_rect(state: tauri::State<'_, AppState>, rect: Option<CssRect>, holes: Option<Vec<CssRect>>, scale: f64) -> Result<(), String> {
+    let holes = holes.unwrap_or_default();
     state.with_player(|p| {
-        p.set_video_rect(rect.map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)))
-            .map_err(|e| e.to_string())
+        p.set_video_rect(
+            rect.map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)),
+            holes.into_iter().map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)).collect(),
+        )
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -713,6 +727,7 @@ fn main() {
             p2p::p2p_clear_cache,
             p2p::p2p_cache_size,
             app_mode,
+            platform,
             window_ready,
             uitest::uitest_capture,
             uitest::uitest_report,

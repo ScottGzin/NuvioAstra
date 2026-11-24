@@ -1,10 +1,12 @@
-// Whole-window player: the video uses the full client area (rect `null`) and the controls fade
-// out after 3 s without mouse movement. Keyboard: Space, ←/→, ↑/↓, F, M, Esc.
+// Whole-window player: on Windows/macOS the video uses the full client area (rect `null`) under
+// the transparent page and the controls fade out after 3 s without mouse movement. On Linux the
+// video is a native X11 window above the WebView, so the page keeps it inside the rectangle the
+// chrome leaves free (see `useNativeVideoRect`). Keyboard: Space, ←/→, ↑/↓, F, M, Esc.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { api } from "../api";
 import { listen } from "../tauri";
-import type { MetaVideo, PlayerSettings } from "../types";
+import type { CssRect, MetaVideo, PlayerSettings } from "../types";
 import { playbackItem } from "../library";
 import { usePlayer } from "./PlayerContext";
 import { P2pStats } from "./P2pStats";
@@ -17,6 +19,107 @@ import { NextEpisodePanel } from "./NextEpisodePanel";
 import { PlaybackMoments, reachedNextEpisode, useMoments } from "./PlaybackMoments";
 import { SubtitleMenu } from "./SubtitleMenu";
 import { t } from "../i18n";
+
+interface VideoLayout {
+  /** `null` = the whole window. */
+  rect: CssRect | null;
+  /** Parts of `rect` the page needs for its chrome (the video is cut out there on Linux). */
+  holes: CssRect[];
+}
+
+/**
+ * The picture occupies the whole window, like the Windows backend: the chrome is cut out of the
+ * native video window where it is visible, so no empty bands are left around the picture while
+ * the controls are hidden. A dropdown menu is the exception — it is tall, so the picture is
+ * letterboxed above it instead of being cut through.
+ */
+function videoLayout(root: HTMLElement, chrome: boolean): VideoLayout {
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const holes: CssRect[] = [];
+  const cut = (nodes: NodeListOf<HTMLElement>) => {
+    for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      if (rect.height > 0) {
+        holes.push({ x: Math.round(rect.left), y: Math.round(rect.top), width: Math.round(rect.width), height: Math.round(rect.height) });
+      }
+    }
+  };
+  // Everything the picture must not cover: the panels opened inside the player (sources, chapters,
+  // next episode) and the skip/next cards. The video keeps playing around them; nothing is panned
+  // or resized, so opening a panel never pushes the picture aside.
+  cut(root.querySelectorAll<HTMLElement>(".chapters-panel, .next-panel, .player-moments"));
+  if (chrome) {
+    // Dropdown menus fade out with the control bar they belong to, so they only need a hole while
+    // the chrome is shown.
+    cut(root.querySelectorAll<HTMLElement>(".pc-enhance-menu"));
+    let top = 0;
+    for (const node of root.querySelectorAll<HTMLElement>(".full-player-top, .enhance-notice")) {
+      const rect = node.getBoundingClientRect();
+      if (rect.height > 0) top = Math.max(top, rect.bottom);
+    }
+    if (top > 0) holes.push({ x: 0, y: 0, width, height: Math.round(top) });
+    const controls = root.querySelector<HTMLElement>(".controls");
+    if (controls) {
+      const top = controls.getBoundingClientRect().top;
+      if (top < height) holes.push({ x: 0, y: Math.round(top), width, height: Math.round(height - top) });
+    }
+  }
+  return { rect: null, holes };
+}
+
+/**
+ * Linux draws mpv in a native X11 window above the WebView, so HTML can never paint over the
+ * picture: the video fills the window and the areas the chrome needs are cut out of it. `pip`
+ * leaves the layout alone (the picture lives in the PiP window and Rust keeps the last one).
+ */
+function useNativeVideoRect(
+  root: RefObject<HTMLDivElement | null>,
+  chrome: boolean,
+  pip: boolean,
+) {
+  const [native, setNative] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.platform().then((os) => !cancelled && setNative(os === "linux"), () => setNative(false));
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle("native-video", native === true);
+    return () => document.documentElement.classList.remove("native-video");
+  }, [native]);
+  useEffect(() => {
+    if (native === null || pip) return;
+    if (!native) { void api.playerRect(null); return; }
+    const element = root.current;
+    if (!element) return;
+    let frame = 0;
+    let sent = "";
+    const send = () => {
+      frame = 0;
+      const layout = videoLayout(element, chrome);
+      const key = JSON.stringify(layout);
+      if (key === sent) return;
+      sent = key;
+      void api.playerRect(layout.rect, layout.holes);
+    };
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(send); };
+    schedule();
+    const sizes = new ResizeObserver(schedule);
+    sizes.observe(element);
+    element.querySelectorAll(".full-player-top, .controls").forEach((node) => sizes.observe(node));
+    // Menus (subtitles, enhancements) and the skip/next cards mount and change class on demand.
+    const changes = new MutationObserver(schedule);
+    changes.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      sizes.disconnect();
+      changes.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [native, chrome, pip, root]);
+}
 
 export function FullPlayer() {
   const player = usePlayer();
@@ -33,6 +136,8 @@ export function FullPlayer() {
   const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useNativeVideoRect(rootRef, visible || choosingNext, pip);
   // Another episode started: its panel is gone.
   useEffect(() => { setChoosingNext(false); setChaptersOpen(false); setSourcesOpen(false); }, [episode]);
 
@@ -67,10 +172,6 @@ export function FullPlayer() {
     if (player.session && snapshot?.pictureInPicture) void api.pictureInPicture(false, "").catch(() => {});
     setChoosingNext(true);
   }, [nextAired, player.session, snapshot?.pictureInPicture]);
-
-  useEffect(() => {
-    void api.playerRect(null);
-  }, []);
 
   const leave = useCallback(async () => {
     if (player.windowFullscreen) await player.setWindowFullscreen(false);
@@ -130,7 +231,7 @@ export function FullPlayer() {
   };
 
   return (
-    <div className={`full-player ${visible || choosingNext ? "" : "chrome-hidden"}`} onMouseMove={poke}>
+    <div ref={rootRef} className={`full-player ${visible || choosingNext ? "" : "chrome-hidden"}`} onMouseMove={poke}>
       <div className="full-player-top">
         <button className="back" onClick={() => void leave()} aria-label={t("Voltar")}>←</button>
         <div>

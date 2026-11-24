@@ -819,8 +819,9 @@ impl Player {
     }
 
     /// Places the video inside `rect` (physical pixels, host client coordinates); `None` = whole
-    /// window. Ignored while in PiP (the PiP window always shows the whole video).
-    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
+    /// window. Ignored while in PiP (the PiP window always shows the whole video). `holes` are only
+    /// used by the Linux backend, where the chrome is cut out of the native video window.
+    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>, _holes: Vec<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
         *self.video_rect.lock().expect("rect lock") = rect;
         if self.pip.lock().expect("pip lock").is_some() {
             return Ok(());

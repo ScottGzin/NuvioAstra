@@ -141,7 +141,7 @@ fn run(app: &AppHandle, addon: &str, cycles: usize) -> BenchReport {
             report.cycles.push(c);
             continue;
         }
-        let _ = app.state::<AppState>().with_player(|p| p.set_video_rect(None).map_err(|e| e.to_string()));
+        let _ = app.state::<AppState>().with_player(|p| p.set_video_rect(None, Vec::new()).map_err(|e| e.to_string()));
         let first = wait_for(app, Duration::from_secs(45), |s| s.loaded && s.time_pos > 0.0 && s.width > 0);
         c.ttff_ms = first.as_ref().map(|_| clicked.elapsed().as_millis());
         if first.is_none() {

@@ -434,6 +434,69 @@ mod x11 {
             dpy: *mut Display, window: Window, op: i32, x: i32, y: i32,
             rectangles: *mut XRectangle, n_rectangles: i32, shaping_kind: i32, op2: i32,
         ) -> i32;
+        fn XShapeCombineMask(
+            dpy: *mut Display, window: Window, shaping_kind: i32, x: i32, y: i32,
+            mask: Pixmap, op: i32,
+        ) -> i32;
+    }
+
+    /// `origin`/`size` of the video container and the holes (window coordinates) to cut out of it,
+    /// clipped to the container. The WebView cannot paint over the native video window, so the
+    /// player chrome is a hole in it instead.
+    pub fn local_holes(
+        origin: (f64, f64),
+        size: (f64, f64),
+        holes: &[(f64, f64, f64, f64)],
+    ) -> Vec<(i32, i32, i32, i32)> {
+        let (ox, oy) = origin;
+        let (sw, sh) = size;
+        holes
+            .iter()
+            .filter_map(|&(x, y, w, h)| {
+                let left = (x - ox).max(0.0);
+                let top = (y - oy).max(0.0);
+                let right = (x + w - ox).min(sw);
+                let bottom = (y + h - oy).min(sh);
+                (right - left >= 1.0 && bottom - top >= 1.0)
+                    .then(|| (left as i32, top as i32, (right - left) as i32, (bottom - top) as i32))
+            })
+            .collect()
+    }
+
+    /// Makes the window's visible region the whole rectangle minus `holes` (its own coordinates).
+    /// An empty list restores the normal rectangular window.
+    pub fn set_holes(window: isize, holes: &[(i32, i32, i32, i32)]) {
+        if window == 0 { return; }
+        let Some(dpy) = display() else { return };
+        quiet_x_errors();
+        unsafe {
+            const SHAPE_BOUNDING: i32 = 0;
+            const SHAPE_SET: i32 = 0;
+            const SHAPE_SUBTRACT: i32 = 3;
+            if !alive(dpy, window as Window) { return; }
+            if holes.is_empty() {
+                XShapeCombineMask(dpy, window as Window, SHAPE_BOUNDING, 0, 0, 0, SHAPE_SET);
+                XFlush(dpy);
+                return;
+            }
+            let (w, h) = size(dpy, window as Window);
+            let mut full = [XRectangle { x: 0, y: 0, width: w.max(1) as u16, height: h.max(1) as u16 }];
+            XShapeCombineRectangles(dpy, window as Window, SHAPE_BOUNDING, 0, 0, full.as_mut_ptr(), 1, SHAPE_SET, 0);
+            let mut rects: Vec<XRectangle> = holes
+                .iter()
+                .map(|&(x, y, w, h)| XRectangle {
+                    x: x.clamp(0, i16::MAX as i32) as i16,
+                    y: y.clamp(0, i16::MAX as i32) as i16,
+                    width: w.clamp(0, u16::MAX as i32) as u16,
+                    height: h.clamp(0, u16::MAX as i32) as u16,
+                })
+                .collect();
+            XShapeCombineRectangles(
+                dpy, window as Window, SHAPE_BOUNDING, 0, 0,
+                rects.as_mut_ptr(), rects.len() as i32, SHAPE_SUBTRACT, 0,
+            );
+            XFlush(dpy);
+        }
     }
 
     /// The video container is the large child of the host window that is not the WebView.
@@ -545,8 +608,14 @@ mod x11 {
 
     /// The WM can reparent/unmap children a moment after the host first appears. Re-map and resize
     /// from a short-lived private connection (the container belongs to the long-lived connection,
-    /// so closing this one does not destroy it).
-    pub fn ensure_visible_later(window: isize, host: isize) {
+    /// so closing this one does not destroy it). The size comes from the rectangle the page asked
+    /// for: resizing to the host here would put the video back over the player chrome.
+    pub fn ensure_visible_later(
+        window: isize,
+        host: isize,
+        rect: Arc<Mutex<Option<(f64, f64, f64, f64)>>>,
+        holes: Arc<Mutex<Vec<(f64, f64, f64, f64)>>>,
+    ) {
         std::thread::spawn(move || {
             for delay in [150u64, 600, 1500, 3000] {
                 std::thread::sleep(std::time::Duration::from_millis(delay));
@@ -561,8 +630,17 @@ mod x11 {
                         XCloseDisplay(dpy);
                         break;
                     }
-                    let (w, h) = size(dpy, host as Window);
-                    XMoveResizeWindow(dpy, window as Window, 0, 0, w.max(1) as u32, h.max(1) as u32);
+                    let (host_w, host_h) = size(dpy, host as Window);
+                    let wanted = rect.lock().ok().and_then(|rect| *rect);
+                    let (x, y, w, h) = match wanted {
+                        Some((x, y, w, h)) if w >= 1.0 && h >= 1.0 => (x as i32, y as i32, w as i32, h as i32),
+                        Some(_) => (-20000, -20000, 1, 1),
+                        None => (0, 0, host_w.max(1), host_h.max(1)),
+                    };
+                    XMoveResizeWindow(dpy, window as Window, x, y, w as u32, h as u32);
+                    let wanted_holes = holes.lock().map(|holes| holes.clone()).unwrap_or_default();
+                    let local = local_holes((x as f64, y as f64), (w as f64, h as f64), &wanted_holes);
+                    set_holes(window, &local);
                     XMapWindow(dpy, window as Window);
                     XLowerWindow(dpy, window as Window);
                     input_transparent(window as isize);
@@ -833,7 +911,11 @@ pub struct Player {
     events: Option<JoinHandle<()>>,
     snapshot: Arc<Mutex<PlayerSnapshot>>,
     applied_style: Mutex<Option<AppliedSubtitleStyle>>,
-    video_rect: Mutex<Option<(f64, f64, f64, f64)>>,
+    /// The video rectangle the page asked for; shared with the delayed re-map so a window manager
+    /// reparent does not put the video back over the controls.
+    video_rect: Arc<Mutex<Option<(f64, f64, f64, f64)>>>,
+    /// Areas of the video window the page needs for the chrome (window coordinates, physical px).
+    video_holes: Arc<Mutex<Vec<(f64, f64, f64, f64)>>>,
     resize_mode: Mutex<ResizeMode>,
     pip: Mutex<Option<PipSession>>,
     /// Keeps mpv's recreated video children input-transparent so the HTML controls stay clickable.
@@ -869,6 +951,8 @@ impl Player {
 
         let mut last_error = None;
         let mut attempt = 0usize;
+        let video_rect: Arc<Mutex<Option<(f64, f64, f64, f64)>>> = Arc::new(Mutex::new(None));
+        let video_holes: Arc<Mutex<Vec<(f64, f64, f64, f64)>>> = Arc::new(Mutex::new(Vec::new()));
         let mpv = loop {
             let Some((ctx, hwdec)) = attempts.get(attempt).copied() else {
                 return Err(PlayerError::Mpv(format!("mpv initialization failed: {}", last_error.unwrap_or_default())));
@@ -888,7 +972,7 @@ impl Player {
                     // mpv/WM may have left the foreign `wid` unmapped; make it visible now and
                     // again after the WM finishes reparenting the host window.
                     x11::map(container, host);
-                    x11::ensure_visible_later(container, host);
+                    x11::ensure_visible_later(container, host, video_rect.clone(), video_holes.clone());
                     break candidate;
                 }
                 Err(e) => {
@@ -922,8 +1006,8 @@ impl Player {
                 }
             }).ok()
         };
-        // The WebView control strip is kept visible below the video window (see set_video_rect);
-        // capturing WebKit pixels for overlay-add is not reliable across compositors.
+        // The page reserves the video rectangle on Linux (the WebView cannot paint over the
+        // native video window): the container is kept inside it by `set_video_rect`.
         let player = Self {
             mpv: Some(mpv),
             host,
@@ -932,7 +1016,8 @@ impl Player {
             events: Some(events),
             snapshot,
             applied_style: Mutex::new(None),
-            video_rect: Mutex::new(None),
+            video_rect,
+            video_holes,
             resize_mode: Mutex::new(ResizeMode::Fit),
             pip: Mutex::new(None),
             input_watcher,
@@ -1079,14 +1164,31 @@ impl Player {
         mpv.set_property_f64("sub-shadow-offset", style.mpv_shadow_offset())
     }
 
-    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
+    pub fn set_video_rect(&self, rect: Option<(f64, f64, f64, f64)>, holes: Vec<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
         *self.video_rect.lock().expect("rect lock") = rect;
+        *self.video_holes.lock().expect("holes lock") = holes;
         if self.pip.lock().expect("pip lock").is_some() { return Ok(()); }
-        let (x, y, w, h) = rect.unwrap_or_else(|| {
-            let (w, h) = x11::client_size(self.host);
-            (0.0, 0.0, w as f64, (h - 120).max(200) as f64)
-        });
-        x11::set_rect(self.container, x as i32, y as i32, w as i32, h as i32);
+        self.place_video(rect)
+    }
+
+    /// Moves the video container to `rect` (physical pixels, host client coordinates); `None` is
+    /// the whole client area. The WebView paints below the X11 children, so it cannot draw the
+    /// player chrome over the video: the page either reserves the video rectangle (letterbox) or
+    /// covers the whole window and asks for `holes` where the chrome goes (`FullPlayer.tsx`).
+    /// A zero-size rectangle parks mpv off-screen — an X window cannot be 0×0 and unmapping it can
+    /// break the GPU surface on some X servers.
+    fn place_video(&self, rect: Option<(f64, f64, f64, f64)>) -> Result<(), PlayerError> {
+        let (host_w, host_h) = x11::client_size(self.host);
+        let (x, y, w, h) = rect.unwrap_or((0.0, 0.0, host_w as f64, host_h as f64));
+        let holes = self.video_holes.lock().map(|holes| holes.clone()).unwrap_or_default();
+        if w < 1.0 || h < 1.0 {
+            x11::set_rect(self.container, -20000, -20000, 1, 1);
+            x11::set_holes(self.container, &[]);
+        } else {
+            x11::set_rect(self.container, x as i32, y as i32, w as i32, h as i32);
+            let local = x11::local_holes((x, y), (w, h), &holes);
+            x11::set_holes(self.container, &local);
+        }
         self.apply_margins(None)
     }
 
@@ -1114,7 +1216,7 @@ impl Player {
             // Re-map in case the WM reparented the host after the container was created.
             x11::map(self.container, self.host);
             let rect = *self.video_rect.lock().expect("rect lock");
-            let _ = self.set_video_rect(rect);
+            let _ = self.place_video(rect);
         }
     }
 
@@ -1148,7 +1250,9 @@ impl Player {
         let Some(session) = self.pip.lock().expect("pip lock").take() else { return Ok(()) };
         x11::exit_pip(self.container, self.host, session.window);
         self.apply_resize_mode(session.previous_mode)?;
-        self.apply_margins(session.previous_rect)?;
+        // Back in the main window: the container has to return to the page's video rectangle
+        // (`exit_pip` leaves it at the host size, which would cover the controls).
+        self.place_video(session.previous_rect)?;
         self.snapshot.lock().expect("snapshot lock").picture_in_picture = false;
         Ok(())
     }

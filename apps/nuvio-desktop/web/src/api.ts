@@ -90,6 +90,8 @@ function cached<T>(cache: Map<string, Promise<T>>, key: string, load: () => Prom
 
 export const api = {
   bootstrap: () => invoke<Bootstrap>("app_bootstrap"),
+  /** The host OS (`linux`, `windows`, `macos`…). */
+  platform: () => invoke<string>("platform"),
   homeRows: () => invoke<HomeView>("home_rows"),
   /** Genre options of a Home catalog key, for "See all". */
   catalogGenres: (key: string) => invoke<CatalogGenres>("catalog_genres", { key }),
@@ -279,9 +281,10 @@ export const api = {
   playerSubtitleStyle: () => invoke<void>("player_subtitle_style"),
   playerMoments: (session: number) => invoke<Moments>("player_moments", { session }),
   playerCommand: (command: PlayerCommand) => invoke<void>("player_command", { command }).catch(() => {}),
-  /** `rect` in CSS pixels; `null` = whole window. */
-  playerRect: (rect: CssRect | null) =>
-    invoke<void>("player_video_rect", { rect, scale: window.devicePixelRatio }).catch(() => {}),
+  /** `rect` in CSS pixels; `null` = whole window. `holes` are cut out of the native video window
+   *  on Linux, where the chrome cannot be painted over it. */
+  playerRect: (rect: CssRect | null, holes: CssRect[] = []) =>
+    invoke<void>("player_video_rect", { rect, holes, scale: window.devicePixelRatio }).catch(() => {}),
   playerSnapshot: () => invoke<PlayerSnapshot>("player_snapshot"),
   playerClose: () => invoke<void>("player_close"),
   /** Starts the P2P engine for a torrent stream (rejects with `P2P_CONSENT_REQUIRED` while P2P is off). */

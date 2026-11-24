@@ -465,6 +465,19 @@ body.playing .livetv-preview { background: transparent; }
 .full-player.chrome-hidden { cursor: none; }
 .full-player.chrome-hidden .controls, .full-player.chrome-hidden .full-player-top { opacity: 0; }
 
+/* Linux: mpv is a native X11 window ABOVE the page, so the chrome cannot be drawn over the
+   picture. `FullPlayer.tsx` reports the rectangle the chrome leaves free to Rust and the page
+   paints the bands around it; the skip/next cards stay above the control bar so their space is
+   constant whether the chrome is shown or not. */
+html.native-video .full-player { background: var(--bg); }
+html.native-video .full-player-top { background: linear-gradient(rgba(0, 0, 0, .45), var(--bg)); padding-bottom: 14px; }
+html.native-video .controls { background: linear-gradient(var(--bg), rgba(2, 6, 12, .94) 45%); padding-top: 14px; }
+html.native-video .player-moments { bottom: 112px; transition: none; }
+/* The menus and panels are cut out of the native video window; only the frame is drawn (the fill
+   stays transparent, so the dark page behind shows through instead of a solid box). */
+html.native-video .pc-enhance-menu {
+  background: transparent; box-shadow: none; backdrop-filter: none; max-height: 55vh;
+}
 
 /* ---------- Self-test view ---------- */
 .selftest-page { position: fixed; inset: 0; }
