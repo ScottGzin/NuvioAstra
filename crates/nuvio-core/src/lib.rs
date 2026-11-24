@@ -6,6 +6,9 @@
 //! UI-free so the Tauri desktop app (Windows x64) uses it directly through typed commands.
 
 pub mod auto_play;
+pub mod autosync;
+pub mod autosync_dp;
+pub mod embedded_subs;
 pub mod catalog;
 pub mod downloads;
 pub mod client;

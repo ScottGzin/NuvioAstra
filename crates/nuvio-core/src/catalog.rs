@@ -28,9 +28,149 @@ pub struct MetaPreview {
     pub landscape_poster: Option<String>,
     pub runtime: Option<String>,
     pub status: Option<String>,
+    /// Original artwork kept when a custom poster source replaces it, for image-error fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_poster_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_landscape_poster_url: Option<String>,
+}
+
+/// IDs extracted from an item id, for the original's `{imdb_id}` / `{id_type}` poster tokens.
+struct PosterIds {
+    full: String,
+    id_type: String,
+    typed: String,
+    ids: std::collections::HashMap<String, String>,
+}
+
+fn poster_ids(id: &str, content_type: &str) -> PosterIds {
+    let mut ids = std::collections::HashMap::new();
+    let mut id_type = "imdb".to_string();
+    if id.starts_with("tt") && id[2..].bytes().all(|b| b.is_ascii_digit()) {
+        ids.insert("imdb".into(), id.to_string());
+    } else if id.starts_with("srv1:") {
+        // Media-server items have no IMDb/TMDB id: only `{id}` / `{type}` / `{shape}` can resolve.
+        id_type = "server".to_string();
+        ids.insert("server".into(), id.to_string());
+        return PosterIds { full: id.to_string(), id_type, typed: id.to_string(), ids };
+    } else {
+        let parts: Vec<&str> = id.split(':').collect();
+        let known = ["imdb", "tmdb", "tvdb", "mal", "kitsu", "anilist", "anidb"];
+        let mut first_known = false;
+        for part in &parts {
+            if !first_known && known.contains(part) {
+                id_type = (*part).to_string();
+                first_known = true;
+                continue;
+            }
+            if first_known && !ids.contains_key(&id_type) {
+                ids.insert(id_type.clone(), (*part).to_string());
+                break;
+            }
+        }
+    }
+    let typed = if let Some(imdb) = ids.get("imdb") {
+        imdb.clone()
+    } else if let Some(value) = ids.get("tmdb").or_else(|| ids.get("tvdb")) {
+        format!("{}-{}", if content_type == "movie" { "movie" } else { "series" }, value)
+    } else {
+        id.to_string()
+    };
+    PosterIds { full: id.to_string(), id_type, typed, ids }
+}
+
+/// Resolves one custom poster template. Port of `CustomPosterUrlResolver.resolve`: `{id}`,
+/// `{id_type}`, `{typed_id}`, `{type}` and `{shape}`, per-service ids, optional `id?` and pipe
+/// alternates (`{imdb_id|kitsu_id}`). A missing required id returns `None` (keep the original URL).
+pub fn resolve_poster_template(pattern: &str, id: &str, content_type: &str, shape: &str) -> Option<String> {
+    if pattern.trim().is_empty() {
+        return None;
+    }
+    let decoded = pattern.replace("%7B", "{").replace("%7D", "}").replace("%7C", "|")
+        .replace("%7b", "{").replace("%7d", "}").replace("%7c", "|");
+    let ids = poster_ids(id, content_type);
+    let mut out = String::with_capacity(decoded.len());
+    let bytes = decoded.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] != b'{' {
+            let ch = decoded[index..].chars().next()?;
+            out.push(ch);
+            index += ch.len_utf8();
+            continue;
+        }
+        let Some(relative_end) = decoded[index + 1..].find('}') else {
+            out.push('{');
+            index += 1;
+            continue;
+        };
+        let end = index + 1 + relative_end;
+        let expression = &decoded[index + 1..end];
+        let mut replaced: Option<String> = None;
+        for candidate in expression.split('|') {
+            let optional = candidate.ends_with('?');
+            let name = candidate.trim_end_matches('?').trim();
+            let value = match name {
+                "id" => Some(ids.full.clone()),
+                "id_type" => Some(ids.id_type.clone()),
+                "typed_id" => Some(ids.typed.clone()),
+                "type" => Some(content_type.to_string()),
+                "shape" => Some(shape.to_string()),
+                other => ids.ids.get(other.strip_suffix("_id").unwrap_or(other)).cloned(),
+            };
+            if let Some(value) = value.filter(|v| !v.is_empty()) {
+                replaced = Some(value);
+                break;
+            }
+            if optional {
+                replaced = Some(String::new());
+                break;
+            }
+        }
+        match replaced {
+            Some(value) => out.push_str(&value),
+            None => {
+                let known = |name: &str| {
+                    let name = name.trim_end_matches('?').trim().strip_suffix("_id").unwrap_or(name.trim_end_matches('?').trim());
+                    matches!(name, "id" | "id_type" | "typed_id" | "type" | "shape" | "imdb" | "tmdb" | "tvdb" | "mal" | "kitsu" | "anilist" | "anidb")
+                };
+                if expression.split('|').all(known) {
+                    return None;
+                }
+                out.push('{');
+                out.push_str(expression);
+                out.push('}');
+            }
+        }
+        index = end + 1;
+    }
+    Some(out)
 }
 
 impl MetaPreview {
+    /// Applies the custom poster template when the screen is enabled. Originals are left untouched
+    /// when the pattern has no usable id, exactly like `CustomPosterOverlay`.
+    pub fn apply_custom_poster(&mut self, pattern: &str, screen: &str, screens: &[String]) {
+        if pattern.trim().is_empty() || !screens.iter().any(|enabled| enabled == screen) {
+            return;
+        }
+        let shape = match self.poster_shape {
+            PosterShape::Landscape => "landscape",
+            PosterShape::Square => "square",
+            _ => "poster",
+        };
+        if let Some(url) = resolve_poster_template(pattern, &self.id, &self.content_type, shape) {
+            self.raw_poster_url = self.poster.take();
+            self.poster = Some(url);
+        }
+        if pattern.contains("{shape}") {
+            if let Some(url) = resolve_poster_template(pattern, &self.id, &self.content_type, "landscape") {
+                self.raw_landscape_poster_url = self.landscape_poster.take();
+                self.landscape_poster = Some(url);
+            }
+        }
+    }
+
     /// Same identity as Kotlin `MetaPreview.stableKey()`.
     pub fn stable_key(&self) -> String {
         format!("{}:{}", self.content_type, self.id)
@@ -103,7 +243,8 @@ pub fn parse_catalog_page(payload: &str, requested_skip: Option<u32>, max_items:
             landscape_poster,
             runtime: trimmed("runtime"),
             status: trimmed("status"),
-        };
+        raw_poster_url: None, raw_landscape_poster_url: None,
+    };
         if seen.insert(item.stable_key()) {
             items.push(item);
         }
@@ -115,6 +256,39 @@ pub fn parse_catalog_page(payload: &str, requested_skip: Option<u32>, max_items:
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn custom_poster_tokens_and_fallback() {
+        let pattern = "https://img.test/{id_type}/{typed_id}?t={type}&s={shape}&im={imdb_id|kitsu_id}&x={missing?}&f=%7Bbad%7D";
+        assert_eq!(
+            resolve_poster_template(pattern, "tt123", "movie", "poster").as_deref(),
+            Some("https://img.test/imdb/tt123?t=movie&s=poster&im=tt123&x=&f={bad}")
+        );
+        let tmdb = resolve_poster_template("{tmdb_id}", "tmdb:55", "series", "poster");
+        assert_eq!(tmdb.as_deref(), Some("55"));
+        assert_eq!(resolve_poster_template("{imdb_id}", "tmdb:55", "movie", "poster"), None);
+        let required_id_type = resolve_poster_template("{mal_id}", "mal:42:3", "movie", "poster");
+        assert_eq!(required_id_type.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn poster_shape_gating() {
+        let mut item = MetaPreview {
+            id: "tt123".into(), content_type: "movie".into(), name: "Film".into(),
+            poster: Some("orig".into()), banner: None, logo: None, poster_shape: PosterShape::Landscape,
+            description: None, release_info: None, raw_release_date: None, imdb_rating: None,
+            genres: Vec::new(), landscape_poster: Some("orig-landscape".into()), runtime: None, status: None,
+        raw_poster_url: None, raw_landscape_poster_url: None,
+    };
+        let screens = vec!["home".to_string()];
+        item.apply_custom_poster("https://img.test/{id}", "home", &screens);
+        assert_eq!(item.poster.as_deref(), Some("https://img.test/tt123"));
+        assert_eq!(item.landscape_poster.as_deref(), Some("orig-landscape"));
+        item.apply_custom_poster("https://img.test/{id}", "search", &screens);
+        assert_eq!(item.poster.as_deref(), Some("https://img.test/tt123"));
+    }
+
     use super::*;
 
     /// Contract with the UI (`web/src/types.ts`, `MetaPreview`/`CatalogPage`): camelCase keys.

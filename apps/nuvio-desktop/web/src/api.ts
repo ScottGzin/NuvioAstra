@@ -2,15 +2,23 @@ import { invoke } from "./tauri";
 import { message } from "./rustErrors";
 import type {
   EpgView,
+  MatchesView,
   SubtitleFont,
   SubtitleFontList,
   SubtitleList,
+  AutoSyncStatus,
+  TraktList,
+  TraktResolvedList,
+  TraktCommentsPage,
+  PlexPin,
+  SiloInfo,
+  SiloCode,
   Moments,
   UpdateInfo,
   UpdateStatus,
   P2pStatus,
   TorrentPrepared,
-  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
+  AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, Channel, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup,
   DiscoverPage, DiscoverView,
   WatchedItem,
@@ -95,9 +103,9 @@ export const api = {
   homeRows: () => invoke<HomeView>("home_rows"),
   /** Genre options of a Home catalog key, for "See all". */
   catalogGenres: (key: string) => invoke<CatalogGenres>("catalog_genres", { key }),
-  /** `genre`: a collection folder's catalog filtered by genre. */
-  catalogPage: (key: string, skip: number | null, genre: string | null = null) =>
-    cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre })),
+  /** `genre`: a collection folder's catalog filtered by genre; `surface` selects the custom-poster setting. */
+  catalogPage: (key: string, skip: number | null, genre: string | null = null, surface: string = "home") =>
+    cached(pageCache, `${key}#${genre ?? ""}#${skip ?? 0}#${surface}`, () => invoke<CatalogPage>("catalog_page", { key, skip, genre, surface })),
   /** Discover picker: the addons' listable catalogs + the catalog saved for this profile. */
   discoverSources: () => invoke<DiscoverView>("discover_sources"),
   /** Remembers the catalog chosen in Discover (per profile). */
@@ -109,6 +117,17 @@ export const api = {
   /** One page of a TMDB collection source (`provider: "tmdb"` in a folder); `page` is 1-based. */
   tmdbSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
     invoke<CatalogPage>("tmdb_source_page", { collectionId, folderId, sourceId, page }),
+  /** One page of a Trakt folder source (`provider: "trakt"`); `page` is 1-based. */
+  traktSourcePage: (collectionId: string, folderId: string, sourceId: string, page: number) =>
+    invoke<CatalogPage>("trakt_source_page", { collectionId, folderId, sourceId, page }),
+  traktSearchLists: (query: string) => invoke<TraktList[]>("trakt_search_lists", { query }),
+  traktTrendingLists: () => invoke<TraktList[]>("trakt_trending_lists"),
+  traktPopularLists: () => invoke<TraktList[]>("trakt_popular_lists"),
+  traktResolveListInput: (input: string) => invoke<TraktResolvedList>("trakt_resolve_list_input", { input }),
+  traktMyLists: () => invoke<TraktList[]>("trakt_my_lists"),
+  traktComments: (contentType: string, id: string, page: number) =>
+    invoke<TraktCommentsPage>("trakt_comments", { contentType, id, page }),
+  trailerResolve: (key: string) => invoke<{ videoUrl: string; audioUrl: string | null }>("trailer_resolve", { key }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
   streamsSettings: () => invoke<StreamsSettingsView>("streams_settings"),
   streamsSettingsSet: (settings: StreamsSettings) => invoke<StreamsSettingsView>("streams_settings_set", { settings }),
@@ -131,6 +150,20 @@ export const api = {
   serverRemove: (id: string) => invoke<ServerConnection[]>("server_remove", { id }),
   serverLibraries: (id: string) => invoke<ServerLibrary[]>("server_libraries", { id }),
   serverCatalog: (id: string, libraryId: string, skip: number) => invoke<CatalogPage>("server_catalog", { id, libraryId, skip }),
+  serverPlexPinStart: () => invoke<PlexPin>("server_plex_pin_start"),
+  serverPlexPinPoll: (pinId: string) => invoke<string | null>("server_plex_pin_poll", { pinId }),
+  serverPlexConnect: (accountToken: string) => invoke<ServerConnection>("server_plex_connect", { accountToken }),
+  serverSiloDiscover: (address: string) => invoke<SiloInfo>("server_silo_discover", { address }),
+  serverSiloLogin: (address: string, username: string, password: string) => invoke<ServerConnection>("server_silo_login", { address, username, password }),
+  serverSiloCodeStart: (address: string) => invoke<SiloCode>("server_silo_code_start", { address }),
+  serverSiloCodeConnect: (address: string, deviceCode: string) => invoke<ServerConnection | null>("server_silo_code_connect", { address, deviceCode }),
+  serverStream: (connectionId: string, itemId: string) => invoke<string>("server_stream", { connectionId, itemId }),
+  partyConfig: () => invoke<{ url: string; key: string }>("party_config"),
+  skipCredentials: () => invoke<{ animeSkipClientId: string; introDbApiKey: string }>("skip_credentials"),
+  skipCredentialsSet: (animeSkipClientId: string, introDbApiKey: string) =>
+    invoke<{ animeSkipClientId: string; introDbApiKey: string }>("skip_credentials_set", { animeSkipClientId, introDbApiKey }),
+  skipSubmitTiming: (session: number, segmentType: "intro" | "recap" | "outro", start: number, end: number) =>
+    invoke<boolean>("skip_submit_timing", { session, segmentType, start, end }),
   /** Collections editor: the raw document is validated and saved by Rust. */
   collectionsEditorLoad: () => invoke<unknown>("collections_editor_load"),
   collectionsEditorSave: (value: unknown) => invoke<unknown>("collections_editor_save", { value }),
@@ -187,10 +220,16 @@ export const api = {
   subtitleFontData: (id: string) => invoke<ArrayBuffer>("subtitle_font_data", { id }),
   appMode: () => invoke<"app" | "selftest" | "uitest">("app_mode"),
   liveTvChannels: () => invoke<ChannelList>("livetv_channels"),
+  /** Imports a public M3U playlist into the current session (for testing without an addon). */
+  liveTvImportM3u: (url: string) => invoke<ChannelList>("livetv_import_m3u", { url }),
+  liveTvFallbackChannels: () => invoke<ChannelList>("livetv_fallback_channels"),
   liveTvFavorites: () => invoke<string[]>("livetv_favorites"),
   liveTvToggleFavorite: (key: string) => invoke<string[]>("livetv_toggle_favorite", { key }),
   /** Asks only the channel's own addon, only when the user picks the channel. */
   liveTvResolve: (key: string) => invoke<StreamGroup[]>("livetv_resolve", { key }),
+  /** Today's ESPN fixtures with the installed channels whose EPG lists each match. */
+  liveTvMatches: (channels: Channel[], tzOffsetMinutes: number) =>
+    invoke<MatchesView>("livetv_matches", { channels, tzOffsetMinutes }),
 
   // Addons of the active profile (Settings → Addons). Every change starts a new data epoch.
   addonsList: () => invoke<AddonsView>("addons_list"),
@@ -278,6 +317,7 @@ export const api = {
     invoke<PlayerInfo>("stream_play", { key, startSeconds, progress, previousFinished }),
   playerSubtitles: (session: number) => invoke<SubtitleList>("player_subtitles", { session }),
   playerSubtitleLoad: (session: number, index: number) => invoke<void>("player_subtitle_load", { session, index }),
+  playerSubtitleAutosync: (session: number) => invoke<AutoSyncStatus>("player_subtitle_autosync", { session }),
   playerSubtitleStyle: () => invoke<void>("player_subtitle_style"),
   playerMoments: (session: number) => invoke<Moments>("player_moments", { session }),
   playerCommand: (command: PlayerCommand) => invoke<void>("player_command", { command }).catch(() => {}),

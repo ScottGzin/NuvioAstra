@@ -97,6 +97,14 @@ impl StreamCache {
     pub fn get(&self, key: &str) -> Option<StreamItem> {
         self.searches.lock().expect("stream cache lock").iter().find_map(|search| search.get(key).cloned())
     }
+    /// Registers one externally resolved stream (a media-server item) under its own key so the
+    /// regular `stream_play` path, headers and local relay all work unchanged.
+    pub fn remember(&self, key: String, item: StreamItem) {
+        let mut search = HashMap::new();
+        search.insert(key, item);
+        self.keep(search);
+    }
+
     /// Drops the keys of the last search (profile switch: no stream of another profile is playable).
     pub fn clear(&self) {
         self.searches.lock().expect("stream cache lock").clear();
@@ -104,6 +112,38 @@ impl StreamCache {
     fn next_search(&self) -> u64 {
         self.last_search.fetch_add(1, Ordering::Relaxed) + 1
     }
+    /// Registers a direct stream (an imported M3U channel) and returns its UI entry.
+    pub fn put_direct(&self, key: &str, name: &str, url: &str) -> StreamEntry {
+        let mut item = StreamItem {
+            url: Some(url.to_string()),
+            name: Some(name.to_string()),
+            title: Some(name.to_string()),
+            addon_name: "M3U".into(),
+            addon_id: "m3u".into(),
+            ..Default::default()
+        };
+        let entry = StreamEntry {
+            key: key.to_string(),
+            addon_name: "M3U".into(),
+            name: item.name.clone(),
+            title: item.title.clone(),
+            description: None,
+            filename: None,
+            video_size: None,
+            kind: StreamKind::Direct,
+            debrid_playable: false,
+            debrid_provider: None,
+            header_names: Vec::new(),
+            not_web_ready: false,
+            external_url: None,
+            youtube_id: None,
+        };
+        let mut cached = HashMap::new();
+        cached.insert(key.to_string(), std::mem::take(&mut item));
+        self.keep(cached);
+        entry
+    }
+
     fn keep(&self, items: HashMap<String, StreamItem>) {
         let mut searches = self.searches.lock().expect("stream cache lock");
         searches.push_front(items);

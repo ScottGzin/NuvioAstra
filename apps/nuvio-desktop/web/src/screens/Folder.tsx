@@ -62,10 +62,12 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
     busy.current.add(id);
     setStates((all) => ({ ...all, [id]: { ...(all[id] ?? EMPTY), loading: true, started: true, error: null } }));
     try {
-      // TMDB sources are discover queries resolved in Rust; `skip` is their page number (1-based).
+      // TMDB/Trakt sources are resolved in Rust; `skip` is their page number (1-based).
       const page = source.provider === "tmdb"
         ? await api.tmdbSourcePage(collection.id, folder.id, source.sourceId ?? "", skip ?? 1)
-        : await api.catalogPage(source.key, skip, source.genre);
+        : source.provider === "trakt"
+          ? await api.traktSourcePage(collection.id, folder.id, source.sourceId ?? "", skip ?? 1)
+          : await api.catalogPage(source.key, skip, source.genre, "collections");
       setStates((all) => {
         const prev = all[id] ?? EMPTY;
         const seen = new Set(prev.items.map((i) => `${i.contentType}:${i.id}`));
@@ -125,7 +127,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       {sources.length === 0 ? (
         <div className="screen-message">
           {folder.skippedSources > 0
-            ? t("Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra.")
+            ? t("Os catálogos desta pasta vêm de addons que não estão instalados neste perfil ou de serviços (TMDB/Trakt) sem chave configurada.")
             : t("Esta pasta não tem catálogos.")}
         </div>
       ) : rowsMode ? (
@@ -136,6 +138,8 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
               row={{ key: s.key, title: s.label, addonName: s.addonName, contentType: s.contentType, catalogId: "", supportsPagination: s.supportsPagination }}
               genre={s.genre}
               tmdb={s.provider === "tmdb" && s.sourceId ? { collectionId: collection.id, folderId: folder.id, sourceId: s.sourceId } : undefined}
+              trakt={s.provider === "trakt" && s.sourceId ? { collectionId: collection.id, folderId: folder.id, sourceId: s.sourceId } : undefined}
+              surface="collections"
               onOpen={onOpen}
             />
           ))}

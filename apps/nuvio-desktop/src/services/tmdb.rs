@@ -535,7 +535,8 @@ impl DiscoverItem {
             landscape_poster: None,
             runtime: None,
             status: None,
-        })
+        raw_poster_url: None, raw_landscape_poster_url: None,
+    })
     }
 
     /// `TmdbPersonCredit*.toPreview`: only credits of the source's media type.

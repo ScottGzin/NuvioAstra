@@ -18,6 +18,8 @@ import { airDate, episodeTitle, hasAired, nextEpisode } from "./episodes";
 import { NextEpisodePanel } from "./NextEpisodePanel";
 import { PlaybackMoments, reachedNextEpisode, useMoments } from "./PlaybackMoments";
 import { SubtitleMenu } from "./SubtitleMenu";
+import { SubmitIntroDialog } from "./SubmitIntroDialog";
+import { PartyPanel } from "../components/PartyPanel";
 import { t } from "../i18n";
 
 interface VideoLayout {
@@ -136,6 +138,8 @@ export function FullPlayer() {
   const [playerSettings, setPlayerSettings] = useState<PlayerSettings | null>(null);
   const [chaptersOpen, setChaptersOpen] = useState(false);
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [partyOpen, setPartyOpen] = useState(false);
+  const [submitOpen, setSubmitOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   useNativeVideoRect(rootRef, visible || choosingNext, pip);
   // Another episode started: its panel is gone.
@@ -239,6 +243,20 @@ export function FullPlayer() {
           {session?.subtitle && <div className="muted">{session.subtitle}</div>}
         </div>
         <P2pStats />
+        {snapshot && playerSettings?.introSubmitEnabled && session?.episode && (
+          <button className="chip" data-testid="submit-intro-open" aria-label={t("Enviar tempo à IntroDB")} onClick={() => setSubmitOpen(true)}>{t("Enviar tempo")}</button>
+        )}
+        <button className="chip" data-testid="party-button" onClick={() => setPartyOpen((v) => !v)} aria-label={t("Watch Party")}>{t("Watch Party")}</button>
+        {partyOpen && (
+          <PartyPanel
+            status={player.party.status}
+            room={player.party.room}
+            onJoin={(room) => player.party.join(room)}
+            onLeave={() => player.party.leave()}
+            configured={player.party.configured}
+            t={t}
+          />
+        )}
       </div>
       {pip && (
         <div className="pip-placeholder" data-testid="pip-placeholder">
@@ -272,6 +290,7 @@ export function FullPlayer() {
           key={`moments-${snapshot.session}`}
           snapshot={snapshot}
           moments={moments}
+          canSubmit={playerSettings?.introSubmitEnabled ?? false}
           next={next}
           covered={choosingNext}
           chromeVisible={visible}
@@ -311,6 +330,15 @@ export function FullPlayer() {
           finished={() => reachedNextEpisode(snapshot, moments)}
           onClose={() => setChoosingNext(false)}
           autoPlay={playerSettings}
+        />
+      )}
+      {submitOpen && snapshot && (
+        <SubmitIntroDialog
+          session={snapshot.session}
+          position={snapshot.timePos}
+          duration={snapshot.duration}
+          onClose={() => setSubmitOpen(false)}
+          onSubmitted={() => setSubmitOpen(false)}
         />
       )}
     </div>

@@ -6,7 +6,12 @@ import type { CardStyle } from "./types";
 
 /** The original's sizes are in dp for a 126 dp card; here 126 means the 150 px card Astra had. */
 const PX_PER_DP = 150 / 126;
-const DEFAULT: CardStyle = { width: 126, radius: 12, landscape: false, hideLabels: false };
+const DEFAULT: CardStyle = {
+  width: 126, radius: 12, landscape: false, hideLabels: false,
+  hoverPreviewEnabled: true, hoverPreviewDelayMs: 2000,
+  hoverPreviewTrailerEnabled: false, hoverPreviewTrailerSound: false, hoverPreviewTrailerStart: 0,
+  customPosterUrlPattern: "", customPosterScreens: ["home", "continue_watching", "collections", "library", "search", "details"],
+};
 
 let current: CardStyle = DEFAULT;
 const listeners = new Set<() => void>();

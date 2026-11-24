@@ -113,6 +113,24 @@ fn trailers(meta: &Map<String, Value>) -> Vec<MetaTrailer> {
         .collect()
 }
 
+impl MetaDetails {
+    /// Custom poster source of the original (`MetaDetails.withCustomPosterUrls`): poster and
+    /// background are replaced, the logo keeps the title's own artwork.
+    pub fn apply_custom_poster(&mut self, pattern: &str, screen: &str, screens: &[String]) {
+        if pattern.trim().is_empty() || !screens.iter().any(|enabled| enabled == screen) {
+            return;
+        }
+        if let Some(url) = crate::catalog::resolve_poster_template(pattern, &self.id, &self.content_type, "poster") {
+            self.poster = Some(url);
+        }
+        if pattern.contains("{shape}") {
+            if let Some(url) = crate::catalog::resolve_poster_template(pattern, &self.id, &self.content_type, "landscape") {
+                self.background = Some(url);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaDetails {

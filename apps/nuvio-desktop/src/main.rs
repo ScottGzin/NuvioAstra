@@ -137,6 +137,14 @@ impl AppState {
         let sink: nuvio_player::SnapshotSink = Arc::new(move |snapshot: &PlayerSnapshot| {
             let state = emitter.state::<AppState>();
             state.progress.observe(snapshot);
+            crate::services::servers::observe_snapshot(
+                snapshot.loaded,
+                snapshot.paused,
+                snapshot.buffering,
+                snapshot.ended,
+                snapshot.time_pos,
+                snapshot.duration,
+            );
             if saved_changes.swap(snapshot.auto_changes, Ordering::SeqCst) != snapshot.auto_changes {
                 // Only what the watchdog lowered.
                 let (motion, enhancement, picture) = match snapshot.auto_reason {
@@ -172,6 +180,7 @@ impl AppState {
         if let Some(player) = &player {
             let snapshot = player.snapshot();
             self.progress.finish(Some(&snapshot));
+            services::servers::end_playback();
             p2p::on_player_closed(self, snapshot.session);
         }
         // Dropping moves the video back out of the PiP window, which can then go.
@@ -610,6 +619,7 @@ fn main() {
             account::profile_pin_refresh,
             watching::player_subtitles,
             watching::player_subtitle_load,
+            watching::player_subtitle_autosync,
             watching::player_subtitle_style,
             watching::player_moments,
             api::library_next_up,
@@ -642,6 +652,13 @@ fn main() {
             api::tmdb_settings,
             api::tmdb_settings_set,
             api::tmdb_source_page,
+            api::trakt_source_page,
+            api::trakt_search_lists,
+            api::trakt_trending_lists,
+            api::trakt_popular_lists,
+            api::trakt_resolve_list_input,
+            api::trakt_my_lists,
+            api::trakt_comments,
             api::discover_sources,
             api::discover_select,
             api::discover_page,
@@ -649,6 +666,9 @@ fn main() {
             api::search_stream,
             api::meta_details,
             api::livetv_channels,
+            api::livetv_matches,
+            api::livetv_import_m3u,
+            api::livetv_fallback_channels,
             api::livetv_favorites,
             api::livetv_toggle_favorite,
             api::title_streams,
@@ -689,6 +709,18 @@ fn main() {
             api::server_remove,
             api::server_libraries,
             api::server_catalog,
+            api::server_plex_pin_start,
+            api::server_plex_pin_poll,
+            api::server_plex_connect,
+            api::server_silo_discover,
+            api::server_silo_login,
+            api::server_silo_code_start,
+            api::server_silo_code_connect,
+            api::server_stream,
+            api::party_config,
+            api::skip_credentials,
+            api::skip_credentials_set,
+            api::skip_submit_timing,
             api::collections_editor_save,
             api::download_from_stream,
             api::download_control,
@@ -718,6 +750,7 @@ fn main() {
             account::profile_pin_set,
             account::profile_pin_clear,
             trailer::trailer_play,
+            trailer::trailer_resolve,
             updater::update_status,
             updater::update_check,
             updater::update_install,

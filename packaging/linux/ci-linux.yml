@@ -1,0 +1,101 @@
+# TEMPLATE — copy (and edit) this file to .github/workflows/release-linux.yml to enable it.
+# This repository's active CI (.github/workflows/ci.yml) is Windows-only; this file is kept here,
+# outside .github/, so it cannot publish anything by accident.
+#
+# Before enabling:
+#   1. Replace <owner>/<repo> in NUVIO_UPDATE_REPOSITORY and in the two asset URLs below.
+#      NUVIO_UPDATE_REPOSITORY is embedded by build.rs into the binary and is what the in-app
+#      updater uses; without it the packaged app says "updates not configured".
+#   2. Publish `libmpv.so.2` (built with the same ABI the player expects) and
+#      `libnuvio_engine.so` (same C ABI as crates/nuvio-p2p/src/ffi.rs) as release assets, or
+#      point the two URLs at your own artifact host. Verify their SHA-256 in CI before packaging.
+#   3. Decide how to sign the artifacts. The Linux packages themselves are NOT code-signed here;
+#      the in-app updater only trusts a minisign signature embedded in latest.json. See
+#      docs/LINUX_PACKAGING.md ("Updates") for the exact latest.json keys and signing step.
+#
+# No secrets are required to build the packages. Signing/publishing is intentionally left out.
+
+name: Release (Linux x64) [TEMPLATE]
+
+on:
+  workflow_dispatch:
+  # Optional: publish on every push to main once the asset URLs are real.
+  # push:
+  #   branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  NUVIO_UPDATE_REPOSITORY: <owner>/<repo>
+  NUVIO_LIBMPV_URL: https://github.com/<owner>/<repo>/releases/download/deps-linux/libmpv.so.2
+  NUVIO_ENGINE_URL: https://github.com/<owner>/<repo>/releases/download/deps-linux/libnuvio_engine.so
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/nuvio-desktop/web/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: System libraries (build + dpkg tools)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+            libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            dpkg-dev fakeroot
+
+      - name: Frontend
+        working-directory: apps/nuvio-desktop/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Native libraries
+        run: |
+          mkdir -p target/release
+          curl -fL --retry 3 "$NUVIO_LIBMPV_URL" -o target/release/libmpv.so.2
+          curl -fL --retry 3 "$NUVIO_ENGINE_URL" -o target/release/libnuvio_engine.so
+          file target/release/libmpv.so.2 target/release/libnuvio_engine.so
+
+      - name: Build release binary
+        # NUVIO_UPDATE_REPOSITORY comes from the job env, so build.rs embeds it.
+        run: cargo build --release -p nuvio-desktop
+
+      - name: Get appimagetool
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+
+      - name: Package (AppImage + .deb)
+        run: |
+          bash packaging/linux/build-appimage.sh
+          bash packaging/linux/build-deb.sh
+          ls -lh dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuvio-astra-linux-x64
+          path: |
+            dist/*.AppImage
+            dist/*.AppImage.sha256
+            dist/*.deb
+            dist/*.deb.sha256
+          if-no-files-found: error

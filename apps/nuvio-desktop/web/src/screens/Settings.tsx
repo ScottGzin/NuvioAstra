@@ -508,6 +508,9 @@ export function Settings() {
             <Row title={t("Remover descrições para surdos (SDH)")} description={t("Oculta trechos como [música] e (risos).")}>
               <Toggle label={t("Remover SDH")} checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
             </Row>
+            <Row title={t("Sincronização automática da legenda")} description={t("Compara a legenda escolhida com outras disponíveis e aplica o atraso encontrado. Sem chave, sem análise de áudio e só quando há correspondência confiável.")}>
+              <Toggle label={t("Sincronizar ao escolher uma legenda")} checked={sub.autoSyncEnabled} onChange={(v) => subtitle((s) => ({ ...s, autoSyncEnabled: v }))} />
+            </Row>
           </div>
         )}
 
@@ -565,7 +568,7 @@ export function Settings() {
               <span className="integration-icon link">▣</span>
               <span className="integration-text">
                 <span className="setting-title">{t("Servidores de mídia")}</span>
-                <span className="muted small">{t("Jellyfin e Emby")}</span>
+                <span className="muted small">{t("Jellyfin, Emby, Plex e Silo")}</span>
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
@@ -855,15 +858,7 @@ export function Settings() {
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
             <p className="muted small">{t("Já disponíveis: Trakt e Simkl (com IDs locais), conexão MDBList, retomada pelo serviço escolhido, downloads, embaralhamento, servidores Jellyfin/Emby, editor de coleções, busca nas configurações, seleção automática e regex, fallback, reutilização de link, links externos e YouTube, capítulos, áudio, buffer/cache, Discord, Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
-              <li><b>{t("Início e catálogos")}</b>{t("— prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
-              <li><b>{t("Tela de detalhes")}</b>{t("— comentários.")}</li>
-              <li><b>{t("Continuar assistindo")}</b>{t("— aviso de retomada ao abrir o app.")}</li>
-              <li><b>{t("Pular introdução e créditos")}</b>{t("— Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.")}</li>
-              <li><b>{t("Legendas")}</b>{t("— sincronização automática com o áudio.")}</li>
-              <li><b>{t("Debrid")}</b>{t("— Real-Debrid, Premiumize e biblioteca na nuvem (TorBox já funciona).")}</li>
-              <li><b>{t("Servidores de mídia")}</b>{t("— Plex e Silo (Jellyfin e Emby já funcionam).")}</li>
-              <li><b>{t("Plugins e Watch Party")}</b>{t("— plugins de fontes e assistir junto com outras pessoas.")}</li>
-              <li><b>{t("Coleções")}</b>{t("— editor visual e pastas com catálogos do Trakt.")}</li>
+              <li><b>{t("Debrid")}</b>{t("— biblioteca na nuvem (os serviços de debrid e a resolução de links já funcionam).")}</li>
               <li><b>{t("Conta e perfis")}</b>{t("— entrar com outro dispositivo (QR).")}</li>
             </ul>
           </div>
@@ -1015,6 +1010,9 @@ function DetailsSection({ settings, update }: {
         ))}
       </div>
       <div className="settings-group">
+        <Row title={t("Comentários do Trakt")} description={t("Mostra avaliações da comunidade quando a conta Trakt está conectada.")}>
+          <Toggle label={t("Comentários do Trakt")} checked={settings.traktCommentsEnabled !== false} onChange={(v) => patch({ traktCommentsEnabled: v })} />
+        </Row>
         <Row title={t("Fundo da tela de detalhes")}>
           <select aria-label={t("Fundo da tela de detalhes")} value={settings.backgroundMode} onChange={(e) => patch({ backgroundMode: e.target.value })}>
             <option value="normal">{t("Normal")}</option>

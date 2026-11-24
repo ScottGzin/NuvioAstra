@@ -203,6 +203,166 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Idioma de legenda secundário": { en: "Secondary subtitle language", ar: "لغة الترجمة الثانوية" },
   "Exemplo de legenda": { en: "Subtitle example", ar: "مثال على الترجمة" },
 
+  // Trakt comments on the details screen
+  "Comentários do Trakt": { en: "Trakt comments", ar: "تعليقات Trakt" },
+  "Mostra avaliações da comunidade quando a conta Trakt está conectada.": {
+    en: "Shows community reviews when the Trakt account is connected.",
+    ar: "يعرض تقييمات المجتمع عند اتصال حساب Trakt.",
+  },
+  "Review": { en: "Review", ar: "مراجعة" },
+  "Spoiler": { en: "Spoiler", ar: "حرق" },
+  "curtidas": { en: "likes", ar: "إعجاب" },
+  "Este comentário contém spoilers.": { en: "This comment contains spoilers.", ar: "هذا التعليق يحتوي على حرق." },
+  "Este comentário contém spoilers e foi ocultado.": {
+    en: "This comment contains spoilers and has been hidden.",
+    ar: "هذا التعليق يحتوي على حرق وتم إخفاؤه.",
+  },
+  "Mostrar comentário": { en: "Show comment", ar: "إظهار التعليق" },
+
+  // Poster hover preview + custom poster source
+  "Prévia ao passar o mouse": { en: "Hover preview", ar: "معاينة عند التحويم" },
+  "Mostrar prévia ao passar o mouse": { en: "Show hover preview", ar: "عرض المعاينة عند التحويم" },
+  "Atraso da prévia": { en: "Preview delay", ar: "تأخير المعاينة" },
+  "Prévia com trailer": { en: "Preview with trailer", ar: "معاينة بإعلان" },
+  "O trailer é resolvido apenas depois de 1 segundo com a prévia aberta e começa sem som.": {
+    en: "The trailer is resolved only after the preview has been open for one second, and starts muted.",
+    ar: "يُحلّ الإعلان بعد ثانية واحدة من فتح المعاينة فقط، ويبدأ بدون صوت.",
+  },
+  "Som do trailer": { en: "Trailer sound", ar: "صوت الإعلان" },
+  "Começar em": { en: "Start at", ar: "البدء من" },
+  "Fonte de pôster personalizada": { en: "Custom poster source", ar: "مصدر ملصق مخصص" },
+  "Padrão de URL": { en: "URL pattern", ar: "نمط الرابط" },
+  "Use {id}, {id_type}, {typed_id}, {type}, {shape} ou {imdb_id}, {tmdb_id}, {tvdb_id}, {mal_id}, {kitsu_id}, {anilist_id}, {anidb_id}. Um {token?} ausente vira texto vazio.": {
+    en: "Use {id}, {id_type}, {typed_id}, {type}, {shape} or {imdb_id}, {tmdb_id}, {tvdb_id}, {mal_id}, {kitsu_id}, {anilist_id}, {anidb_id}. A missing {token?} becomes empty text.",
+    ar: "استخدم {id} أو {id_type} أو {typed_id} أو {type} أو {shape} أو {imdb_id} وغيرها. الرمز المفقود {token?} يصبح نصاً فارغاً.",
+  },
+  "Aplicar em": { en: "Apply to", ar: "تطبيق على" },
+  "home": { en: "Home", ar: "الرئيسية" },
+  "continue_watching": { en: "Continue watching", ar: "متابعة المشاهدة" },
+  "collections": { en: "Collections", ar: "المجموعات" },
+  "library": { en: "Library", ar: "المكتبة" },
+  "search": { en: "Search", ar: "البحث" },
+  "details": { en: "Details", ar: "التفاصيل" },
+
+  // Manual IntroDB submission
+  "Informe tempos válidos (MM:SS) com o fim depois do início.": {
+    en: "Enter valid times (MM:SS) with the end after the start.",
+    ar: "أدخل توقيتات صحيحة (د:ث) مع جعل النهاية بعد البداية.",
+  },
+  "Início do trecho": { en: "Segment start", ar: "بداية المقطع" },
+  "Fim do trecho": { en: "Segment end", ar: "نهاية المقطع" },
+  "Capturar posição": { en: "Capture position", ar: "التقاط الموضع" },
+  "Posição atual": { en: "Current position", ar: "الموضع الحالي" },
+  "Enviar": { en: "Submit", ar: "إرسال" },
+
+  // Trakt folder sources in the collections editor
+  "Adicionar lista do Trakt": { en: "Add a Trakt list", ar: "إضافة قائمة Trakt" },
+  "ID, URL ou slug da lista": { en: "List ID, URL or slug", ar: "معرّف القائمة أو رابطها أو الاسم المختصر" },
+  "Título da fonte": { en: "Source title", ar: "عنوان المصدر" },
+  "Tipo de mídia": { en: "Media type", ar: "نوع الوسائط" },
+  "Ambos": { en: "Both", ar: "كلاهما" },
+  "Ordenar por": { en: "Sort by", ar: "الترتيب حسب" },
+  "Direção": { en: "Direction", ar: "الاتجاه" },
+  "Crescente": { en: "Ascending", ar: "تصاعدي" },
+  "Decrescente": { en: "Descending", ar: "تنازلي" },
+  "Buscar listas públicas": { en: "Search public lists", ar: "ابحث في القوائم العامة" },
+  "Em alta": { en: "Trending", ar: "الأكثر رواجاً" },
+  "Populares": { en: "Popular", ar: "الشائعة" },
+  "Minhas listas do Trakt": { en: "My Trakt lists", ar: "قوائم Trakt الخاصة بي" },
+
+  "— biblioteca na nuvem (os serviços de debrid e a resolução de links já funcionam).": {
+    en: "— cloud library (debrid services and link resolution already work).",
+    ar: "— المكتبة السحابية (خدمات debrid وحل الروابط تعمل بالفعل).",
+  },
+
+  // Anime-Skip / IntroDB submission
+  "Anime-Skip": { en: "Anime Skip", ar: "Anime Skip" },
+  "Serviço extra para animes: usa o seu Client ID e o AniList do título. Sem mapeamento, simplesmente não oferece tempos.": {
+    en: "Extra service for anime: uses your Client ID and the title's AniList id. Without a mapping it simply offers no times.",
+    ar: "خدمة إضافية للأنمي: تستخدم معرّف العميل الخاص بك ومعرّف AniList للعنوان. بدون رابط لا تقدم أي توقيتات.",
+  },
+  "Enviar tempos à IntroDB": { en: "Submit times to IntroDB", ar: "إرسال التوقيتات إلى IntroDB" },
+  "Enviar tempos": { en: "Submit times", ar: "إرسال التوقيتات" },
+  "Mostra um botão no player para enviar o tempo de uma abertura, recapitulação ou encerramento que o app encontrou.": {
+    en: "Shows a button in the player to submit the time of an intro, recap or ending the app found.",
+    ar: "يعرض زراً في المشغّل لإرسال توقيت مقدمة أو استرجاع أو نهاية اكتشفها التطبيق.",
+  },
+  "ID de cliente do Anime-Skip": { en: "Anime Skip Client ID", ar: "معرّف عميل Anime Skip" },
+  "Pegue o seu ID em anime-skip.com. A chave fica salva no app e sincronizada com a conta.": {
+    en: "Get your ID at anime-skip.com. The key is stored in the app and synced with your account.",
+    ar: "احصل على معرّفك من anime-skip.com. يُحفظ المفتاح في التطبيق ويُزامن مع الحساب.",
+  },
+  "Chave da API da IntroDB": { en: "IntroDB API key", ar: "مفتاح API لـ IntroDB" },
+  "Necessária para enviar tempos. A chave é verificada ao salvar.": {
+    en: "Needed to submit times. The key is verified when saved.",
+    ar: "مطلوب لإرسال التوقيتات. يتم التحقق من المفتاح عند الحفظ.",
+  },
+  "Salvar chaves": { en: "Save keys", ar: "حفظ المفاتيح" },
+  "Chaves salvas.": { en: "Keys saved.", ar: "تم حفظ المفاتيح." },
+  "Tempo enviado à IntroDB.": { en: "Time submitted to IntroDB.", ar: "تم إرسال التوقيت إلى IntroDB." },
+  "A IntroDB não aceitou o tempo.": { en: "IntroDB did not accept the time.", ar: "لم تقبل IntroDB التوقيت." },
+  "Não foi possível enviar o tempo: {error}": { en: "Couldn't submit the time: {error}", ar: "تعذّر إرسال التوقيت: {error}" },
+  "Enviar tempo à IntroDB": { en: "Submit time to IntroDB", ar: "إرسال التوقيت إلى IntroDB" },
+  "Enviar tempo": { en: "Submit time", ar: "إرسال التوقيت" },
+
+  // Watch Party
+  "Watch Party": { en: "Watch Party", ar: "المشاهدة الجماعية" },
+  "Assistir junto": { en: "Watch together", ar: "شاهد معاً" },
+  "Status": { en: "Status", ar: "الحالة" },
+  "Salas compartilhadas exigem a configuração do Supabase Realtime.": {
+    en: "Shared rooms require Supabase Realtime to be configured.",
+    ar: "الغرف المشتركة تتطلب إعداد Supabase Realtime.",
+  },
+  "Código da sala": { en: "Room code", ar: "رمز الغرفة" },
+  "Entrar na sala": { en: "Join room", ar: "الانضمام للغرفة" },
+  "Criar sala": { en: "Create room", ar: "إنشاء غرفة" },
+  "Link copiado": { en: "Link copied", ar: "تم نسخ الرابط" },
+  "Copiar link": { en: "Copy link", ar: "نسخ الرابط" },
+  "Sair da sala": { en: "Leave room", ar: "مغادرة الغرفة" },
+  "Crie uma sala ou entre com um código para assistir junto.": {
+    en: "Create a room or enter a code to watch together.",
+    ar: "أنشئ غرفة أو أدخل رمزاً للمشاهدة معاً.",
+  },
+
+  // Media servers: Plex / Silo
+  "Jellyfin, Emby, Plex e Silo": { en: "Jellyfin, Emby, Plex and Silo", ar: "Jellyfin وEmby وPlex وSilo" },
+  "Entrar com Plex": { en: "Sign in with Plex", ar: "تسجيل الدخول بـ Plex" },
+  "Plex conectado.": { en: "Plex connected.", ar: "تم الاتصال بـ Plex." },
+  "Código Plex": { en: "Plex code", ar: "رمز Plex" },
+  "Abra a página de autorização e digite este código, depois aguarde.": {
+    en: "Open the authorization page, enter this code, then wait.",
+    ar: "افتح صفحة التصريح وأدخل هذا الرمز ثم انتظر.",
+  },
+  "Abrir autorização Plex": { en: "Open Plex authorization", ar: "فتح تصريح Plex" },
+  "Verificar servidor": { en: "Check server", ar: "تحقّق من الخادم" },
+  "Conectar com senha": { en: "Connect with password", ar: "الاتصال بكلمة المرور" },
+  "Entrar com código": { en: "Sign in with code", ar: "تسجيل الدخول بالرمز" },
+  "Silo conectado.": { en: "Silo connected.", ar: "تم الاتصال بـ Silo." },
+  "Código Silo": { en: "Silo code", ar: "رمز Silo" },
+  "Abrir autorização Silo": { en: "Open Silo authorization", ar: "فتح تصريح Silo" },
+
+  // Subtitle auto-sync (port of the original AutoSync subsystem)
+  "Sincronização automática da legenda": { en: "Automatic subtitle sync", ar: "المزامنة التلقائية للترجمة" },
+  "Compara a legenda escolhida com outras disponíveis e aplica o atraso encontrado. Sem chave, sem análise de áudio e só quando há correspondência confiável.": {
+    en: "Compares the chosen subtitle with other available ones and applies the delay found. No key, no audio analysis, and only when a confident match exists.",
+    ar: "يقارن الترجمة المختارة بترجمات أخرى متاحة ويطبّق التأخير المكتشف. بدون مفتاح أو تحليل صوت، وفقط عند وجود تطابق موثوق.",
+  },
+  "Sincronizar ao escolher uma legenda": { en: "Sync when a subtitle is chosen", ar: "المزامنة عند اختيار ترجمة" },
+  "Sincronização automática": { en: "Auto sync", ar: "مزامنة تلقائية" },
+  "Sincronizar com outras legendas": { en: "Sync with other subtitles", ar: "زامن مع ترجمات أخرى" },
+  "Sincronizado em {seconds} s com {count} referência(s).": {
+    en: "Synced by {seconds} s using {count} reference(s).",
+    ar: "تمت المزامنة بفارق {seconds} ث باستخدام {count} مرجع.",
+  },
+  "Nenhum ajuste confiável encontrado.": { en: "No confident adjustment found.", ar: "لم يتم العثور على تعديل موثوق." },
+  "Escolha uma legenda de addon para sincronizar.": { en: "Choose an addon subtitle to sync.", ar: "اختر ترجمة من إضافة للمزامنة." },
+  "Já existe uma sincronização em andamento.": { en: "A sync is already in progress.", ar: "توجد مزامنة جارية بالفعل." },
+  "Sincronização automática desativada nas Configurações.": {
+    en: "Auto sync is off in Settings.",
+    ar: "المزامنة التلقائية معطّلة في الإعدادات.",
+  },
+  "Não foi possível sincronizar a legenda.": { en: "Couldn't sync the subtitle.", ar: "تعذّرت مزامنة الترجمة." },
+
   // Live TV and EPG
   "Não foi possível carregar os canais:": { en: "Couldn't load channels:", ar: "تعذّر تحميل القنوات:" },
   "Buscar canal ou categoria": { en: "Search channel or category", ar: "ابحث عن قناة أو فئة" },
@@ -745,6 +905,17 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
     ar: "تتزامن المفاتيح مع حساب Nuvio (ProviderCredentialSync) لكل بروفايل. يُستخدم أول خدمة متصلة بشكل افتراضي.",
   },
   "Resolvido por debrid": { en: "Resolved by debrid", ar: "تم الحل عبر ديبريد" },
+  "Partidas de hoje": { en: "Today's matches", ar: "مباريات اليوم" },
+  "Carregando partidas…": { en: "Loading matches…", ar: "جارٍ تحميل المباريات…" },
+  "{count} partidas · {found} com canal": { en: "{count} matches · {found} with a channel", ar: "{count} مباراة · {found} منها بقناة" },
+  "Atualizar partidas": { en: "Refresh matches", ar: "تحديث المباريات" },
+  "Nenhuma partida encontrada para hoje.": { en: "No matches found for today.", ar: "لا توجد مباريات اليوم." },
+  "Canal não confirmado no guia": { en: "No channel confirmed in the guide", ar: "لم يتم تأكيد قناة في الدليل" },
+  "Cole a URL de uma playlist M3U (IPTV)": { en: "Paste an M3U playlist URL (IPTV)", ar: "الصق رابط قائمة M3U (IPTV)" },
+  "URL da playlist M3U": { en: "M3U playlist URL", ar: "رابط قائمة M3U" },
+  "Adicionar canais": { en: "Add channels", ar: "إضافة قنوات" },
+  "Lista esportiva pública": { en: "Public sports list", ar: "قائمة رياضية عامة" },
+  "Canais árabes de teste": { en: "Test Arabic channels", ar: "قنوات عربية للتجربة" },
   "Áudio e legendas avançados": { en: "Advanced audio and subtitles", ar: "إعدادات متقدمة للصوت والترجمة" },
   "Passagem de áudio (passthrough)": { en: "Audio passthrough", ar: "تمرير الصوت مباشرة (passthrough)" },
   "Envia AC3, E-AC3, DTS, DTS-HD e TrueHD diretos para o recetor. Se o equipamento não aceitar, o mpv volta a PCM.": {
@@ -853,7 +1024,7 @@ export const STRINGS: Record<string, { en: string; ar: string }> = {
   "Você já está conectado como": { en: "You're already signed in as", ar: "أنت مسجّل الدخول بالفعل بصفة" },
   "Escolher fonte": { en: "Choose a source", ar: "اختر مصدراً" },
   "Não exibido · {date}": { en: "Not aired · {date}", ar: "لم يُعرض بعد · {date}" },
-  "Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra.": { en: "This folder's catalogs come from TMDB, Trakt or addons not installed in this profile, and cannot be shown in Nuvio Astra yet.", ar: "فهارس هذا المجلد من TMDB أو Trakt أو إضافات غير مثبّتة في هذا الملف، ولا يمكن عرضها في Nuvio Astra بعد." },
+  "Os catálogos desta pasta vêm de addons que não estão instalados neste perfil ou de serviços (TMDB/Trakt) sem chave configurada.": { en: "This folder's catalogs come from addons not installed in this profile, or from TMDB/Trakt without a configured key.", ar: "فهارس هذا المجلد من إضافات غير مثبّتة في هذا الملف، أو من TMDB/Trakt بدون مفتاح مُعدّ." },
 
   // Discover (search page)
   "Discover": { en: "Discover", ar: "اكتشف" },

@@ -34,6 +34,8 @@ export interface MetaPreview {
   id: string; contentType: string; name: string; poster: string | null; banner: string | null;
   logo: string | null; posterShape: PosterShape; description: string | null; releaseInfo: string | null;
   imdbRating: string | null; genres: string[]; landscapePoster: string | null; runtime: string | null;
+  /** Original artwork preserved when a custom poster template is applied. */
+  rawPosterUrl?: string | null; rawLandscapePosterUrl?: string | null;
 }
 export interface CatalogPage { items: MetaPreview[]; rawItemCount: number; nextSkip: number | null }
 export interface CatalogGenres { options: string[]; required: boolean }
@@ -45,12 +47,19 @@ export interface HomeRow {
 
 // ---- Collections (services::collections) ----
 export interface FolderSource {
-  /** `addon` (a catalog of an installed addon) or `tmdb` (a discover query resolved in Rust). */
+  /** `addon`, `tmdb` (a discover query) or `trakt` (a public list), both resolved in Rust. */
   provider: string;
   key: string; genre: string | null; label: string; addonName: string; contentType: string; supportsPagination: boolean;
-  /** Stored source id of a TMDB source. */
+  /** Stable id of a TMDB/Trakt source, used to ask Rust for its page. */
   sourceId?: string | null;
 }
+export interface TraktList { id: number; slug: string; title: string; cover: string | null; itemCount: number; likes: number }
+export interface TraktResolvedList { id: number; slug: string; title: string; cover: string | null }
+export interface TraktComment {
+  id: number; author: string; username: string; text: string; spoiler: boolean; review: boolean;
+  likes: number; rating: number | null; createdAt: string; updatedAt: string; revealed?: boolean;
+}
+export interface TraktCommentsPage { items: TraktComment[]; page: number; pageCount: number; itemCount: number }
 export interface FolderView {
   id: string; title: string;
   /** GIF (when enabled) or cover; a `.mp4`/`.webm` URL is a video. */
@@ -78,6 +87,7 @@ export interface SubtitleSettings {
   outlineWidth: number; bold: boolean; fontSizeSp: number; bottomOffset: number; stripSdh: boolean;
   fontId: string; shadowEnabled: boolean; shadowOpacity: number; shadowSize: number;
   italic: boolean; spacing: number; blur: number; align: "left" | "center" | "right"; overrideAss: boolean;
+  autoSyncEnabled: boolean;
 }
 export type MotionName = "off" | "steady" | "fluid";
 export type AnimeModeName = "auto" | "a" | "b" | "c" | "aa" | "bb" | "ca";
@@ -95,7 +105,7 @@ export interface PlayerSettings {
   preferredAudioLanguage: string; secondaryPreferredAudioLanguage: string | null;
   preferredSubtitleLanguage: string; secondaryPreferredSubtitleLanguage: string | null;
   subtitle: SubtitleSettings;
-  skipSegmentsEnabled: boolean; autoSkipSegments: string[];
+  skipSegmentsEnabled: boolean; animeSkipEnabled: boolean; introSubmitEnabled: boolean; autoSkipSegments: string[];
   nextEpisodeThresholdMode: "PERCENTAGE" | "MINUTES_BEFORE_END";
   nextEpisodeThresholdPercent: number; nextEpisodeThresholdMinutes: number; watchedPercent: number;
   // Sources / automatic playback
@@ -134,7 +144,7 @@ export interface ContinueWatchingSettings {
 export interface MetaSectionSetting { key: string; enabled: boolean; order: number }
 export interface MetaScreenSettings {
   sections: MetaSectionSetting[]; backgroundMode: string; heroTrailerPlayback: boolean; tabLayout: boolean;
-  episodeCardStyle: string; blurUnwatchedEpisodes: boolean; posterTransitionEnabled: boolean;
+  episodeCardStyle: string; blurUnwatchedEpisodes: boolean; traktCommentsEnabled: boolean; posterTransitionEnabled: boolean;
   showOverallRatings: boolean; episodeRatingsVisibility: string;
 }
 export interface DiscordActivity { title: string; state?: string | null; poster?: string | null; playing: boolean; positionMs?: number | null; durationMs?: number | null }
@@ -205,13 +215,21 @@ export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied"
 export interface TrackingSyncResult { movies: number; episodes: number }
 export interface ServerConnection { id: string; provider: string; name: string; address: string; userId: string; userName: string; enabled: boolean }
 export interface ServerLibrary { id: string; name: string; kind: string }
+export interface PlexPin { id: string; code: string; authUrl: string }
+export interface SiloInfo { address: string; name: string; serverId: string; passwordLogin: boolean; deviceCode: boolean }
+export interface SiloCode { deviceCode: string; userCode: string; verificationUri: string; interval: number }
 export type DownloadStatus = "downloading" | "paused" | "completed" | "failed" | "queued" | "preparing" | "done";
 export interface StreamsSettings {
   showSizeBadges: boolean | null; showAddonLogo: boolean; showInPlayer: boolean;
   playerBadgeSource: string; badgePlacement: string; backgroundMode: string; badgeUrls: string[];
 }
 export interface StreamsSettingsView { settings: StreamsSettings; importedFilters: number }
-export interface CardStyle { width: number; radius: number; landscape: boolean; hideLabels: boolean }
+export interface CardStyle {
+  width: number; radius: number; landscape: boolean; hideLabels: boolean;
+  hoverPreviewEnabled: boolean; hoverPreviewDelayMs: number;
+  hoverPreviewTrailerEnabled: boolean; hoverPreviewTrailerSound: boolean; hoverPreviewTrailerStart: number;
+  customPosterUrlPattern: string; customPosterScreens: string[];
+}
 export interface DebridSettings { enabled: boolean }
 export interface DownloadsFolder { folder: string; freeBytes: number | null }
 export interface TorboxStatus { configured: boolean; enabled: boolean; account: string | null }
@@ -322,6 +340,7 @@ export interface ChannelList { channels: Channel[]; categories: [string, number]
 export interface Chapter { time: number; title: string }
 export interface SubtitleOption { index: number; source: string; language: string; title: string }
 export interface SubtitleList { options: SubtitleOption[]; addons: number; failed: number }
+export interface AutoSyncStatus { status: "applied" | "no-match" | "not-applicable" | "disabled" | "busy"; offsetMs: number | null; references: number }
 export interface Moment {
   kind: "intro" | "recap" | "outro" | "movie-credits" | "post-credits";
   start: number; end: number; target: number; toPostCredits: boolean; auto: boolean;
@@ -447,5 +466,14 @@ export interface UpdateInfo { version: string; currentVersion: string; notes: st
 export interface UpdateProgress { phase: "downloading" | "verifying" | "installing" | "error"; downloaded: number; total: number | null; error: string | null }
 
 /** Program guide of a live channel (times in UTC ms). */
+export interface MatchTeam { name: string; short: string; logo: string | null; score: string | null }
+export interface MatchChannel { key: string; name: string; logo: string | null; program: string }
+export interface LiveMatch {
+  id: string; league: string; leagueLogo: string | null; name: string; startMs: number;
+  state: "upcoming" | "live" | "finished"; status: string;
+  home: MatchTeam | null; away: MatchTeam | null; channels: MatchChannel[];
+}
+export interface MatchesView { matches: LiveMatch[]; fetchedAtMs: number; error: string | null }
+
 export interface EpgProgram { startMs: number; endMs: number; title: string; description: string | null }
 export interface EpgView { nowMs: number; programs: EpgProgram[]; hasSchedule: boolean }

@@ -372,7 +372,8 @@ mod tests {
             landscape_poster: None,
             runtime: None,
             status: None,
-        };
+        raw_poster_url: None, raw_landscape_poster_url: None,
+    };
         let page = CatalogPage { items: vec![item("tt1"), item("tt2")], raw_item_count: 2, next_skip: Some(2) };
         let state = super::page(true, 0, false, &["movie:tt1".to_string()], 0, page);
         assert_eq!(state.next_skip, Some(2), "tt2 is new");

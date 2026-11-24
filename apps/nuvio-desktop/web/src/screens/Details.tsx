@@ -1,7 +1,7 @@
 // Details of a movie or series: artwork, info, genres, cast, seasons/episodes and the sources of
 // the chosen title or episode (asked to the addons only when the user opens them).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import { FavoriteButton } from "../components/FavoriteButton";
 import { ResultRow } from "../components/ResultRow";
@@ -9,7 +9,7 @@ import { StreamList } from "../components/StreamList";
 import { TorrentStart } from "../components/TorrentStart";
 import { clock, episodeCode, libraryItemFromDetails, playbackItem, refreshLibraryViews, remaining, useLibraryVersion } from "../library";
 import { usePlayer } from "../player/PlayerContext";
-import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, RemoteResume, ShuffleView, StreamEntry, TitleProgress } from "../types";
+import type { Details as DetailsData, HistoryEntry, MetaPreview, MetaRef, MetaVideo, MetaScreenSettings, ParentalGuide, RemoteResume, ShuffleView, StreamEntry, TitleProgress, TraktComment, TraktCommentsPage } from "../types";
 import { addonLabel, t } from "../i18n";
 
 interface Props {
@@ -68,6 +68,9 @@ export function Details({ item, onBack, onOpen }: Props) {
   const [torrent, setTorrent] = useState<StreamEntry | null>(null);
   const [trailerBusy, setTrailerBusy] = useState(false);
   const [moreLikeThis, setMoreLikeThis] = useState<MetaPreview[]>([]);
+  const [comments, setComments] = useState<TraktCommentsPage | null>(null);
+  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [commentSelected, setCommentSelected] = useState<TraktComment | null>(null);
   const [watchedKeys, setWatchedKeys] = useState<string[]>([]);
   const [metaSettings, setMetaSettings] = useState<MetaScreenSettings | null>(null);
   const [guide, setGuide] = useState<ParentalGuide | null>(null);
@@ -177,6 +180,28 @@ export function Details({ item, onBack, onOpen }: Props) {
       cancelled = true;
     };
   }, [contentType, id]);
+
+  // Trakt reviews of this title. The rail stays empty until the user is connected to Trakt
+  // (`trakt_comments` returns an empty page when not connected or when the setting is off).
+  const loadComments = useCallback((page: number) => {
+    setCommentsLoading(true);
+    api.traktComments(contentType, id, page).then(
+      (result) => {
+        setComments((current) => page === 1
+          ? result
+          : { ...result, items: [...(current?.items ?? []), ...result.items] });
+        setCommentsLoading(false);
+      },
+      () => setCommentsLoading(false),
+    );
+  }, [contentType, id]);
+
+  useEffect(() => {
+    if (!sectionOn("comments") || metaSettings?.traktCommentsEnabled === false) return;
+    setComments(null);
+    loadComments(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentType, id, metaSettings?.traktCommentsEnabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -471,6 +496,29 @@ export function Details({ item, onBack, onOpen }: Props) {
           </section>
         )}
 
+        {sectionOn("comments") && metaSettings?.traktCommentsEnabled !== false && (comments?.items.length || commentsLoading) ? (
+          <section className="details-section" data-testid="details-comments">
+            <h2>{t("Comentários")}</h2>
+            <div className="comment-rail">
+              {comments?.items.map((comment) => (
+                <button key={comment.id} className="comment-card" data-testid="comment-card" onClick={() => setCommentSelected(comment)}>
+                  <span className="muted small">@{comment.username || comment.author}</span>
+                  {comment.review && <span className="stream-tag">{t("Review")}</span>}
+                  {comment.spoiler && <span className="stream-tag">{t("Spoiler")}</span>}
+                  <span className="comment-body">{comment.spoiler ? t("Este comentário contém spoilers.") : comment.text}</span>
+                  <span className="muted small">
+                    {comment.rating !== null && `${comment.rating}/10 · `}{comment.likes} {t("curtidas")}
+                  </span>
+                </button>
+              ))}
+              {commentsLoading && <div className="muted small">{t("Carregando…")}</div>}
+            </div>
+            {comments && comments.page < comments.pageCount && (
+              <button className="ghost" disabled={commentsLoading} onClick={() => loadComments(comments.page + 1)}>{t("Carregar mais")}</button>
+            )}
+          </section>
+        ) : null}
+
         {moreLikeThis.length > 0 && sectionOn("moreLikeThis") && (
           <section className="details-section more-like-this" data-testid="more-like-this">
             <ResultRow title={t("Mais como este")} addonName="" items={moreLikeThis} onOpen={onOpen} />
@@ -525,6 +573,30 @@ export function Details({ item, onBack, onOpen }: Props) {
             play(s, true);
           }}
         />
+      )}
+      {commentSelected && (
+        <div className="comment-sheet-backdrop" role="presentation" onClick={() => setCommentSelected(null)}>
+          <div className="comment-sheet" role="dialog" aria-modal="true" data-testid="comment-detail" onClick={(event) => event.stopPropagation()}>
+            <div className="sources-header">
+              <div>
+                <h2>{commentSelected.author}</h2>
+                <div className="muted small">@{commentSelected.username || commentSelected.author}</div>
+              </div>
+              <button className="icon-btn" aria-label={t("Fechar")} onClick={() => setCommentSelected(null)}>✕</button>
+            </div>
+            <p className="comment-sheet-body">
+              {commentSelected.spoiler && !commentSelected.revealed
+                ? t("Este comentário contém spoilers e foi ocultado.")
+                : commentSelected.text}
+            </p>
+            {commentSelected.spoiler && !commentSelected.revealed && (
+              <button className="ghost" onClick={() => setCommentSelected({ ...commentSelected, revealed: true })}>{t("Mostrar comentário")}</button>
+            )}
+            <div className="muted small">
+              {commentSelected.rating !== null && `${commentSelected.rating}/10 · `}{commentSelected.likes} {t("curtidas")} · {commentSelected.createdAt.slice(0, 10)}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

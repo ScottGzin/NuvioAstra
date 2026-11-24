@@ -11,6 +11,7 @@
 use crate::{HomeCatalogSettings, LegacyStore, StoreError};
 use serde::{Deserialize, Serialize};
 
+pub const CUSTOM_POSTER_SCREENS: &[&str] = &["home", "continue_watching", "collections", "library", "search", "details"];
 pub const RESIZE_MODES: &[&str] = &["Fit", "Fill", "Zoom", "Stretch"];
 pub const FONT_SIZE_RANGE: (i64, i64) = (6, 40); // desktop `subtitleFontSizeRangeSp`
 pub const OUTLINE_WIDTH_RANGE: (i64, i64) = (1, 5);
@@ -41,6 +42,9 @@ pub struct SubtitleSettings {
     pub blur: i64,
     pub align: String,
     pub override_ass: bool,
+    /// Astra port of the original `AutoSyncPreferencesRepository`: compare the selected subtitle
+    /// with the other subtitle timelines of this title and apply a validated constant delay.
+    pub auto_sync_enabled: bool,
 }
 
 /// Astra only: the player's picture options (`nuvio_player::Picture`).
@@ -112,6 +116,7 @@ impl Default for SubtitleSettings {
             blur: 0,
             align: "center".into(),
             override_ass: false,
+            auto_sync_enabled: true,
         }
     }
 }
@@ -144,6 +149,13 @@ pub struct PlayerSettings {
     pub picture: PictureSettings,
     /// `skip_intro_enabled`: the skip buttons (and the services that give their times).
     pub skip_segments_enabled: bool,
+    /// Original `animeSkipEnabled`: Anime-Skip needs the user's own client id (in provider
+    /// credentials) and an AniList id mapped from the title. Off by default, as in the original.
+    #[serde(default)]
+    pub anime_skip_enabled: bool,
+    /// Original `introSubmitEnabled`: show the "submit times" button in the player.
+    #[serde(default)]
+    pub intro_submit_enabled: bool,
     /// `auto_skip_segment_types`: `intro`, `recap`, `outro`, `movie-credits`.
     pub auto_skip_segments: Vec<String>,
     /// `PERCENTAGE` or `MINUTES_BEFORE_END`: when the next-episode card shows.
@@ -242,6 +254,8 @@ impl Default for PlayerSettings {
             subtitle: SubtitleSettings::default(),
             picture: PictureSettings::default(),
             skip_segments_enabled: true,
+            anime_skip_enabled: false,
+            intro_submit_enabled: false,
             auto_skip_segments: Vec::new(),
             next_episode_threshold_mode: "PERCENTAGE".into(),
             next_episode_threshold_percent: 99.0,
@@ -371,6 +385,9 @@ pub struct MetaScreenSettings {
     /// `horizontal` or `list`.
     pub episode_card_style: String,
     pub blur_unwatched_episodes: bool,
+    /// Original `TraktCommentsSettings.enabled` (default true, independent of the section toggle).
+    #[serde(default)]
+    pub trakt_comments_enabled: bool,
     pub poster_transition_enabled: bool,
     pub show_overall_ratings: bool,
     /// `SHOW_ALL`, `HIDE_WATCHED` or `HIDE_ALL`.
@@ -394,6 +411,7 @@ impl Default for MetaScreenSettings {
             tab_layout: false,
             episode_card_style: "horizontal".into(),
             blur_unwatched_episodes: false,
+            trakt_comments_enabled: true,
             poster_transition_enabled: false,
             show_overall_ratings: true,
             episode_ratings_visibility: "SHOW_ALL".into(),
@@ -437,15 +455,38 @@ pub struct CardStyle {
     pub radius: i64,
     pub landscape: bool,
     pub hide_labels: bool,
+    /// Hover preview (original `PosterCardStyleRepository`): 500–5000 ms, 260 ms enter.
+    pub hover_preview_enabled: bool,
+    pub hover_preview_delay_ms: i64,
+    pub hover_preview_trailer_enabled: bool,
+    pub hover_preview_trailer_sound: bool,
+    pub hover_preview_trailer_start: i64,
+    /// Custom poster source (`CustomPosterUrlRepository`) and the screens it applies to.
+    pub custom_poster_url_pattern: String,
+    pub custom_poster_screens: Vec<String>,
 }
 impl Default for CardStyle {
-    fn default() -> Self { Self { width: 126, radius: 12, landscape: false, hide_labels: false } }
+    fn default() -> Self {
+        Self {
+            width: 126, radius: 12, landscape: false, hide_labels: false,
+            hover_preview_enabled: true,
+            hover_preview_delay_ms: 2_000,
+            hover_preview_trailer_enabled: false,
+            hover_preview_trailer_sound: false,
+            hover_preview_trailer_start: 0,
+            custom_poster_url_pattern: String::new(),
+            custom_poster_screens: CUSTOM_POSTER_SCREENS.iter().map(|screen| (*screen).to_string()).collect(),
+        }
+    }
 }
 impl CardStyle {
     fn sanitized(mut self) -> Self {
         let nearest = |v: i64, options: &[i64]| *options.iter().min_by_key(|o| (*o - v).abs()).expect("options");
         self.width = nearest(self.width, CARD_WIDTHS);
         self.radius = nearest(self.radius, CARD_RADII);
+        self.hover_preview_delay_ms = self.hover_preview_delay_ms.clamp(500, 5_000);
+        self.hover_preview_trailer_start = self.hover_preview_trailer_start.clamp(0, 5);
+        self.custom_poster_screens.retain(|screen| CUSTOM_POSTER_SCREENS.contains(&screen.as_str()));
         self
     }
 }
@@ -759,9 +800,12 @@ impl LegacyStore {
                 blur: ds.blur,
                 align: ds.align,
                 override_ass: ds.override_ass,
+                auto_sync_enabled: ds.auto_sync_enabled,
             },
             picture: PictureSettings::default(),
             skip_segments_enabled: boolean("skip_intro_enabled").unwrap_or(d.skip_segments_enabled),
+            anime_skip_enabled: boolean("animeskip_enabled").unwrap_or(d.anime_skip_enabled),
+            intro_submit_enabled: boolean("intro_submit_enabled").unwrap_or(d.intro_submit_enabled),
             auto_skip_segments: AUTO_SKIP_SEGMENTS
                 .iter()
                 .filter(|kind| get("auto_skip_segment_types").is_some_and(|saved| saved.split(|c: char| !c.is_ascii_lowercase() && c != '-').any(|v| v == **kind)))
@@ -776,6 +820,7 @@ impl LegacyStore {
                 radius: int("cards_corner_radius_dp").unwrap_or(12),
                 landscape: boolean("cards_landscape").unwrap_or(false),
                 hide_labels: boolean("cards_hide_labels").unwrap_or(false),
+                ..d.cards
             },
             app_language: get("selected_app_language"),
 
@@ -856,7 +901,7 @@ mod tests {
     fn continue_watching_defaults_match_the_original_and_are_sanitized() {
         let cw = ContinueWatchingSettings::default();
         assert_eq!((cw.visible, cw.up_next_from_furthest_episode, cw.use_episode_thumbnails, cw.show_unaired_next_up, cw.show_resume_prompt_on_launch), (true, true, true, true, true));
-        assert_eq!((cw.style.as_str(), cw.sort_mode.as_str(), cw.click_action.as_str()), ("card", "default", "stream"));
+        assert_eq!((cw.style.as_str(), cw.sort_mode.as_str(), cw.click_action.as_str()), ("wide", "default", "stream"));
         assert!(!cw.blur_next_up);
         let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();
         assert_eq!((bad.style.as_str(), bad.sort_mode.as_str(), bad.click_action.as_str()), ("card", "default", "stream"));

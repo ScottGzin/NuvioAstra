@@ -1,7 +1,9 @@
 // Settings → Reprodução: when something counts as watched, skip buttons and the next-episode card
 // (the original's "Pular intro" and t("Próximo episódio") settings, plus the watched percentage).
 
+import { useEffect, useState } from "react";
 import type { PlayerSettings } from "../types";
+import { api, errorText } from "../api";
 import { Row, Toggle } from "./SettingControls";
 import { decimal, t } from "../i18n";
 
@@ -23,6 +25,29 @@ function Range({ label, value, min, max, step, unit, onChange }: { label: string
 
 export function WatchingSettings({ value: p, onChange }: { value: PlayerSettings; onChange(change: (p: PlayerSettings) => PlayerSettings): void }) {
   const percentMode = p.nextEpisodeThresholdMode !== "MINUTES_BEFORE_END";
+  const [clientId, setClientId] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [keyNote, setKeyNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.skipCredentials().then((keys) => {
+      if (cancelled) return;
+      setClientId(keys.animeSkipClientId);
+      setApiKey(keys.introDbApiKey);
+    }, () => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const saveKeys = async () => {
+    setKeyNote(null);
+    try {
+      await api.skipCredentialsSet(clientId, apiKey);
+      setKeyNote(t("Chaves salvas."));
+    } catch (e) {
+      setKeyNote(errorText(e));
+    }
+  };
   return (
     <>
       <h3 className="settings-subhead">{t("Assistido e próximo episódio")}</h3>
@@ -114,6 +139,20 @@ export function WatchingSettings({ value: p, onChange }: { value: PlayerSettings
             />
           </Row>
         ))}
+      <Row title={t("Anime-Skip")} description={t("Serviço extra para animes: usa o seu Client ID e o AniList do título. Sem mapeamento, simplesmente não oferece tempos.")}>
+        <Toggle label={t("Anime-Skip")} checked={p.animeSkipEnabled} onChange={(v) => onChange((x) => ({ ...x, animeSkipEnabled: v }))} />
+      </Row>
+      <Row title={t("Enviar tempos à IntroDB")} description={t("Mostra um botão no player para enviar o tempo de uma abertura, recapitulação ou encerramento que o app encontrou.")}>
+        <Toggle label={t("Enviar tempos")} checked={p.introSubmitEnabled} onChange={(v) => onChange((x) => ({ ...x, introSubmitEnabled: v }))} />
+      </Row>
+      <Row title={t("ID de cliente do Anime-Skip")} description={t("Pegue o seu ID em anime-skip.com. A chave fica salva no app e sincronizada com a conta.")}>
+        <input type="text" value={clientId} aria-label={t("ID de cliente do Anime-Skip")} onChange={(e) => setClientId(e.target.value)} />
+      </Row>
+      <Row title={t("Chave da API da IntroDB")} description={t("Necessária para enviar tempos. A chave é verificada ao salvar.")}>
+        <input type="password" value={apiKey} aria-label={t("Chave da API da IntroDB")} onChange={(e) => setApiKey(e.target.value)} />
+        <button className="ghost" onClick={() => void saveKeys()}>{t("Salvar chaves")}</button>
+      </Row>
+      {keyNote && <p className="muted small" role="status">{keyNote}</p>}
     </>
   );
 }

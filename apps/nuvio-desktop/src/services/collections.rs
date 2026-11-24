@@ -83,7 +83,10 @@ struct StoredSource {
     media_type: Option<String>,
     tmdb_source_type: Option<String>,
     sort_by: Option<String>,
+    sort_how: Option<String>,
     tmdb_id: Option<i64>,
+    /// Trakt folder sources: only the numeric public list id is persisted.
+    trakt_list_id: Option<i64>,
     filters: Option<super::tmdb::Filters>,
     name: Option<String>,
     title: Option<String>,
@@ -173,11 +176,11 @@ pub struct FolderView {
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderSource {
-    /// `addon` (a catalog of an installed addon) or `tmdb` (a discover query resolved in Rust).
+    /// `addon`, `tmdb` or `trakt` (a public Trakt list resolved in Rust).
     pub provider: String,
     /// Catalog key `<manifestId>:<type>:<catalogId>` (addon sources, as the Home rows).
     pub key: String,
-    /// Stored source id of a TMDB source (the page is asked with the collection and folder ids).
+    /// Stored source id of a TMDB/Trakt source (the page is asked with the collection/folder ids).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_id: Option<String>,
     pub genre: Option<String>,
@@ -241,7 +244,7 @@ pub fn resolve_catalog<'a>(
     manifests.iter().filter(|m| m.id == manifest_id).find_map(find).or_else(|| manifests.iter().find_map(find))
 }
 
-fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_type: bool, collection_id: &str, tmdb_available: bool) -> FolderView {
+fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_type: bool, collection_id: &str, tmdb_available: bool, trakt_available: bool) -> FolderView {
     let sources = if folder.sources.is_empty() { &folder.catalog_sources } else { &folder.sources };
     let mut resolved = Vec::new();
     let mut skipped = 0;
@@ -284,7 +287,26 @@ fn folder_view(folder: &StoredFolder, manifests: &[AddonManifest], show_catalog_
             continue;
         }
         if provider.eq_ignore_ascii_case("trakt") {
-            skipped += 1;
+            let Some(source_def) = trakt_source_of(source) else {
+                skipped += 1;
+                continue;
+            };
+            if !trakt_available {
+                skipped += 1;
+                continue;
+            }
+            let name = clean(&source.title).or_else(|| clean(&source.name)).unwrap_or_else(|| "Trakt".into());
+            let content_type = if source_def.media_type.eq_ignore_ascii_case("TV") { "series" } else { "movie" };
+            resolved.push(FolderSource {
+                provider: "trakt".into(),
+                key: format!("trakt:{collection_id}:{}:{}", folder.id, source_def.key()),
+                source_id: Some(source_def.key()),
+                genre: None,
+                label: name,
+                addon_name: "Trakt".into(),
+                content_type: content_type.into(),
+                supports_pagination: true,
+            });
             continue;
         }
         let (Some(addon_id), Some(content_type), Some(catalog_id)) = (clean(&source.addon_id), clean(&source.content_type), clean(&source.catalog_id)) else {
@@ -363,13 +385,38 @@ pub fn tmdb_source(value: &Value, collection_id: &str, folder_id: &str, source_i
     })
 }
 
+fn trakt_source_of(source: &StoredSource) -> Option<super::trakt::Source> {
+    if !clean(&source.provider).is_some_and(|provider| provider.eq_ignore_ascii_case("trakt")) {
+        return None;
+    }
+    let list_id = source.trakt_list_id.filter(|id| *id > 0)?;
+    Some(super::trakt::Source {
+        list_id,
+        media_type: clean(&source.media_type).unwrap_or_else(|| "MOVIE".into()),
+        sort_by: clean(&source.sort_by).unwrap_or_else(|| "rank".into()),
+        sort_how: clean(&source.sort_how).unwrap_or_else(|| "asc".into()),
+    })
+}
+
+/// The stored Trakt source behind a folder tab (`trakt_source_page`), taken from the account's copy
+/// of the collections and matched by the same stable key the tab exposes to the UI.
+pub fn trakt_source(value: &Value, collection_id: &str, folder_id: &str, source_id: &str) -> Option<super::trakt::Source> {
+    let collection = parse(value).into_iter().find(|c| c.id == collection_id)?;
+    let folder = collection.folders.iter().find(|f| f.id == folder_id)?;
+    let sources = if folder.sources.is_empty() { &folder.catalog_sources } else { &folder.sources };
+    sources.iter().find_map(|source| {
+        let parsed = trakt_source_of(source)?;
+        (clean(&source.id).as_deref() == Some(source_id) || parsed.key() == source_id).then_some(parsed)
+    })
+}
+
 /// Collections that can appear on Home (at least one folder), in the stored order.
-pub fn views(value: &Value, manifests: &[AddonManifest], show_catalog_type: bool, tmdb_available: bool) -> Vec<CollectionView> {
+pub fn views(value: &Value, manifests: &[AddonManifest], show_catalog_type: bool, tmdb_available: bool, trakt_available: bool) -> Vec<CollectionView> {
     parse(value)
         .into_iter()
         .filter(|c| !c.folders.is_empty())
         .map(|c| CollectionView {
-            folders: c.folders.iter().filter(|f| !f.id.trim().is_empty()).map(|f| folder_view(f, manifests, show_catalog_type, &c.id, tmdb_available)).collect(),
+            folders: c.folders.iter().filter(|f| !f.id.trim().is_empty()).map(|f| folder_view(f, manifests, show_catalog_type, &c.id, tmdb_available, trakt_available)).collect(),
             id: c.id,
             title: c.title,
             backdrop: clean(&c.backdrop_image_url),
@@ -422,7 +469,7 @@ mod tests {
             {"title":"Sem id","folders":[{"id":"y","title":"y"}]},
             "lixo"
         ]);
-        let views = views(&stored, &manifests(), true, false);
+        let views = views(&stored, &manifests(), true, false, false);
         assert_eq!(views.len(), 1);
         let c = &views[0];
         assert_eq!((c.view_mode.as_str(), c.show_all_tab, c.pin_to_top), ("TABBED_GRID", true, false));
@@ -442,6 +489,26 @@ mod tests {
         assert_eq!(f2.shape, "poster");
     }
 
+    #[test]
+    fn trakt_sources_become_folder_tabs_when_a_client_id_is_configured() {
+        let stored = json!([{"id":"c","title":"Lists","folders":[{"id":"f","title":"Trakt","sources":[
+            {"provider":"trakt","traktListId":123456,"mediaType":"MOVIE","sortBy":"added","sortHow":"desc","title":"Criterion"}
+        ]}]}]);
+        validate_edited(&stored).unwrap();
+        let without_key = views(&stored, &[], true, false, false);
+        assert_eq!(without_key[0].folders[0].sources.len(), 0, "no client id: no Trakt tab");
+        let with_key = views(&stored, &[], true, false, true);
+        let source = &with_key[0].folders[0].sources[0];
+        assert_eq!(source.provider, "trakt");
+        assert_eq!(source.label, "Criterion");
+        assert_eq!(source.source_id.as_deref(), Some("trakt_123456_movie_added_desc"));
+        assert!(source.supports_pagination);
+        let parsed = trakt_source(&stored, "c", "f", source.source_id.as_deref().unwrap()).unwrap();
+        assert_eq!(parsed.list_id, 123456);
+        assert_eq!(parsed.sort_by(), "added");
+        assert_eq!(parsed.sort_how(), "desc");
+    }
+
     /// TMDB sources of a folder (the Netflix tabs of "Streaming Services", the lists of Actors and
     /// Directors, the parts of Film Collections): listed when the profile has a TMDB key.
     #[test]
@@ -454,7 +521,7 @@ mod tests {
                 {"id":"src-2","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"NETWORK","tmdbId":213,"title":"Netflix"},
                 {"id":"src-3","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"COLLECTION","tmdbId":1,"title":"Saga"},
                 {"id":"src-4","provider":"tmdb","mediaType":"MOVIE","tmdbSourceType":"LIST","tmdbId":8659010,"sortBy":"vote_average.desc","title":"Top Rated"}]}]}]);
-        let with_key = views(&stored, &[], true, true);
+        let with_key = views(&stored, &[], true, true, false);
         let tabs: Vec<_> = with_key[0].folders[0]
             .sources
             .iter()
@@ -472,7 +539,7 @@ mod tests {
         assert_eq!(with_key[0].folders[0].skipped_sources, 0);
 
         // Without a key the tabs are not listed (as before).
-        assert!(views(&stored, &[], true, false)[0].folders[0].sources.is_empty());
+        assert!(views(&stored, &[], true, false, false)[0].folders[0].sources.is_empty());
 
         let source = tmdb_source(&stored, "collection-1", "folder-1", "src-1").expect("discover source");
         assert_eq!(source.media_type, super::super::tmdb::MediaType::Tv);
@@ -515,7 +582,7 @@ mod tests {
 
         let stored = json!([{"id":"c","title":"C","folders":[{"id":"f","title":"F",
             "sources":[{"provider":"addon","addonId":"aio","type":"movie","catalogId":"only-two"}]}]}]);
-        let views = views(&stored, &manifests, false, false);
+        let views = views(&stored, &manifests, false, false, false);
         assert_eq!(views[0].folders[0].sources.len(), 1);
         assert_eq!(views[0].folders[0].sources[0].addon_name, "AIO 2");
         assert_eq!(views[0].folders[0].skipped_sources, 0);
