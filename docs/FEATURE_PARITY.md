@@ -59,7 +59,7 @@ This file is updated at the end of every stage.
 | Source fallback / autoplay | ✅ `nuvio-core::auto_play` (mode, scope, regex with exclusions, binge group, fallback, timeout snapping) + player hold-to-speed | 4 unit tests, 74 workspace tests |
 | Subtitle auto-sync | ✅ `nuvio-core::autosync` (SRT/VTT/ASS cues, delay-only activity correlation), `autosync_dp` (FPS-drift affine alignment + banded group DP), and `embedded_subs` (HTTP-range MP4 `stbl`/tx3g/VTT and MKV `S_TEXT` blocks) are ported. Settings toggle, manual button, automatic run on add-on subtitle load, and `sub-delay` application. No audio analysis (the original has none) | 12 autosync tests + 7 embedded-subtitle tests, web build |
 | Addon subtitles | ✅ subtitles resource (`watching.rs` search/download/load, external file given to mpv) | — |
-| Keyboard shortcuts | ⏳ | `controls.js` bindings |
+| Keyboard / mouse shortcuts | ✅ the original desktop bindings: Space/Enter pause, ←/→ seek 10 s, ↑/↓ volume, M mute, F/F11 full screen, N next episode, S subtitles, C chapters, E sources, P picture-in-picture, Esc closes the panel then the player; mouse wheel seeks, click toggles playback, double click seeks at the sides / full screen in the middle. Linux keeps page focus over the native video window (`player_focus`) | web build, manual Linux check |
 | Watch party | 🟡 Client ported: `web/src/player/party.ts` (Supabase Realtime Phoenix WebSocket broadcast), `usePartySync.ts` (host reports every 4 s, guest drift check 1 s, VyseTV's Syncplay thresholds ±5 s / ±4 s, commands play/pause/seek, echo and 3 s guards) and `PartyPanel` in the player. Requires a Supabase project with Realtime enabled and a broadcast channel (`realtime:party:<code>`); the shipped APK v1.0.1/build 160 already contains `watch_party_*` RPC strings and Supabase Realtime, but the room backend is not reimplemented here | client logic tests; web build |
 | Torrent / P2P (addon `infoHash` / magnet sources) | ✅ the original's Nuvio Engine 0.1.6 (`nuvio_engine.dll`, libtorrent 2.0.12) loaded by Rust (`crates/nuvio-p2p`, C ABI taken from the original's JVM binding); local HTTP route played by the app's libmpv; playback starts before the download ends, seeking fetches pieces on demand; file by `fileIdx` / `behaviorHints.filename` / engine choice; original default trackers + the stream's; peers, speed, downloaded, progress over the player; per-profile settings (off until the original's P2P notice is accepted, upload, hide stats, Soft/Balanced/Fast, cache 0/2/5/10 GB, clear cache); session ends with the player (stream stopped, torrent removed, engine destroyed). Torrent upload of `.torrent` files ⏳ | UI phase `p2p` 17/17 (Big Buck Bunny, CC BY: started at 17.6 % downloaded, seek to 7 min, sockets/threads back to the baseline after close); installed build `install-check` (engine found next to the exe and created) |
 | Debrid | ⏳ | Real-Debrid / Premiumize / TorBox APIs |
@@ -81,7 +81,7 @@ This file is updated at the end of every stage.
 ## Strategy for the pending modules (priority order)
 
 1. **Daily use first**: Home rows, search, details + episodes, streams → player, Live TV, favorites,
-   resume position, keyboard shortcuts.
+   resume position.
 2. **Data**: verified import of the current stores into NextGen storage (originals untouched), then
    write paths (addons, settings, favorites, history).
 3. **Playback extras**: next episode, chapters/skip intro, source fallback, addon subtitles.

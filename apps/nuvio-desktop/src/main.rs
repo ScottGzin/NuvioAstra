@@ -386,6 +386,13 @@ fn window_ready(window: tauri::WebviewWindow) {
     show_main_window(&window);
 }
 
+/// Gives keyboard focus back to the WebView. On Linux the video is a native X11 window and the
+/// player controls live in the page, so the page must stay the key-focus owner while it plays.
+#[tauri::command]
+fn player_focus(window: tauri::WebviewWindow) {
+    let _ = window.set_focus();
+}
+
 /// `"selftest"` when the window is driven by the automated player tests (the UI then shows only
 /// the video overlay and loads no catalogs), `"uitest"` for the automated UI test (the normal UI
 /// plus its driver), `"app"` otherwise.
@@ -762,6 +769,7 @@ fn main() {
             app_mode,
             platform,
             window_ready,
+            player_focus,
             uitest::uitest_capture,
             uitest::uitest_report,
             uitest::uitest_phase,

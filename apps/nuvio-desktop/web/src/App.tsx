@@ -244,7 +244,7 @@ export function App() {
             <Home key={dataKey} onOpen={open} onResume={resume} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
           </div>
           {folder && tab === "home" && (
-            <div className="screen" hidden={details !== null}>
+            <div className="screen" key={`folder-${folder.collection.id}-${folder.folder.id}`} hidden={details !== null}>
               <Folder key={`${dataKey}/${folder.collection.id}/${folder.folder.id}`} collection={folder.collection} folder={folder.folder} onOpen={open} onBack={() => setFolder(null)} />
             </div>
           )}
@@ -253,7 +253,7 @@ export function App() {
           {tab === "library" && <div className="screen" hidden={details !== null}><Library key={profileEpoch} onOpen={open} onResume={resume} onOpenEntry={openEntry} /></div>}
           {tab === "settings" && <div className="screen screen-fill" hidden={details !== null}><Settings key={profileEpoch} /></div>}
           {details && (
-            <div className="screen">
+            <div className="screen" key={`details-${details.contentType}-${details.id}`}>
               <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} onOpen={open} />
             </div>
           )}

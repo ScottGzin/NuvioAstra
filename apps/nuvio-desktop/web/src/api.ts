@@ -341,6 +341,8 @@ export const api = {
   playerRect: (rect: CssRect | null, holes: CssRect[] = []) =>
     invoke<void>("player_video_rect", { rect, holes, scale: window.devicePixelRatio }).catch(() => {}),
   playerSnapshot: () => invoke<PlayerSnapshot>("player_snapshot"),
+  /** Keeps the page (player keys) as the key-focus owner over the native video window. */
+  playerFocus: () => invoke<void>("player_focus").catch(() => {}),
   playerClose: () => invoke<void>("player_close"),
   /** Starts the P2P engine for a torrent stream (rejects with `P2P_CONSENT_REQUIRED` while P2P is off). */
   torrentPrepare: (key: string) => invoke<TorrentPrepared>("torrent_prepare", { key }),

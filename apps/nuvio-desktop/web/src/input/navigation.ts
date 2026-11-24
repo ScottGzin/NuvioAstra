@@ -4,6 +4,8 @@
 import { useEffect } from "react";
 
 const SELECTOR = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+/** Panels that keep the focus for themselves while open. */
+const PANELS = ".modal-backdrop, .chapters-overlay, .sources-overlay, .next-panel-layer, .see-all-body";
 
 let navHideTimer = 0;
 /** Non-pointer input hides the mouse cursor until a real mouse movement (the original's HTPC behavior). */
@@ -13,17 +15,27 @@ function markNavInput() {
   navHideTimer = window.setTimeout(() => document.body.classList.remove("nav-input"), 8000);
 }
 
-/** After scrolling settles, keep the focus ring on an element actually inside the viewport. */
+/** After scrolling settles, keep the focus ring on an element actually inside the viewport.
+ *  The replacement stays in the same screen (or open panel) and nearest to the element that was
+ *  focused: picking the first focusable of the document would send focus back to the sidebar. */
 function ensureVisibleFocus() {
   const current = document.activeElement as HTMLElement | null;
   if (!current || current === document.body) return;
   const rect = current.getBoundingClientRect();
-  if (rect.top >= 0 && rect.bottom <= innerHeight && rect.left >= 0 && rect.right <= innerWidth) return;
-  const candidate = focusables().find((el) => {
-    const r = el.getBoundingClientRect();
-    return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
-  });
-  candidate?.focus();
+  const fullyVisible = (r: DOMRect) => r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+  if (fullyVisible(rect)) return;
+  const scope = regionOf(current);
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const visible = focusables()
+    .filter((el) => scope.contains(el) && fullyVisible(el.getBoundingClientRect()))
+    .sort((a, b) => {
+      const ar = a.getBoundingClientRect();
+      const br = b.getBoundingClientRect();
+      return Math.hypot(ar.left + ar.width / 2 - cx, ar.top + ar.height / 2 - cy) -
+        Math.hypot(br.left + br.width / 2 - cx, br.top + br.height / 2 - cy);
+    });
+  visible[0]?.focus();
 }
 
 function focusables(): HTMLElement[] {
@@ -34,41 +46,118 @@ function focusables(): HTMLElement[] {
   });
 }
 
-function move(direction: "up" | "down" | "left" | "right") {
-  const current = document.activeElement as HTMLElement | null;
+function inViewport(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+}
+
+/** Where keyboard navigation starts when nothing is focused (first key after the mouse, a screen
+ *  change): the first item of the content that is actually on screen, never the page top. */
+function firstVisibleContent(): HTMLElement | null {
   const all = focusables();
-  const onScreen = all.filter((el) => {
-    const r = el.getBoundingClientRect();
-    return r.bottom > 0 && r.top < innerHeight && r.right > 0 && r.left < innerWidth;
+  const visible = all.filter((el) => el.closest("main") && inViewport(el));
+  const pool = visible.length ? visible : all;
+  if (pool.length === 0) return null;
+  return pool.reduce((best, el) => {
+    const a = el.getBoundingClientRect();
+    const b = best.getBoundingClientRect();
+    return a.top < b.top - 2 || (Math.abs(a.top - b.top) <= 2 && a.left < b.left) ? el : best;
   });
-  const items = onScreen.length ? onScreen : all;
-  if (items.length === 0) return;
-  if (!current || !items.includes(current)) {
-    items[0].focus();
-    return;
-  }
-  const from = current.getBoundingClientRect();
-  const fx = from.left + from.width / 2;
-  const fy = from.top + from.height / 2;
+}
+
+type Direction = "up" | "down" | "left" | "right";
+
+/** Region that owns the current focus: the open panel, the main content, or the sidebar. */
+function regionOf(element: HTMLElement): HTMLElement {
+  return element.closest<HTMLElement>(PANELS) ??
+    element.closest<HTMLElement>("main") ??
+    element.closest<HTMLElement>(".sidebar") ??
+    document.body;
+}
+
+/** Nearest focusable in `direction`, by center distance. Off-screen elements count: focusing one
+ *  scrolls it into view, which is how the UI reaches the rows below the fold. */
+function nearest(from: HTMLElement, items: HTMLElement[], direction: Direction): HTMLElement | null {
+  const rect = from.getBoundingClientRect();
+  const fx = rect.left + rect.width / 2;
+  const fy = rect.top + rect.height / 2;
+  const horizontal = direction === "left" || direction === "right";
   let best: HTMLElement | null = null;
   let bestScore = Infinity;
   for (const el of items) {
-    if (el === current) continue;
-    const rect = el.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const dx = x - fx;
-    const dy = y - fy;
+    if (el === from) continue;
+    const r = el.getBoundingClientRect();
+    const dx = r.left + r.width / 2 - fx;
+    const dy = r.top + r.height / 2 - fy;
     const along = direction === "right" ? dx : direction === "left" ? -dx : direction === "down" ? dy : -dy;
     if (along <= 4) continue;
-    const across = direction === "left" || direction === "right" ? Math.abs(dy) : Math.abs(dx);
+    const across = horizontal ? Math.abs(dy) : Math.abs(dx);
     const score = along + across * 2.5;
     if (score < bestScore) { bestScore = score; best = el; }
   }
+  return best;
+}
+
+/** Next target for a direction: vertical moves stay in the current region (the main content must
+ *  not hand focus to the sidebar when a row has ended), and an open panel keeps every direction.
+ *  Horizontal moves may cross between the content and the sidebar, which is how it is reached
+ *  without the Ctrl+B shortcut. */
+function nextInDirection(current: HTMLElement, direction: Direction): HTMLElement | null {
+  const all = focusables();
+  const panel = current.closest<HTMLElement>(PANELS);
+  if (panel) return nearest(current, all.filter((el) => panel.contains(el)), direction);
+  if (direction === "up" || direction === "down") {
+    const region = regionOf(current);
+    const scoped = all.filter((el) => region.contains(el));
+    if (scoped.length > 1) return nearest(current, scoped, direction);
+  }
+  return nearest(current, all, direction);
+}
+
+/** Scroll container that can still move on the direction's axis (the screen vertically, a poster
+ *  row horizontally). */
+function scrollableAncestor(element: HTMLElement | null, direction: Direction): HTMLElement | null {
+  const vertical = direction === "up" || direction === "down";
+  for (let node = element?.parentElement ?? null; node; node = node.parentElement) {
+    const style = getComputedStyle(node);
+    const overflow = vertical ? style.overflowY : style.overflowX;
+    if (overflow !== "auto" && overflow !== "scroll") continue;
+    const canScroll = vertical ? node.scrollHeight > node.clientHeight + 2 : node.scrollWidth > node.clientWidth + 2;
+    if (canScroll) return node;
+  }
+  return null;
+}
+
+let retryTimer = 0;
+function move(direction: Direction) {
+  window.clearTimeout(retryTimer);
+  const current = document.activeElement as HTMLElement | null;
+  const all = focusables();
+  if (all.length === 0) return;
+  if (!current || current === document.body || !all.includes(current)) {
+    firstVisibleContent()?.focus();
+    return;
+  }
+  const best = nextInDirection(current, direction);
   if (best) {
     best.focus();
     best.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    return;
   }
+  // Nothing focusable further in that direction (a lazily loaded row, or the next page of a
+  // catalog). Move the scroll container one step and try again once its content is there.
+  const scroller = scrollableAncestor(current, direction);
+  if (!scroller) return;
+  const vertical = direction === "up" || direction === "down";
+  const amount = (vertical ? scroller.clientHeight : scroller.clientWidth) * 0.8;
+  const sign = direction === "right" || direction === "down" ? 1 : -1;
+  scroller.scrollBy({ left: vertical ? 0 : sign * amount, top: vertical ? sign * amount : 0, behavior: "smooth" });
+  retryTimer = window.setTimeout(() => {
+    const target = nextInDirection(current, direction);
+    if (!target) return;
+    target.focus();
+    target.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+  }, 320);
 }
 
 function closeOverlay(): boolean {
@@ -84,7 +173,17 @@ export function useInputNavigation() {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const typing = !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
-      if (event.key === "Escape") { closeOverlay(); return; }
+      if (event.key === "Escape") {
+        // Escape closes the topmost panel only; without this the player would also leave.
+        if (closeOverlay()) { event.stopImmediatePropagation(); return; }
+        // Details and collection folders have a back button only; Escape is the keyboard way out.
+        const back = document.querySelector<HTMLElement>(".screen:not([hidden]) .back");
+        if (back && !document.querySelector(".full-player")) {
+          event.preventDefault();
+          back.click();
+        }
+        return;
+      }
       if (typing) return;
       if (document.querySelector(".player-full, .full-player")) return; // player keeps arrow keys for seek
       const directions: Record<string, "up" | "down" | "left" | "right"> = {
@@ -145,6 +244,7 @@ export function useInputNavigation() {
       window.removeEventListener("mousemove", onMouse);
       window.clearTimeout(scrollTimer);
       window.clearTimeout(navHideTimer);
+      window.clearTimeout(retryTimer);
     };
   }, []);
 }
