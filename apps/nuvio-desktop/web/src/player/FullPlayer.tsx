@@ -151,14 +151,6 @@ export function FullPlayer() {
   const wheelDelta = useRef(0);
   const clickTimer = useRef(0);
   useNativeVideoRect(rootRef, visible || choosingNext, pip);
-  // The controls are page DOM while the picture is a native X11 window; keep the page focused so
-  // the playback shortcuts reach it (clicking the picture or a control re-asserts it too).
-  useEffect(() => {
-    const focus = () => void api.playerFocus();
-    focus();
-    window.addEventListener("pointerdown", focus, true);
-    return () => window.removeEventListener("pointerdown", focus, true);
-  }, [snapshot?.session]);
   // Another episode started: its panel is gone.
   useEffect(() => { setChoosingNext(false); setChaptersOpen(false); setSourcesOpen(false); }, [episode]);
 

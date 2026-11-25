@@ -107,8 +107,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [session]);
 
   const setWindowFullscreen = useCallback(async (on: boolean) => {
-    setFs(on);
-    await api.setFullscreen(on).catch(() => {});
+    try {
+      const active = await api.setFullscreen(on);
+      setFs(active);
+      void api.playerFocus();
+    } catch (e) {
+      setFs(false);
+      console.error("window_set_fullscreen", e);
+    }
   }, []);
 
   const play = useCallback<PlayerApi["play"]>(async (start, next) => {

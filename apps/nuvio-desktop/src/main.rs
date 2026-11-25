@@ -467,9 +467,82 @@ pub fn set_picture_in_picture(app: &AppHandle, state: &AppState, enabled: bool, 
     pip::set(app, state, enabled, title)
 }
 
+/// Borderless fullscreen driven directly by Win32. `tao`'s `set_fullscreen` posts the style/position
+/// change to the event loop and, with a maximized WebView2 window plus the native mpv child, blocks
+/// the UI thread in this build (the keyboard stops answering). Driving the HWND directly keeps the
+/// message pump free and restores the exact previous placement on exit.
+#[cfg(windows)]
+static FULLSCREEN_STATE: std::sync::Mutex<Option<(windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT, i32, i32)>> = std::sync::Mutex::new(None);
+
 #[tauri::command]
-fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<(), String> {
-    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())
+fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+        use windows::Win32::UI::WindowsAndMessaging::*;
+
+        let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as *mut std::ffi::c_void);
+        unsafe {
+            if fullscreen {
+                if FULLSCREEN_STATE.lock().expect("fullscreen state").is_some() {
+                    return Ok(true);
+                }
+                let mut placement = WINDOWPLACEMENT::default();
+                placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                GetWindowPlacement(hwnd, &mut placement).map_err(|e| e.to_string())?;
+                let style = GetWindowLongW(hwnd, GWL_STYLE);
+                let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                *FULLSCREEN_STATE.lock().expect("fullscreen state") = Some((placement, style, ex_style));
+                // No ShowWindow(SW_RESTORE): it sends WM_SIZE re-entrantly on this (main) thread,
+                // where calling into mpv blocks the UI thread with real playback.
+                let borderless = (style
+                    & !((WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0 | WS_MINIMIZEBOX.0
+                        | WS_SYSMENU.0 | WS_MAXIMIZE.0) as i32))
+                    | WS_POPUP.0 as i32;
+                SetWindowLongW(hwnd, GWL_STYLE, borderless);
+                SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_WINDOWEDGE.0 as i32));
+                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                    return Err("GetMonitorInfoW failed".into());
+                }
+                let r = info.rcMonitor;
+                SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_ASYNCWINDOWPOS | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE,
+                )
+                .map_err(|e| e.to_string())?;
+                let _ = SetForegroundWindow(hwnd);
+                return Ok(true);
+            }
+
+            let saved = FULLSCREEN_STATE.lock().expect("fullscreen state").take();
+            let Some((placement, style, ex_style)) = saved else {
+                return Ok(window.is_fullscreen().unwrap_or(false));
+            };
+            SetWindowLongW(hwnd, GWL_STYLE, style);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
+            // SetWindowPlacement both restores the exact placement and refreshes the frame; a
+            // separate z-order change blocks the UI thread while the video child is fullscreen.
+            SetWindowPlacement(hwnd, &placement).map_err(|e| e.to_string())?;
+            let _ = SetForegroundWindow(hwnd);
+            return Ok(false);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+        Ok(window.is_fullscreen().unwrap_or(false))
+    }
 }
 
 /// Makes the webview background transparent so the video container below shows through
@@ -843,13 +916,10 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // The video container is a child window: keep it the size of the main window.
-            tauri::WindowEvent::Resized(_) => {
-                let _ = window.app_handle().state::<AppState>().with_player(|p| {
-                    p.fit_to_host();
-                    Ok(())
-                });
-            }
+            // A resize sends WM_SIZE re-entrantly during fullscreen/style transitions. Calling
+            // into mpv here blocked the UI thread with real playback (the keyboard stopped
+            // answering), so the child window keeps its host size and is not re-fitted here.
+            tauri::WindowEvent::Resized(_) => {}
             // Back to the app: what other devices changed is fetched.
             tauri::WindowEvent::Focused(true) => {
                 let app = window.app_handle().clone();
