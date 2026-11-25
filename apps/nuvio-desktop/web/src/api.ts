@@ -20,7 +20,7 @@ import type {
   TorrentPrepared,
   AddonPreview, AddonsView, Bootstrap, CatalogPage, CatalogGenres, Channel, ChannelList, CssRect, Details, DiscordActivity, DownloadItem, DownloadRequest, DownloadsFolder, HistoryEntry, HistoryPage, HomeView, LibraryItem,
   AccountStatus, AvatarItem, PinResult, SyncPreview, PlaybackItem, PlayerCommand, ProfilesView, PlayerInfo, PlayerSnapshot, ProfileSettings, RemoteResume, SearchSection, StreamsSettings, StreamsSettingsView, ServerConnection, ServerLibrary, TorboxStatus, TraktDeviceStart, TrackingCredentialsView, TrackingPollResult, TrackingSyncResult, ShuffleView, SettingsView, StreamGroup, StreamPart,
-  DiscoverPage, DiscoverView,
+  DiscoverPage, DiscoverView, DiscoverCatalog, SearchAddon,
   WatchedItem,
   StreamBadgeRules,
   TmdbSettingsInput,
@@ -131,6 +131,11 @@ export const api = {
     invoke<TraktCommentsPage>("trakt_comments", { contentType, id, page }),
   trailerResolve: (key: string) => invoke<{ videoUrl: string; audioUrl: string | null }>("trailer_resolve", { key }),
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
+  /** Addons with search catalogs and whether this profile asks them. */
+  searchAddons: () => invoke<SearchAddon[]>("search_addons"),
+  searchAddonSet: (key: string, enabled: boolean) => invoke<SearchAddon[]>("search_addon_set", { key, enabled }),
+  /** Catalogs that can be browsed in Descobrir (pages come from `catalogPage`). */
+  discoverCatalogs: () => invoke<DiscoverCatalog[]>("discover_catalogs"),
   streamsSettings: () => invoke<StreamsSettingsView>("streams_settings"),
   streamsSettingsSet: (settings: StreamsSettings) => invoke<StreamsSettingsView>("streams_settings_set", { settings }),
   /** Trakt/Simkl OAuth app credentials (values never returned to the UI). */

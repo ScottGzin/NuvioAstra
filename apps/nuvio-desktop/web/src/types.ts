@@ -171,6 +171,13 @@ export interface SettingsView {
 }
 
 export interface SearchSection { key: string; title: string; addonName: string; items: MetaPreview[] }
+/** An addon with search catalogs ("Pesquisar em"); `catalogs`: its types. */
+export interface SearchAddon { key: string; name: string; logo: string | null; catalogs: string[]; enabled: boolean }
+/** A catalog of Descobrir; `key` is the catalog key of `catalogPage`. */
+export interface DiscoverCatalog {
+  key: string; addonName: string; contentType: string; typeLabel: string; name: string;
+  genres: string[]; genreRequired: boolean; supportsPagination: boolean;
+}
 
 // ---- Discover (services::discover) ----
 export interface DiscoverSource {

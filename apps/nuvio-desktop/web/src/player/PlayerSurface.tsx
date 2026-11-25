@@ -8,11 +8,14 @@ import { api } from "../api";
 interface Props {
   /** Sends the rect only while true (the player is shown in this surface). */
   active: boolean;
+  /** The playback shown here: a new one (another channel) gets a new mpv, which starts with the
+   *  whole window as its video area, so the rect is sent again for it. */
+  playback?: unknown;
   className?: string;
   children?: ReactNode;
 }
 
-export function PlayerSurface({ active, className, children }: Props) {
+export function PlayerSurface({ active, playback, className, children }: Props) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -37,7 +40,7 @@ export function PlayerSurface({ active, className, children }: Props) {
       window.removeEventListener("resize", sync);
       el.removeEventListener("transitionend", sync);
     };
-  }, [active]);
+  }, [active, playback]);
 
   return (
     <div ref={ref} className={`hole ${active ? "" : "idle"} ${className ?? ""}`}>

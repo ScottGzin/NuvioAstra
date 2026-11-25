@@ -45557,4 +45557,12 @@ export const STRINGS: Record<string, Partial<Record<Lang, string>>> = {
     vi: "HTTP {1}",
     zh: "HTTP {1}",
   },
+  // Descobrir (upstream's own tab). Other languages fall back to the Portuguese source text.
+  "Catálogo": { en: "Catalog", ar: "الكتالوج" },
+  "Carregando": { en: "Loading", ar: "جارٍ التحميل" },
+  "Não foi possível carregar os catálogos ({error}).": { en: "Could not load the catalogs ({error}).", ar: "تعذّر تحميل الكتالوجات ({error})." },
+  "Nenhum addon instalado tem catálogos para descobrir.": { en: "No installed addon has catalogs to discover.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات للاستكشاف." },
+  "Nenhum addon instalado tem catálogos de anime.": { en: "No installed addon has anime catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات أنمي." },
+  "Nenhum addon instalado tem catálogos de séries.": { en: "No installed addon has series catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات مسلسلات." },
+  "Nenhum addon instalado tem catálogos de filmes.": { en: "No installed addon has movie catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات أفلام." },
 };

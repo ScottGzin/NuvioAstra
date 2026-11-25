@@ -332,6 +332,37 @@ pub async fn search_stream(app: tauri::AppHandle, state: State<'_, AppState>, qu
     Ok(())
 }
 
+/// Addons with search catalogs and whether the search asks them ("Pesquisar em").
+#[tauri::command]
+pub async fn search_addons(state: State<'_, AppState>) -> Result<Vec<search::SearchAddon>, String> {
+    let loaded = state.addons.loaded().await?;
+    let disabled = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.search.disabled_addons;
+    Ok(search::search_addons(&loaded.manifests, &disabled))
+}
+
+/// Turns one addon on or off in the search (this profile, this computer).
+#[tauri::command]
+pub async fn search_addon_set(state: State<'_, AppState>, key: String, enabled: bool) -> Result<Vec<search::SearchAddon>, String> {
+    let loaded = state.addons.loaded().await?;
+    let saved = state
+        .app_store
+        .update_profile_settings(loaded.profile, |s| {
+            s.search.disabled_addons.retain(|k| k != &key);
+            if !enabled {
+                s.search.disabled_addons.push(key.clone());
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(search::search_addons(&loaded.manifests, &saved.search.disabled_addons))
+}
+
+/// Catalogs that can be browsed in Descobrir (pages come from `catalog_page`).
+#[tauri::command]
+pub async fn discover_catalogs(state: State<'_, AppState>) -> Result<Vec<search::DiscoverCatalog>, String> {
+    let loaded = state.addons.loaded().await?;
+    Ok(search::discover_catalogs(&loaded.manifests))
+}
+
 #[tauri::command]
 pub async fn meta_details(state: State<'_, AppState>, content_type: String, id: String) -> Result<meta::Details, String> {
     let loaded = state.addons.loaded().await?;

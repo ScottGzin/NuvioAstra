@@ -23,6 +23,7 @@ import { Library } from "./screens/Library";
 import { resumeTarget } from "./library";
 import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
+import { Discover } from "./screens/Discover";
 import { Settings } from "./screens/Settings";
 import { metaRef, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
 import { t } from "./i18n";
@@ -249,6 +250,7 @@ export function App() {
             </div>
           )}
           {tab === "search" && <div className="screen" hidden={details !== null}><Search key={dataKey} onOpen={open} /></div>}
+          {tab === "discover" && <div className="screen" hidden={details !== null}><Discover key={dataKey} onOpen={open} /></div>}
           {tab === "tv" && <div className="screen screen-fill"><LiveTv key={dataKey} /></div>}
           {tab === "library" && <div className="screen" hidden={details !== null}><Library key={profileEpoch} onOpen={open} onResume={resume} onOpenEntry={openEntry} /></div>}
           {tab === "settings" && <div className="screen screen-fill" hidden={details !== null}><Settings key={profileEpoch} /></div>}

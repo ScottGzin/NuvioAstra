@@ -553,6 +553,16 @@ pub struct ProfileSettings {
     pub debrid: DebridSettings,
     #[serde(default)]
     pub streams: StreamsSettings,
+    /// Search addons left out on this computer (`Pesquisar em`).
+    #[serde(default)]
+    pub search: SearchSettings,
+}
+
+/// Addons left out of the search (`services::search::addon_key`), this computer only.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SearchSettings {
+    pub disabled_addons: Vec<String>,
 }
 
 pub use nuvio_core::auto_play::{STREAM_AUTO_PLAY_TIMEOUT_VALUES, snap_auto_play_timeout};
@@ -886,6 +896,7 @@ impl LegacyStore {
             meta_screen: MetaScreenSettings::default(),
             debrid: DebridSettings::default(),
             streams: StreamsSettings::default(),
+            search: SearchSettings::default(),
             discord_rpc_enabled: self.read_store("nuvio_discord_rich_presence")
                 .ok()
                 .and_then(|store| store.get(&format!("enabled_{profile_index}")).or_else(|| store.get("enabled")).cloned())

@@ -30,6 +30,13 @@ export const SearchLine = () => (
   </Svg>
 );
 
+export const DiscoverLine = () => (
+  <Svg>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m15.5 8.5-2 5-5 2 2-5z" />
+  </Svg>
+);
+
 export const LibraryLine = () => (
   <Svg>
     <rect x="3.5" y="3.5" width="12" height="12" rx="2" />
