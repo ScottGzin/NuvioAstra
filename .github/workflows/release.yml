@@ -140,32 +140,11 @@ jobs:
           NUVIO_SUPABASE_FALLBACK_URL: ${{ vars.NUVIO_SUPABASE_FALLBACK_URL }}
         run: cargo build --release -p nuvio-desktop
 
-      # The runner image may not have NSIS (newer windows-latest images dropped it): use the installed
-      # one, else Chocolatey, else the official zip. The step fails here if makensis.exe is still missing.
       - name: NSIS
         run: |
-          function Find-Nsis {
-            $dirs = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS", "$env:ChocolateyInstall\lib\nsis\tools", "$env:RUNNER_TEMP\nsis-3.10")
-            $cmd = Get-Command makensis.exe -ErrorAction SilentlyContinue
-            if ($cmd) { $dirs = @((Split-Path $cmd.Source)) + $dirs }
-            $dirs | Where-Object { $_ -and (Test-Path (Join-Path $_ "makensis.exe")) } | Select-Object -First 1
-          }
-          $nsis = Find-Nsis
-          if (-not $nsis) {
-            choco install nsis -y --no-progress
-            Write-Host "choco exit code: $LASTEXITCODE"
-            $nsis = Find-Nsis
-          }
-          if (-not $nsis) {
-            $zip = Join-Path $env:RUNNER_TEMP "nsis-3.10.zip"
-            Invoke-WebRequest -Uri "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.10/nsis-3.10.zip" -OutFile $zip -UserAgent "Wget" -MaximumRedirection 10
-            Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP -Force
-            $nsis = Find-Nsis
-          }
-          if (-not $nsis) { throw "makensis.exe not found after installing NSIS" }
-          & (Join-Path $nsis "makensis.exe") /VERSION
+          $nsis = @("${env:ProgramFiles(x86)}\NSIS", "$env:ProgramFiles\NSIS") | Where-Object { Test-Path (Join-Path $_ "makensis.exe") } | Select-Object -First 1
+          if (-not $nsis) { choco install nsis -y --no-progress; $nsis = "${env:ProgramFiles(x86)}\NSIS" }
           "NSIS_HOME=$nsis" >> $env:GITHUB_ENV
-          $global:LASTEXITCODE = 0
 
       - name: Package (installer)
         run: ./packaging/windows/build-release.ps1 -SkipBuild -LibMpv deps/libmpv-2.dll -Engine deps/nuvio_engine.dll
@@ -191,8 +170,7 @@ jobs:
           Copy-Item "dist/$setup", "dist/$setup.sig" $out
 
           # Notes: the commits since the previous release (read as UTF-8: accents kept). A commit's
-          # description wins over its title; GitHub's automatic titles are skipped, and so are commits
-          # marked [skip ci] (README/images only: they publish nothing, so they are not news).
+          # description wins over its title; GitHub's automatic titles are skipped.
           [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
           $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
           $prev = git describe --tags --abbrev=0 --match "v[0-9]*" 2>$null
@@ -201,7 +179,6 @@ jobs:
           $lines = @()
           foreach ($c in @(git rev-list --no-merges --reverse $range)) {
             $title = (git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%s $c | Out-String).Trim()
-            if ($title -match '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]') { continue }
             $desc = @(git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%b $c | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             if ($desc.Count -gt 0) {
               foreach ($d in $desc) {
@@ -212,11 +189,10 @@ jobs:
               $lines += "- $title"
             }
           }
-          $lines = @($lines | Select-Object -Unique | Select-Object -First 80)
+          $lines = @($lines | Select-Object -Unique | Select-Object -First 40)
           if (-not $lines) { $lines = @("- Melhorias e correções.") }
           $notes = ($lines -join "`n")
-          # The release is already titled "Nuvio Astra <version>": the body starts with the notes.
-          $body = "$notes`n`n---`nWindows 10/11 x64. Quem já tem o Nuvio Astra recebe esta versão pelo próprio aplicativo. Perfis, addons, configurações e a sessão da conta são mantidos.`n"
+          $body = "## Nuvio Astra $v`n`n$notes`n`n---`nWindows 10/11 x64. Quem já tem o Nuvio Astra recebe esta versão pelo próprio aplicativo. Perfis, addons, configurações e a sessão da conta são mantidos.`n"
           [IO.File]::WriteAllText("$PWD/release-notes.md", $body)
 
           $manifest = [ordered]@{
