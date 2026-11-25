@@ -38,23 +38,46 @@ import { message } from "../rustErrors";
 
 type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
-const SECTIONS: { id: Section; label: string; icon: ReactNode }[] = [
-  { id: "account", label: "Conta", icon: <AccountIcon /> },
-  { id: "home", label: "Início", icon: <HomeIcon /> },
-  { id: "layout", label: "Layout", icon: <HomeIcon /> },
-  { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
-  { id: "collections", label: "Coleções", icon: <DetailsIcon /> },
-  { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
-  { id: "addons", label: "Addons", icon: <AddonsIcon /> },
-  { id: "playback", label: "Reprodução", icon: <PlaybackIcon /> },
-  { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
-  { id: "audio", label: "Áudio", icon: <AudioIcon /> },
-  { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
-  { id: "services", label: "Serviços", icon: <ServicesIcon /> },
-  { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
-  { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
-  { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
+// The upstream menu: a few groups, each opening into its pages (one group open at a time).
+const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Section; label: string; icon: ReactNode }[] }[] = [
+  { id: "profile", label: "Conta e perfil", icon: <AccountIcon />, sections: [
+    { id: "account", label: "Conta", icon: <AccountIcon /> },
+    { id: "data", label: "Perfil e dados", icon: <ProfileDataIcon /> },
+  ] },
+  { id: "content", label: "Conteúdo", icon: <HomeIcon />, sections: [
+    { id: "home", label: "Início", icon: <HomeIcon /> },
+    { id: "layout", label: "Layout", icon: <HomeIcon /> },
+    { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
+    { id: "collections", label: "Coleções", icon: <DetailsIcon /> },
+    { id: "addons", label: "Addons", icon: <AddonsIcon /> },
+  ] },
+  { id: "player", label: "Player", icon: <PlaybackIcon />, sections: [
+    { id: "playback", label: "Imagem e vídeo", icon: <PlaybackIcon /> },
+    { id: "audio", label: "Áudio", icon: <AudioIcon /> },
+    { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
+  ] },
+  { id: "sources", label: "Fontes e downloads", icon: <AddonsIcon />, sections: [
+    { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
+    { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
+  ] },
+  { id: "services", label: "Serviços", icon: <ServicesIcon />, sections: [
+    { id: "services", label: "Serviços", icon: <ServicesIcon /> },
+  ] },
+  { id: "app", label: "Sobre o app", icon: <UpdatesIcon />, sections: [
+    { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
+    { id: "pending", label: "Ainda não disponível", icon: <PendingIcon /> },
+  ] },
 ];
+const SECTIONS = GROUPS.flatMap((g) => g.sections);
+const groupOf = (s: Section) => GROUPS.find((g) => g.sections.some((x) => x.id === s))!.id;
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg className={`nav-chevron ${open ? "open" : ""}`} viewBox="0 0 24 24" width="14" height="14" aria-hidden fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 6l6 6-6 6" />
+    </svg>
+  );
+}
 
 /** Extra words that lead to a Settings section, so the search finds more than section titles. */
 const SETTING_KEYWORDS: Partial<Record<Section, string>> = {
@@ -103,6 +126,17 @@ export function Settings() {
   const [draft, setDraft] = useState<ProfileSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("home");
+  const [openGroup, setOpenGroup] = useState<string | null>(() => groupOf("home"));
+  const choose = (s: Section) => {
+    setSection(s);
+    setOpenGroup(groupOf(s));
+  };
+  const toggleGroup = (id: string) => {
+    if (openGroup === id) return setOpenGroup(null);
+    setOpenGroup(id);
+    const group = GROUPS.find((g) => g.id === id)!;
+    if (!group.sections.some((s) => s.id === section)) setSection(group.sections[0].id);
+  };
   const [settingSearch, setSettingSearch] = useState("");
   const [layoutPage, setLayoutPage] = useState<"menu" | "poster" | "streams">("menu");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -356,14 +390,29 @@ export function Settings() {
           value={settingSearch}
           onChange={(e) => setSettingSearch(e.target.value)}
         />
-        {SECTIONS.filter((s) => {
+        {settingSearch.trim() === "" ? GROUPS.map((g) => (
+          <div key={g.id} className="nav-group">
+            <button className="nav-group-head" data-group={g.id} aria-expanded={openGroup === g.id} onClick={() => toggleGroup(g.id)}>
+              <span className="nav-icon" aria-hidden>{g.icon}</span>
+              <span>{t(g.label)}</span>
+              <Chevron open={openGroup === g.id} />
+            </button>
+            <div className="nav-sub-list">
+              {openGroup === g.id && g.sections.map((s) => (
+                <button key={s.id} className={`nav-item nav-sub ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); choose(s.id); }}>
+                  <span className="nav-icon" aria-hidden>{s.icon}</span>
+                  <span>{t(s.label)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )) : SECTIONS.filter((s) => {
           const q = settingSearch.trim().toLocaleLowerCase();
-          if (!q) return true;
           const label = t(s.label).toLocaleLowerCase();
           const keywords = SETTING_KEYWORDS[s.id] ?? "";
           return label.includes(q) || keywords.includes(q);
         }).map((s) => (
-          <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); setSection(s.id); }}>
+          <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); choose(s.id); }}>
             <span className="nav-icon" aria-hidden>{s.icon}</span>
             <span>{t(s.label)}</span>
           </button>

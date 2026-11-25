@@ -45565,4 +45565,9 @@ export const STRINGS: Record<string, Partial<Record<Lang, string>>> = {
   "Nenhum addon instalado tem catálogos de anime.": { en: "No installed addon has anime catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات أنمي." },
   "Nenhum addon instalado tem catálogos de séries.": { en: "No installed addon has series catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات مسلسلات." },
   "Nenhum addon instalado tem catálogos de filmes.": { en: "No installed addon has movie catalogs.", ar: "لا توجد إضافة مثبتة تحتوي على كتالوجات أفلام." },
+  "Conta e perfil": { en: "Account and profile", ar: "الحساب والملف الشخصي" },
+  "Conteúdo": { en: "Content", ar: "المحتوى" },
+  "Fontes e downloads": { en: "Sources and downloads", ar: "المصادر والتنزيلات" },
+  "Sobre o app": { en: "About the app", ar: "حول التطبيق" },
+  "Imagem e vídeo": { en: "Image and video", ar: "الصورة والفيديو" },
 };
