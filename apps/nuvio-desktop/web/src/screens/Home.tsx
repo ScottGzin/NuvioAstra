@@ -132,7 +132,7 @@ export function Home({ onOpen, onResume, onOpenFolder }: Props) {
         row.collection ? (
           <CollectionRow key={`${generation}:${row.key}`} title={row.title} collection={row.collection} onOpenFolder={onOpenFolder} />
         ) : (
-          <CatalogRow key={`${generation}:${row.key}`} row={row} onOpen={onOpen} onSeeAll={setSeeAll} />
+          <CatalogRow key={`${generation}:${row.key}`} row={row} onOpen={onOpen} onSeeAll={setSeeAll} limit={20} />
         ),
       )}
       {seeAll && <SeeAll row={seeAll} onOpen={onOpen} onClose={() => setSeeAll(null)} />}

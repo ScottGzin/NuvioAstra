@@ -45570,4 +45570,5 @@ export const STRINGS: Record<string, Partial<Record<Lang, string>>> = {
   "Fontes e downloads": { en: "Sources and downloads", ar: "المصادر والتنزيلات" },
   "Sobre o app": { en: "About the app", ar: "حول التطبيق" },
   "Imagem e vídeo": { en: "Image and video", ar: "الصورة والفيديو" },
+  "Episódios e pular": { en: "Episodes and skipping", ar: "الحلقات والتخطي" },
 };

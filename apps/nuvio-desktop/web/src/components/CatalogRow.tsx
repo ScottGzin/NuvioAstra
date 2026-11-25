@@ -22,9 +22,11 @@ interface Props {
   surface?: string;
   /** Opens the full catalog grid (the original's "See all"). */
   onSeeAll?(row: HomeRow): void;
+  /** Home rows show only the first N titles, then a "+" card that opens the whole catalog. */
+  limit?: number;
 }
 
-export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, surface = "home", onSeeAll }: Props) {
+export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, surface = "home", onSeeAll, limit }: Props) {
   const [ref, inView] = useInView<HTMLElement>("1200px");
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,9 +64,13 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, s
     if (inView && items === null && error === null) void load(null);
   }, [inView, items, error, load]);
 
+  const limited = limit !== undefined && !!onSeeAll;
+  const shown = items && limited ? items.slice(0, limit) : items;
+  const seeAllCard = limited && items !== null && (items.length > limit! || nextSkip !== null);
+
   const onScroll = () => {
     const el = track.current;
-    if (el && nextSkip !== null && el.scrollLeft + el.clientWidth > el.scrollWidth - 600) void load(nextSkip);
+    if (el && !limited && nextSkip !== null && el.scrollLeft + el.clientWidth > el.scrollWidth - 600) void load(nextSkip);
   };
 
   const scrollBy = (dir: number) => track.current?.scrollBy({ left: dir * track.current.clientWidth * 0.85, behavior: "smooth" });
@@ -78,7 +84,7 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, s
         <h2>{localizeCatalogTitle(row.title)}</h2>
         <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
-        {items && onSeeAll && !genre && !tmdb && (
+        {items && onSeeAll && !limited && !genre && !tmdb && (
           <button className="see-all-btn" data-see-all={row.key} onClick={() => onSeeAll(row)}>{t("Ver todos")}</button>
         )}
         {items && (
@@ -95,9 +101,17 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, s
         </div>
       ) : (
         <div className="row-track" ref={track} onScroll={onScroll}>
-          {items
-            ? items.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)
+          {shown
+            ? shown.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)
             : Array.from({ length: 8 }, (_, i) => <div key={i} className="card skeleton" />)}
+          {seeAllCard && (
+            <div className="card-wrap see-all-wrap">
+              <button className="card see-all" data-testid="see-all" title={t("Ver todos")} aria-label={t("Ver todos de {title}", { title: localizeCatalogTitle(row.title) })} onClick={() => onSeeAll!(row)}>
+                <div className="card-art"><span className="see-all-plus" aria-hidden>+</span></div>
+                <div className="card-title">{t("Ver todos")}</div>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </section>

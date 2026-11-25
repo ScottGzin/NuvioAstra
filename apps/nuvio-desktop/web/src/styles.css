@@ -1504,3 +1504,16 @@ html[dir="rtl"] .nav-chevron:not(.open) { transform: rotate(180deg); }
 .nav-sub-list[hidden] { display: none; }
 .settings-nav .nav-item.nav-sub { padding: 7px 12px; font-size: 13.5px; }
 html[dir="rtl"] .nav-sub-list { margin: 2px 23px 8px 0; }
+
+/* Home rows: the "+" card at the end opens the whole catalog. */
+.card.see-all .card-art {
+  display: grid; place-items: center; border: 1px dashed rgba(255, 255, 255, .16);
+  background: linear-gradient(180deg, rgba(47, 231, 242, .06), rgba(47, 231, 242, .02));
+}
+.row-track:has(.card.landscape) .card.see-all .card-art { aspect-ratio: 16 / 9; }
+.see-all-plus {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 30px; font-weight: 300; line-height: 1;
+  color: #2fe7f2; background: rgba(47, 231, 242, .10); border: 1px solid rgba(47, 231, 242, .35); transition: transform .2s var(--ease), background .2s;
+}
+.card.see-all:hover .see-all-plus { transform: scale(1.08); background: rgba(47, 231, 242, .18); }
+.card.see-all .card-title { color: var(--muted); }

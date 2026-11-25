@@ -36,7 +36,7 @@ import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, t, useLang, typ
 import { chooseAppLanguage } from "../appLanguage";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "watching" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
 
 // The upstream menu: a few groups, each opening into its pages (one group open at a time).
 const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Section; label: string; icon: ReactNode }[] }[] = [
@@ -53,6 +53,7 @@ const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Sect
   ] },
   { id: "player", label: "Player", icon: <PlaybackIcon />, sections: [
     { id: "playback", label: "Imagem e vídeo", icon: <PlaybackIcon /> },
+    { id: "watching", label: "Episódios e pular", icon: <PlaybackIcon /> },
     { id: "audio", label: "Áudio", icon: <AudioIcon /> },
     { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
   ] },
@@ -85,7 +86,8 @@ const SETTING_KEYWORDS: Partial<Record<Section, string>> = {
   details: "detalhes seções episódios elenco fundo pôster capítulos blur",
   sources: "fontes streams regex automático fallback reutilizar link youtube addons",
   addons: "addon instalar configurar manifest",
-  playback: "reprodução vídeo imagem decodificação mpv próximo episódio buffer cache velocidade",
+  playback: "reprodução vídeo imagem decodificação mpv velocidade",
+  watching: "episódios pular próximo episódio threshold assistido buffer cache",
   p2p: "torrent p2p engine cache upload",
   audio: "áudio idioma som volume amplificação downmix canais atraso",
   subtitles: "legendas subtitle legenda estilo sdsh cor tamanho",
@@ -358,7 +360,8 @@ export function Settings() {
     update((s) => {
       switch (what) {
         case "home": return { ...s, home: { ...d.home } };
-        case "playback": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr, motionSmoothing: d.player.motionSmoothing, videoEnhancement: d.player.videoEnhancement, picture: { ...d.player.picture }, skipSegmentsEnabled: d.player.skipSegmentsEnabled, autoSkipSegments: [...d.player.autoSkipSegments], nextEpisodeThresholdMode: d.player.nextEpisodeThresholdMode, nextEpisodeThresholdPercent: d.player.nextEpisodeThresholdPercent, nextEpisodeThresholdMinutes: d.player.nextEpisodeThresholdMinutes, watchedPercent: d.player.watchedPercent } };
+        case "playback":
+        case "watching": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr, motionSmoothing: d.player.motionSmoothing, videoEnhancement: d.player.videoEnhancement, picture: { ...d.player.picture }, skipSegmentsEnabled: d.player.skipSegmentsEnabled, autoSkipSegments: [...d.player.autoSkipSegments], nextEpisodeThresholdMode: d.player.nextEpisodeThresholdMode, nextEpisodeThresholdPercent: d.player.nextEpisodeThresholdPercent, nextEpisodeThresholdMinutes: d.player.nextEpisodeThresholdMinutes, watchedPercent: d.player.watchedPercent } };
         case "audio": return { ...s, player: { ...s.player, preferredAudioLanguage: d.player.preferredAudioLanguage, secondaryPreferredAudioLanguage: d.player.secondaryPreferredAudioLanguage } };
         case "subtitles": return { ...s, player: { ...s.player, preferredSubtitleLanguage: d.player.preferredSubtitleLanguage, secondaryPreferredSubtitleLanguage: d.player.secondaryPreferredSubtitleLanguage, subtitle: { ...d.player.subtitle } } };
         default: return s;
@@ -526,6 +529,11 @@ export function Settings() {
             <Row title="NVIDIA RTX Video HDR" description={t("Converte SDR em HDR em telas HDR com placa RTX.")}>
               <Toggle label="NVIDIA RTX Video HDR" checked={p.nvidiaRtxHdr} onChange={(v) => player((x) => ({ ...x, nvidiaRtxHdr: v }))} />
             </Row>
+          </div>
+        )}
+
+        {section === "watching" && (
+          <div className="settings-group">
             <WatchingSettings value={p} onChange={player} />
             <BufferSettings value={p} onChange={player} />
           </div>
