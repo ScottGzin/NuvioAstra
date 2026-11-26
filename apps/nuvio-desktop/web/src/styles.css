@@ -1440,6 +1440,9 @@ html[dir="rtl"] .row-header { padding-right: 0; padding-left: 32px; }
 html[dir="rtl"] .channel-main, html[dir="rtl"] .cw-card, html[dir="rtl"] .history-open,
 html[dir="rtl"] button.profile-chip, html[dir="rtl"] .episode { text-align: right; }
 html[dir="rtl"] .slider output { text-align: left; }
+/* In Arabic the switch grows from the right: "on" puts the knob on the left. */
+html[dir="rtl"] .switch .knob { left: auto; right: 3px; }
+html[dir="rtl"] .switch.on .knob { transform: translateX(-20px); }
 html[dir="rtl"] .sync-table th, html[dir="rtl"] .sync-table td { text-align: right; }
 html[dir="rtl"] .sync-table th[scope="row"], html[dir="rtl"] .sync-table thead th:first-child { text-align: right; }
 html[dir="rtl"] .livetv-preview { padding: 10px 12px 24px 24px; }
