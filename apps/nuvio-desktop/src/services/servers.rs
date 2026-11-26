@@ -476,7 +476,7 @@ pub async fn plex_pin_start(app: &AppStore) -> Result<PlexPin, String> {
         return Err(format!("plex.tv recusou o PIN ({})", response.status().as_u16()));
     }
     let body: Value = response.json().await.map_err(|e| e.to_string())?;
-    let id = text(&body, &["id"]).ok_or("plex.tv não devolveu o id do PIN")?.to_string();
+    let id = number(&body, &["id"]).ok_or("plex.tv não devolveu o id do PIN")?.to_string();
     let code = text(&body, &["code"]).ok_or("plex.tv não devolveu o código do PIN")?.to_string();
     let auth_url = format!("https://app.plex.tv/auth#?clientID={cid}&code={code}&context%5Bdevice%5D%5Bproduct%5D=Nuvio");
     Ok(PlexPin { id, code, auth_url })
