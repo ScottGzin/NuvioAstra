@@ -920,10 +920,14 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // A resize sends WM_SIZE re-entrantly during fullscreen/style transitions. Calling
-            // into mpv here blocked the UI thread with real playback (the keyboard stopped
-            // answering), so the child window keeps its host size and is not re-fitted here.
-            tauri::WindowEvent::Resized(_) => {}
+            // Keep the video child window the size of the host. Do not call into mpv here: a
+            // synchronous property call during a fullscreen/style transition blocks the UI thread.
+            tauri::WindowEvent::Resized(_) => {
+                let _ = window.app_handle().state::<AppState>().with_player(|p| {
+                    p.fit_container_to_host();
+                    Ok(())
+                });
+            }
             // Back to the app: what other devices changed is fetched.
             tauri::WindowEvent::Focused(true) => {
                 let app = window.app_handle().clone();

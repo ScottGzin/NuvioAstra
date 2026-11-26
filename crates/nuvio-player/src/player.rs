@@ -869,6 +869,14 @@ impl Player {
         }
     }
 
+    /// Resizes only the Win32 container, without calling into mpv. Used while the window changes
+    /// style/size (fullscreen): a synchronous mpv property call there blocks the UI thread.
+    pub fn fit_container_to_host(&self) {
+        if self.pip.lock().expect("pip lock").is_none() {
+            win::fit_to_parent(hwnd(self.container));
+        }
+    }
+
     pub fn is_picture_in_picture(&self) -> bool {
         self.pip.lock().expect("pip lock").is_some()
     }
