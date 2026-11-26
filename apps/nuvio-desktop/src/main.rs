@@ -11,6 +11,7 @@
 
 mod account;
 mod api;
+mod audio_sync;
 mod bench;
 mod capture;
 mod manage;
@@ -18,8 +19,6 @@ mod p2p;
 mod pip;
 mod selftest;
 mod services;
-mod debrid;
-mod downloads;
 mod streams;
 mod watching;
 mod trailer;
@@ -41,6 +40,8 @@ pub struct AppState {
     hwnd: Mutex<isize>,
     pub client: AddonClient,
     pub streams: streams::StreamCache,
+    /// Direct-download transfers and their cancellation flags.
+    pub downloads: services::downloads::Manager,
     pub video: Mutex<VideoConfig>,
     pub addons: services::addons::AddonContext,
     pub app_store: nuvio_store::nextgen::AppStore,
@@ -55,6 +56,8 @@ pub struct AppState {
     pub sync_signals: Arc<account::SyncSignals>,
     /// The picture-in-picture window while it exists (`pip.rs`).
     pub pip: Mutex<Option<tauri::WebviewWindow>>,
+    /// Local relay for streams that need request headers on every HLS request.
+    pub relay: Mutex<Option<nuvio_core::relay::Relay>>,
     pub pin_gate: Mutex<account::PinGate>,
     /// P2P session (original's Nuvio Engine) of torrent streams.
     pub p2p: Arc<nuvio_p2p::P2pService>,
@@ -68,14 +71,13 @@ pub struct AppState {
     pub updates: updater::UpdateState,
     /// Program guides of the live channels opened (memory only, bounded).
     pub epg: services::epg::EpgStore,
+    /// Nuvio scraper plugins (repositories, validated scripts and their runs).
+    pub plugins: services::plugins::Manager,
     /// The movie or episode playing (subtitles, skip buttons).
     pub playing: Mutex<Option<Arc<watching::Playing>>>,
     pub subtitle_choice: Mutex<Option<watching::Choice>>,
     /// Episode lists behind "next episode" in Continue watching.
     pub next_up: services::next_up::Lists,
-    pub torbox: nuvio_core::torbox::Torbox,
-    pub debrid: debrid::Debrid,
-    pub downloads: downloads::Downloads,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,8 +111,12 @@ impl AppState {
         if let Some(api) = slot.as_ref() {
             return Ok(api.clone());
         }
-        let path = nuvio_player::locate_libmpv()
-            .ok_or_else(|| "libmpv-2.dll not found (next to the exe or NUVIO_LIBMPV)".to_string())?;
+        let path = nuvio_player::locate_libmpv().ok_or_else(|| {
+            #[cfg(windows)]
+            { "libmpv-2.dll not found (next to the exe or NUVIO_LIBMPV)".to_string() }
+            #[cfg(not(windows))]
+            { "A reprodução de vídeo ainda não está disponível no Linux (defina NUVIO_LIBMPV para testar)".to_string() }
+        })?;
         let api = MpvApi::load(&path).map_err(|e| e.to_string())?;
         *slot = Some(api.clone());
         Ok(api)
@@ -132,6 +138,14 @@ impl AppState {
         let sink: nuvio_player::SnapshotSink = Arc::new(move |snapshot: &PlayerSnapshot| {
             let state = emitter.state::<AppState>();
             state.progress.observe(snapshot);
+            crate::services::servers::observe_snapshot(
+                snapshot.loaded,
+                snapshot.paused,
+                snapshot.buffering,
+                snapshot.ended,
+                snapshot.time_pos,
+                snapshot.duration,
+            );
             if saved_changes.swap(snapshot.auto_changes, Ordering::SeqCst) != snapshot.auto_changes {
                 // Only what the watchdog lowered.
                 let (motion, enhancement, picture) = match snapshot.auto_reason {
@@ -167,10 +181,13 @@ impl AppState {
         if let Some(player) = &player {
             let snapshot = player.snapshot();
             self.progress.finish(Some(&snapshot));
+            services::servers::end_playback();
             p2p::on_player_closed(self, snapshot.session);
         }
         // Dropping moves the video back out of the PiP window, which can then go.
         drop(player);
+        // The local relay only exists for the stream that was playing.
+        *self.relay.lock().expect("relay lock") = None;
         pip::close_window(self);
     }
 
@@ -209,7 +226,7 @@ async fn streams_search(
 ///
 /// `progress`: the movie/episode being played (Details, Library), so its position is saved for the
 /// active profile; absent for live TV.
-fn stream_play(
+async fn stream_play(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
     key: String,
@@ -217,51 +234,64 @@ fn stream_play(
     progress: Option<nuvio_store::library::PlaybackItem>,
     previous_finished: Option<bool>,
 ) -> Result<PlayerInfo, String> {
-    let mut stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
-    // Prepared by `torbox_prepare`: the HTTP link of the cached file at TorBox.
-    let torbox = state.debrid.link(&key);
-    let torrent = match (streams::kind_of(&stream), &torbox) {
-        (_, Some(_)) => false,
-        (streams::StreamKind::Direct, None) => false,
-        // Prepared by `torrent_prepare`: the engine's local HTTP route of the selected file.
-        (streams::StreamKind::Torrent, None) => true,
-        (streams::StreamKind::Debrid, None) => return Err("Configure o TorBox em Configurações → TorBox para abrir esta fonte.".into()),
-        (other, None) => return Err(format!("stream type {other:?} is not playable in this stage")),
-    };
-    let url = match &torbox {
-        Some(link) => {
-            stream.behavior_hints.filename = link.filename.clone().or(stream.behavior_hints.filename);
-            link.url.clone()
+    let stream = state.streams.get(&key).ok_or("unknown stream (search again)")?;
+    let kind = streams::kind_of(&stream);
+    // With debrid services connected, torrent sources are resolved to direct links instead of
+    // starting P2P. Every connected provider is tried in turn (preferred one first), so a torrent
+    // that is not cached on TorBox can still play from Real-Debrid.
+    let profile = state.active_profile();
+    let direct = stream.playable_direct_url().unwrap_or_default();
+    let is_share = services::debrid::is_share_url(direct);
+    let use_debrid = matches!(kind, streams::StreamKind::Torrent | streams::StreamKind::Debrid) || is_share;
+    let mut providers = if use_debrid { services::debrid::available(&state.app_store, profile) } else { Vec::new() };
+    // A duplicated card is bound to one provider; a normal card tries them all in order.
+    if let Some(id) = stream.forced_debrid.as_deref() {
+        providers.retain(|active| active.provider.id() == id);
+    }
+
+    let mut resolved: Option<String> = None;
+    let mut last_error: Option<String> = None;
+    for active in &providers {
+        let attempt = if matches!(kind, streams::StreamKind::Torrent | streams::StreamKind::Debrid) {
+            services::debrid::resolve(active, &stream).await
+        } else {
+            services::debrid::unrestrict_share(active, direct).await.ok_or_else(|| "Não é uma ligação de partilha deste serviço.".to_string())
+        };
+        match attempt {
+            Ok(link) => {
+                eprintln!("[debrid] {} resolved", active.provider.code());
+                resolved = Some(link);
+                break;
+            }
+            Err(error) => {
+                eprintln!("[debrid] {} failed: {error}", active.provider.code());
+                last_error = Some(error);
+            }
         }
-        None if torrent => p2p::prepared_url(&state, &key)?,
-        None => stream.playable_direct_url().ok_or("stream has no playable URL")?.to_string(),
+    }
+    if use_debrid && resolved.is_none() && (kind == streams::StreamKind::Debrid || is_share) {
+        return Err(last_error.unwrap_or_else(|| "Nenhum serviço de debrid conseguiu resolver esta fonte.".into()));
+    }
+    let torrent = kind == streams::StreamKind::Torrent && resolved.is_none();
+    // `ytId` sources are resolved by the in-app YouTube extractor, like a trailer, and played
+    // with their separate audio track when the extractor found one.
+    let mut youtube_audio: Option<String> = None;
+    let mut url = if let Some(link) = resolved {
+        link
+    } else if torrent {
+        p2p::prepared_url(&state, &key)?
+    } else if kind == streams::StreamKind::YouTube {
+        let id = stream
+            .yt_id
+            .as_deref()
+            .and_then(nuvio_core::youtube::video_id)
+            .ok_or("invalid YouTube source")?;
+        let source = state.youtube.resolve(&id).await?;
+        youtube_audio = source.audio_url;
+        source.video_url
+    } else {
+        stream.playable_direct_url().ok_or("stream has no playable URL")?.to_string()
     };
-    let headers = if torbox.is_some() || torrent { Vec::new() } else { stream.playback_request_headers() };
-    play_url(&app, &state, url, headers, &stream, torrent, start_seconds, progress, previous_finished)
-}
-
-/// Plays a finished download (its position is saved like the episode's).
-#[tauri::command]
-fn download_play(app: AppHandle, state: tauri::State<'_, AppState>, id: String, start_seconds: Option<f64>) -> Result<PlayerInfo, String> {
-    state.ensure_unlocked()?;
-    let (path, progress) = downloads::playable(&state, &id)?;
-    let mut stream = nuvio_core::stream::StreamItem { addon_name: "Download".into(), ..Default::default() };
-    stream.behavior_hints.filename = path.file_name().map(|n| n.to_string_lossy().into_owned());
-    play_url(&app, &state, path.display().to_string(), Vec::new(), &stream, false, start_seconds, progress, None)
-}
-
-#[allow(clippy::too_many_arguments)]
-fn play_url(
-    app: &AppHandle,
-    state: &AppState,
-    url: String,
-    headers: Vec<(String, String)>,
-    stream: &nuvio_core::stream::StreamItem,
-    torrent: bool,
-    start_seconds: Option<f64>,
-    progress: Option<nuvio_store::library::PlaybackItem>,
-    previous_finished: Option<bool>,
-) -> Result<PlayerInfo, String> {
 
     // The active profile's player settings (Settings → Reprodução / Áudio / Legendas).
     let profile = state.active_profile();
@@ -271,14 +301,26 @@ fn play_url(
         Some(_) => services::playback::video_config(&settings),
         None => services::playback::video_config_unenhanced(&settings),
     };
+    let url_host = url.split("://").nth(1).unwrap_or(&url).split('/').next().unwrap_or("").to_string();
+    eprintln!("[play] kind={:?} forced={:?} providers={:?} url_host={url_host:?}", kind, stream.forced_debrid, services::debrid::available_codes(&state.app_store, profile));
+    let mut headers = if torrent { Vec::new() } else { stream.playback_request_headers() };
+    // A player applies headers to the main URL only. When the addon needs them, put them on every
+    // request through a local relay (HLS playlists and segments included). `NUVIO_RELAY=0` disables.
+    *state.relay.lock().expect("relay lock") = None;
+    if !headers.is_empty() && std::env::var("NUVIO_RELAY").ok().as_deref() != Some("0") {
+        let relay = nuvio_core::relay::Relay::start(url.clone(), headers.clone()).await.map_err(|e| e.to_string())?;
+        url = relay.url().to_string();
+        *state.relay.lock().expect("relay lock") = Some(relay);
+        headers = Vec::new();
+    }
     if previous_finished == Some(true) {
         state.progress.mark_finished();
     }
     let source_url = url.clone();
-    let info = state.open(app, url, headers, start_seconds.unwrap_or(0.0))?;
+    let info = state.open_with_audio(&app, url, youtube_audio, headers, start_seconds.unwrap_or(0.0))?;
     let parent_id = progress.as_ref().map(|item| item.parent_meta_id.clone());
     if let Some(item) = &progress {
-        let playing = watching::Playing::new(info.session, item, stream, &source_url);
+        let playing = watching::Playing::new(info.session, item, &stream, &source_url);
         *state.playing.lock().expect("playing lock") = Some(Arc::new(playing));
     }
     if torrent {
@@ -329,11 +371,37 @@ fn show_main_window(window: &tauri::WebviewWindow) {
         let _ = window.show();
         let _ = window.set_focus();
     }
+    // The WM reparents the X11 host into its frame and unmaps child windows; remap the video
+    // container once the window is really visible.
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.app_handle().state::<AppState>().with_player(|p| {
+            p.fit_to_host();
+            Ok(())
+        });
+    }
 }
 
 #[tauri::command]
 fn window_ready(window: tauri::WebviewWindow) {
     show_main_window(&window);
+}
+
+/// Gives keyboard focus back to the WebView. On Linux the video is a native X11 window and the
+/// player controls live in the page, so the page must stay the key-focus owner while it plays.
+#[tauri::command]
+fn player_focus(window: tauri::WebviewWindow) {
+    let _ = window.set_focus();
+    #[cfg(windows)]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC;
+        // Tauri's set_focus only focuses the outer window; press the keyboard focus into the
+        // WebView2 document itself, otherwise the fullscreen transition leaves it on the frame.
+        let _ = window.with_webview(|webview| unsafe {
+            let _ = webview.controller().MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        });
+    }
+    let _ = window.eval("window.focus();");
 }
 
 /// `"selftest"` when the window is driven by the automated player tests (the UI then shows only
@@ -348,6 +416,14 @@ fn app_mode() -> &'static str {
     } else {
         "app"
     }
+}
+
+/// The host OS (`linux`, `windows`, `macos`…). The player needs it because on Linux the video is a
+/// native X11 window above the WebView: the page keeps the video out of the player chrome instead
+/// of drawing the chrome over it (`web/src/player/FullPlayer.tsx`).
+#[tauri::command]
+fn platform() -> &'static str {
+    std::env::consts::OS
 }
 
 #[tauri::command]
@@ -366,12 +442,18 @@ fn player_command(state: tauri::State<'_, AppState>, command: PlayerCommand) -> 
     Ok(())
 }
 
-/// `rect` in CSS pixels of the webview; `None` = whole window. `scale` = devicePixelRatio.
+/// `rect` in CSS pixels of the webview; `None` = whole window. `holes` are regions of that
+/// rectangle the page needs for its chrome (Linux cuts them out of the native video window).
+/// `scale` = devicePixelRatio.
 #[tauri::command]
-fn player_video_rect(state: tauri::State<'_, AppState>, rect: Option<CssRect>, scale: f64) -> Result<(), String> {
+fn player_video_rect(state: tauri::State<'_, AppState>, rect: Option<CssRect>, holes: Option<Vec<CssRect>>, scale: f64) -> Result<(), String> {
+    let holes = holes.unwrap_or_default();
     state.with_player(|p| {
-        p.set_video_rect(rect.map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)))
-            .map_err(|e| e.to_string())
+        p.set_video_rect(
+            rect.map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)),
+            holes.into_iter().map(|r| (r.x * scale, r.y * scale, r.width * scale, r.height * scale)).collect(),
+        )
+        .map_err(|e| e.to_string())
     })
 }
 
@@ -396,13 +478,96 @@ pub fn set_picture_in_picture(app: &AppHandle, state: &AppState, enabled: bool, 
     pip::set(app, state, enabled, title)
 }
 
+/// Borderless fullscreen driven directly by Win32. `tao`'s `set_fullscreen` posts the style/position
+/// change to the event loop and, with a maximized WebView2 window plus the native mpv child, blocks
+/// the UI thread in this build (the keyboard stops answering). Driving the HWND directly keeps the
+/// message pump free and restores the exact previous placement on exit.
+#[cfg(windows)]
+static FULLSCREEN_STATE: std::sync::Mutex<Option<(windows::Win32::UI::WindowsAndMessaging::WINDOWPLACEMENT, i32, i32)>> = std::sync::Mutex::new(None);
+
 #[tauri::command]
-fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<(), String> {
-    window.set_fullscreen(fullscreen).map_err(|e| e.to_string())
+fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
+        use windows::Win32::UI::WindowsAndMessaging::*;
+
+        let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as *mut std::ffi::c_void);
+        unsafe {
+            if fullscreen {
+                if FULLSCREEN_STATE.lock().expect("fullscreen state").is_some() {
+                    return Ok(true);
+                }
+                let mut placement = WINDOWPLACEMENT::default();
+                placement.length = std::mem::size_of::<WINDOWPLACEMENT>() as u32;
+                GetWindowPlacement(hwnd, &mut placement).map_err(|e| e.to_string())?;
+                let style = GetWindowLongW(hwnd, GWL_STYLE);
+                let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+                *FULLSCREEN_STATE.lock().expect("fullscreen state") = Some((placement, style, ex_style));
+                // No ShowWindow(SW_RESTORE): it sends WM_SIZE re-entrantly on this (main) thread.
+                let borderless = (style
+                    & !((WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0 | WS_MINIMIZEBOX.0
+                        | WS_SYSMENU.0 | WS_MAXIMIZE.0 | WS_BORDER.0 | WS_DLGFRAME.0) as i32))
+                    | WS_POPUP.0 as i32;
+                SetWindowLongW(hwnd, GWL_STYLE, borderless);
+                SetWindowLongW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ex_style & !((WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0 | WS_EX_STATICEDGE.0) as i32),
+                );
+                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                let mut info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+                if !GetMonitorInfoW(monitor, &mut info).as_bool() {
+                    return Err("GetMonitorInfoW failed".into());
+                }
+                let r = info.rcMonitor;
+                // Synchronous (no SWP_ASYNCWINDOWPOS): the style/size change must be finished
+                // before we move keyboard focus back into the WebView2 document.
+                SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    r.left,
+                    r.top,
+                    r.right - r.left,
+                    r.bottom - r.top,
+                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW,
+                )
+                .map_err(|e| e.to_string())?;
+                let _ = SetForegroundWindow(hwnd);
+                let _ = window.set_focus();
+                let _ = window.eval("window.focus();");
+                return Ok(true);
+            }
+
+            let saved = FULLSCREEN_STATE.lock().expect("fullscreen state").take();
+            let Some((placement, style, ex_style)) = saved else {
+                return Ok(window.is_fullscreen().unwrap_or(false));
+            };
+            SetWindowLongW(hwnd, GWL_STYLE, style);
+            SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
+            SetWindowPlacement(hwnd, &placement).map_err(|e| e.to_string())?;
+            let _ = SetForegroundWindow(hwnd);
+            let _ = window.set_focus();
+            let _ = window.eval("window.focus();");
+            return Ok(false);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        window.set_fullscreen(fullscreen).map_err(|e| e.to_string())?;
+        Ok(window.is_fullscreen().unwrap_or(false))
+    }
 }
 
 /// Makes the webview background transparent so the video container below shows through
 /// (`ICoreWebView2Controller2::put_DefaultBackgroundColor`, as in player_bridge.cpp).
+/// On Linux WebKitGTK already honours the transparent window background; there is no video
+/// container yet (phase 2 of the port), so this is a no-op.
+#[cfg(windows)]
 fn make_webview_transparent(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.with_webview(|webview| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Controller2, COREWEBVIEW2_COLOR};
@@ -417,6 +582,7 @@ fn make_webview_transparent(window: &tauri::WebviewWindow) -> tauri::Result<()> 
 
 /// Asks WebView2 to lower its memory use (`ICoreWebView2_19::put_MemoryUsageTargetLevel`).
 /// Measured in the player self-test before being used by the app.
+#[cfg(windows)]
 pub fn set_webview_low_memory(window: &tauri::WebviewWindow, low: bool) -> tauri::Result<()> {
     window.with_webview(move |webview| {
         use webview2_com::Microsoft::Web::WebView2::Win32::{
@@ -433,6 +599,16 @@ pub fn set_webview_low_memory(window: &tauri::WebviewWindow, low: bool) -> tauri
             }
         }
     })
+}
+
+#[cfg(not(windows))]
+fn make_webview_transparent(_window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn set_webview_low_memory(_window: &tauri::WebviewWindow, _low: bool) -> tauri::Result<()> {
+    Ok(())
 }
 
 /// NextGen data store (`%APPDATA%\NuvioNextGen`), migrated once from the current app's data:
@@ -462,6 +638,13 @@ fn open_app_store() -> nuvio_store::nextgen::AppStore {
 }
 
 fn main() {
+    // The Linux player embeds libmpv into an X11 `wid`. Force the X11 GDK backend before Tauri
+    // initialises GTK, even on a Wayland session (XWayland always provides X11). Same approach as
+    // the upstream Nuvio Desktop Linux player bridge.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        std::env::set_var("GDK_BACKEND", "x11");
+    }
     let selftest = selftest::requested();
     tauri::Builder::default()
         .manage({
@@ -473,8 +656,10 @@ fn main() {
                 session: AtomicU64::new(0),
                 hwnd: Mutex::new(0),
                 addons: services::addons::AddonContext::new(client.clone(), store.dir().to_path_buf()),
+                plugins: services::plugins::Manager::new(store.dir().to_path_buf(), client.clone()),
                 client,
                 streams: streams::StreamCache::default(),
+                downloads: services::downloads::Manager::new(),
                 video: Mutex::new(VideoConfig::default()),
                 progress: services::progress::ProgressTracker::new(store.dir().to_path_buf()),
                 pending_addon: Mutex::new(None),
@@ -487,6 +672,7 @@ fn main() {
                 sync_wake: Arc::new(tokio::sync::Notify::new()),
                 sync_signals: Default::default(),
                 pip: Default::default(),
+                relay: Mutex::new(None),
                 pin_gate: Mutex::new(account::PinGate {
                     locked_active: store.profiles().ok().and_then(|p| p.get(p.active).filter(|x| x.pin_enabled).map(|x| x.index)),
                     ..Default::default()
@@ -501,13 +687,20 @@ fn main() {
                 playing: Mutex::new(None),
                 subtitle_choice: Mutex::new(None),
                 next_up: Default::default(),
-                torbox: nuvio_core::torbox::Torbox::new().expect("HTTP client"),
-                debrid: Default::default(),
-                downloads: Default::default(),
             }
         })
         // Official Tauri 2 updater: public key from tauri.conf.json, endpoint set per build.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // `nuvio://auth/...` callbacks from Trakt/Simkl sign-in. A second instance forwards the
+        // URL to the running one instead of opening another window.
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            use tauri::Emitter;
+            let urls: Vec<String> = args.into_iter().skip(1).filter(|arg| arg.starts_with("nuvio://")).collect();
+            if !urls.is_empty() {
+                let _ = app.emit("deep-link://new-url", urls);
+            }
+        }))
         .invoke_handler(tauri::generate_handler![
             player_open,
             streams_search,
@@ -517,20 +710,6 @@ fn main() {
             player_snapshot,
             player_close,
             player_video_config,
-            debrid::torbox_status,
-            debrid::torbox_save_key,
-            debrid::torbox_remove_key,
-            debrid::torbox_check,
-            debrid::torbox_prepare,
-            downloads::download_start,
-            downloads::downloads_list,
-            downloads::download_pause,
-            downloads::download_resume,
-            downloads::download_remove,
-            downloads::download_show,
-            downloads::downloads_folder,
-            downloads::downloads_choose_folder,
-            download_play,
             account::app_ready,
             account::welcome_needed,
             account::welcome_done,
@@ -538,6 +717,7 @@ fn main() {
             account::profile_pin_refresh,
             watching::player_subtitles,
             watching::player_subtitle_load,
+            watching::player_subtitle_autosync,
             watching::player_subtitle_style,
             watching::player_moments,
             api::library_next_up,
@@ -552,6 +732,34 @@ fn main() {
             api::app_bootstrap,
             api::home_rows,
             api::catalog_page,
+            api::catalog_genres,
+            api::stream_badge_rules,
+            api::streams_settings,
+            api::streams_settings_set,
+            api::debrid_settings,
+            api::debrid_settings_set,
+            api::plugins_list,
+            api::plugins_add,
+            api::plugins_refresh,
+            api::plugins_set_enabled,
+            api::plugins_set_scraper_enabled,
+            api::plugins_remove,
+            api::mdblist_settings,
+            api::mdblist_settings_set,
+            api::more_like_this,
+            api::tmdb_settings,
+            api::tmdb_settings_set,
+            api::tmdb_source_page,
+            api::trakt_source_page,
+            api::trakt_search_lists,
+            api::trakt_trending_lists,
+            api::trakt_popular_lists,
+            api::trakt_resolve_list_input,
+            api::trakt_my_lists,
+            api::trakt_comments,
+            api::discover_sources,
+            api::discover_select,
+            api::discover_page,
             api::search_all,
             api::search_stream,
             api::search_addons,
@@ -559,6 +767,9 @@ fn main() {
             api::discover_catalogs,
             api::meta_details,
             api::livetv_channels,
+            api::livetv_matches,
+            api::livetv_import_m3u,
+            api::livetv_fallback_channels,
             api::livetv_favorites,
             api::livetv_toggle_favorite,
             api::title_streams,
@@ -575,6 +786,48 @@ fn main() {
             api::library_history,
             api::library_remove_history,
             api::library_title_progress,
+            api::library_toggle_watched,
+            api::stream_open_external,
+            api::open_url,
+            api::parental_guide,
+            api::discord_activity,
+            api::shuffle_view,
+            api::download_list,
+            api::collections_editor_load,
+            api::server_list,
+            api::tracking_credentials,
+            api::trakt_device_start,
+            api::trakt_device_poll,
+            api::simkl_authorize_url,
+            api::simkl_complete,
+            api::tracking_disconnect,
+            api::tracking_resume,
+            api::mdblist_device_start,
+            api::mdblist_device_poll,
+            api::tracking_sync,
+            api::tracking_credential_set,
+            api::server_add,
+            api::server_remove,
+            api::server_libraries,
+            api::server_catalog,
+            api::server_plex_pin_start,
+            api::server_plex_pin_poll,
+            api::server_plex_connect,
+            api::server_silo_discover,
+            api::server_silo_login,
+            api::server_silo_code_start,
+            api::server_silo_code_connect,
+            api::server_stream,
+            api::party_config,
+            api::skip_credentials,
+            api::skip_credentials_set,
+            api::skip_submit_timing,
+            api::collections_editor_save,
+            api::download_from_stream,
+            api::download_control,
+            api::download_play,
+            api::shuffle_set,
+            api::shuffle_pick,
             manage::addons_list,
             manage::addon_preview,
             manage::addon_install,
@@ -598,6 +851,7 @@ fn main() {
             account::profile_pin_set,
             account::profile_pin_clear,
             trailer::trailer_play,
+            trailer::trailer_resolve,
             updater::update_status,
             updater::update_check,
             updater::update_install,
@@ -607,7 +861,9 @@ fn main() {
             p2p::p2p_clear_cache,
             p2p::p2p_cache_size,
             app_mode,
+            platform,
             window_ready,
+            player_focus,
             uitest::uitest_capture,
             uitest::uitest_report,
             uitest::uitest_phase,
@@ -619,15 +875,34 @@ fn main() {
             uitest::uitest_break_display_sync
         ])
         .setup(move |app| {
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            // On Linux/Windows a deep link starts a new instance with the URL as its only argument.
+            app.state::<tauri_plugin_deep_link::DeepLink<tauri::Wry>>()
+                .handle_cli_arguments(std::env::args());
+            let mut builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("Nuvio Astra")
                 .inner_size(1280.0, 760.0)
-                .min_inner_size(800.0, 480.0)
-                // Normal use: created hidden and shown maximized by `window_ready` once the interface
-                // has painted (no white/black frame while the webview starts). The automated tests
-                // keep the visible fixed-size window they measure.
+                .min_inner_size(800.0, 480.0);
+            // Black, never white, in the 1px seams a borderless transition can leave.
+            #[cfg(windows)]
+            {
+                builder = builder.background_color(tauri::window::Color(0, 0, 0, 255));
+            }
+            // Transparent so the mpv child window below the webview is visible through the UI.
+            #[cfg(target_os = "linux")]
+            {
+                builder = builder.transparent(true);
+            }
+            // Normal use: created hidden and shown maximized by `window_ready` once the interface
+            // has painted (no white/black frame while the webview starts). The automated tests
+            // keep the visible fixed-size window they measure.
+            let window = builder
                 .visible(selftest.is_some() || uitest::requested().is_some())
                 .build()?;
+            #[cfg(target_os = "linux")]
+            {
+                // WebKitGTK must not paint an opaque background over the embedded video.
+                let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
+            }
             if selftest.is_none() && uitest::requested().is_none() {
                 // Safety net: show the window even if the interface never reports.
                 let handle = app.handle().clone();
@@ -652,8 +927,11 @@ fn main() {
             if selftest.is_none() && uitest::requested().is_none() {
                 account::start_loop(app.handle().clone());
             }
-            let hwnd = window.hwnd()?.0 as isize;
-            *app.state::<AppState>().hwnd.lock().expect("hwnd lock") = hwnd;
+            #[cfg(windows)]
+            {
+                let hwnd = window.hwnd()?.0 as isize;
+                *app.state::<AppState>().hwnd.lock().expect("hwnd lock") = hwnd;
+            }
             if uitest::requested().is_some() {
                 // Screen captures need the window in front.
                 let _ = window.set_always_on_top(true);
@@ -664,13 +942,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // The video container is a child window: keep it the size of the main window.
-            tauri::WindowEvent::Resized(_) => {
-                let _ = window.app_handle().state::<AppState>().with_player(|p| {
-                    p.fit_to_host();
-                    Ok(())
-                });
-            }
+            // The video container is resized by the fullscreen command itself, after the window
+            // transition completes. Doing it here (inside WM_SIZE) blocks the UI thread.
+            tauri::WindowEvent::Resized(_) => {}
             // Back to the app: what other devices changed is fetched.
             tauri::WindowEvent::Focused(true) => {
                 let app = window.app_handle().clone();

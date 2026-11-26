@@ -1,0 +1,9 @@
+/target/
+/dist/
+**/node_modules/
+**/web/dist/
+apps/nuvio-desktop/gen/
+local.properties
+*.log
+
+nuvio-desktop-release

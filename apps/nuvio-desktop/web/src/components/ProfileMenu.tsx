@@ -86,12 +86,21 @@ interface EditorProps {
   view: ProfilesView;
   onChanged(view: ProfilesView): void;
   onClose(): void;
+  /** Opens the editor directly on this profile (used by the full-screen picker). */
+  initialIndex?: number;
+  initialAdd?: boolean;
+  fullscreen?: boolean;
 }
 
 type Editing = { index: number | null; name: string; color: string; usesPrimaryAddons: boolean; avatarId: string | null };
 
-export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
-  const [editing, setEditing] = useState<Editing | null>(null);
+export function ProfilesDialog({ view, onChanged, onClose, initialIndex, initialAdd, fullscreen }: EditorProps) {
+  const [editing, setEditing] = useState<Editing>(() => {
+    const profile = !initialAdd && initialIndex !== undefined ? view.profiles.find((p) => p.index === initialIndex) : null;
+    return profile
+      ? { index: profile.index, name: profile.name, color: profile.avatarColorHex, usesPrimaryAddons: profile.usesPrimaryAddons, avatarId: profile.avatarId }
+      : { index: null, name: "", color: view.colors[view.profiles.length % view.colors.length], usesPrimaryAddons: false, avatarId: null };
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -104,7 +113,7 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
         ? await api.profileCreate(editing.name, editing.color, editing.usesPrimaryAddons)
         : await api.profileUpdate(editing.index, editing.name, editing.color, editing.usesPrimaryAddons, editing.avatarId ?? "");
       onChanged(v);
-      setEditing(null);
+      onClose();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -120,7 +129,7 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
     setError(null);
     try {
       onChanged(await api.profileDelete(editing.index));
-      setEditing(null);
+      onClose();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -130,35 +139,12 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={t("Gerenciar perfis")} data-testid="profiles-dialog">
+      <div className={`modal ${fullscreen ? "gate-modal" : ""}`} role="dialog" aria-modal="true" aria-label={t("Gerenciar perfis")} data-testid="profiles-dialog">
         <header className="modal-header">
-          <h2>{editing ? (editing.index === null ? t("Adicionar perfil") : t("Editar perfil")) : t("Gerenciar perfis")}</h2>
+          <h2>{editing.index === null ? t("Adicionar perfil") : t("Editar perfil")}</h2>
           <button className="icon-btn" aria-label={t("Fechar")} onClick={onClose} disabled={busy}>✕</button>
         </header>
 
-        {!editing && (
-          <>
-            <div className="profiles-grid">
-              {view.profiles.map((p) => (
-                <button key={p.index} className="profile-tile" onClick={() => setEditing({ index: p.index, name: p.name, color: p.avatarColorHex, usesPrimaryAddons: p.usesPrimaryAddons, avatarId: p.avatarId })} data-profile={p.index}>
-                  <Avatar profile={p} size={64} />
-                  <span>{p.name}</span>
-                  <span className="muted small">{p.index === view.active ? t("Ativo") : p.index === 1 ? t("Principal") : t("Perfil {index}", { index: p.index })}</span>
-                </button>
-              ))}
-              {view.profiles.length < view.max && (
-                <button className="profile-tile add" onClick={() => setEditing({ index: null, name: "", color: view.colors[view.profiles.length % view.colors.length], usesPrimaryAddons: false, avatarId: null })} data-testid="profile-add">
-                  <span className="avatar add" aria-hidden style={{ width: 64, height: 64 }}>+</span>
-                  <span>{t("Criar perfil")}</span>
-                  <span className="muted small">{view.profiles.length} de {view.max}</span>
-                </button>
-              )}
-            </div>
-            <p className="muted small">{t("Cada perfil tem seus próprios favoritos, histórico, progresso, addons e configurações.")}</p>
-          </>
-        )}
-
-        {editing && (
           <form className="profile-form" onSubmit={(e) => { e.preventDefault(); void save(); }}>
             <div className="profile-form-head">
               <Avatar profile={{ name: editing.name || "?", avatarColorHex: editing.color, avatarId: editing.avatarId }} size={72} />
@@ -206,11 +192,10 @@ export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
                 <button type="button" className="chip danger" onClick={() => void remove()} disabled={busy} data-testid="profile-delete">{t("Excluir perfil")}</button>
               )}
               <span className="spacer" />
-              <button type="button" className="chip" onClick={() => { setEditing(null); setError(null); }} disabled={busy}>{t("Voltar")}</button>
+              <button type="button" className="chip" onClick={() => { setError(null); onClose(); }} disabled={busy}>{t("Voltar")}</button>
               <button type="submit" className="primary" disabled={busy || !editing.name.trim()} data-testid="profile-save">{busy ? t("Salvando…") : t("Salvar")}</button>
             </div>
           </form>
-        )}
       </div>
     </div>
   );

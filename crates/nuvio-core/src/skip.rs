@@ -15,7 +15,7 @@ const CHAPTER_SECONDS: std::ops::RangeInclusive<f64> = 5.0..=240.0;
 /// Clips shorter than this are placeholders: nothing is offered on them.
 const MIN_CONTENT_SECONDS: f64 = 121.0;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
     Intro,
@@ -52,6 +52,74 @@ pub struct Segment {
     pub kind: Kind,
     pub start: f64,
     pub end: f64,
+}
+
+/// Converts Anime-Skip's timestamp markers into the same segments as the other providers.
+///
+/// Port of `SkipIntroRepository.toAnimeSkipIntervals` / `bestAnimeSkipIntervals`: markers are
+/// ordered by `at`, each one ends at the next marker, and an ending marker can run to the end of
+/// the episode (when the duration is unknown or the marker is in the second half).
+pub fn parse_animeskip(payload: &Value, season: Option<i64>, episode: i64) -> Vec<Segment> {
+    let Some(episodes) = payload.pointer("/data/findEpisodesByShowId").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let mut best: Vec<Segment> = Vec::new();
+    let mut best_categories = 0usize;
+    for entry in episodes {
+        let number = entry.get("number").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok())
+            .or_else(|| entry.get("number").and_then(Value::as_i64));
+        if number != Some(episode) {
+            continue;
+        }
+        let entry_season = entry.get("season").and_then(|v| v.as_str()).and_then(|v| v.parse::<i64>().ok())
+            .or_else(|| entry.get("season").and_then(Value::as_i64));
+        if let (Some(wanted), Some(found)) = (season, entry_season) {
+            if found != wanted {
+                continue;
+            }
+        }
+        let base = entry.get("baseDuration").and_then(Value::as_f64);
+        let markers: Vec<(f64, Kind)> = entry
+            .get("timestamps")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| {
+                        let at = value.get("at").and_then(Value::as_f64)?;
+                        let name = value.pointer("/type/name").and_then(Value::as_str)?;
+                        let kind = match name.trim().to_ascii_lowercase().as_str() {
+                            "intro" | "new intro" | "mixed intro" => Some(Kind::Intro),
+                            "credits" | "new credits" | "mixed credits" => Some(Kind::Outro),
+                            "recap" => Some(Kind::Recap),
+                            _ => None,
+                        }?;
+                        Some((at, kind))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut sorted = markers;
+        sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut segments = Vec::new();
+        for (index, marker) in sorted.iter().enumerate() {
+            let at = marker.0;
+            let kind = marker.1;
+            let next = sorted.get(index + 1).map(|m| m.0);
+            let end = match (next, kind) {
+                (Some(next), _) if next > at => next,
+                (_, Kind::Outro) if base.is_none() || at >= base.unwrap_or_default() / 2.0 => f64::MAX,
+                _ => continue,
+            };
+            segments.push(Segment { kind, start: at, end });
+        }
+        let categories = segments.iter().filter_map(|s| s.kind.category()).collect::<std::collections::HashSet<_>>().len();
+        if categories > best_categories || (categories == best_categories && segments.len() > best.len()) {
+            best_categories = categories;
+            best = segments;
+        }
+    }
+    best
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -278,6 +346,18 @@ mod tests {
 
     fn seg(kind: Kind, start: f64, end: f64) -> Segment {
         Segment { kind, start, end }
+    }
+
+    #[test]
+    fn anime_skip_markers_become_segments() {
+        let body: Value = serde_json::from_str(r#"{"data":{"findEpisodesByShowId":[
+            {"season":"1","number":"3","baseDuration":1440,
+             "timestamps":[{"at":1435.0,"type":{"name":"credits"}},{"at":4.0,"type":{"name":"new intro"}},{"at":90.0,"type":{"name":"recap"}},{"at":200.0,"type":{"name":"other"}}]}
+        ]}}"#).unwrap();
+        let segments = parse_animeskip(&body, Some(1), 3);
+        assert_eq!(segments, vec![seg(Kind::Intro, 4.0, 90.0), seg(Kind::Recap, 90.0, 1435.0), seg(Kind::Outro, 1435.0, f64::MAX)]);
+        assert!(parse_animeskip(&body, Some(2), 3).is_empty());
+        assert!(parse_animeskip(&body, Some(1), 4).is_empty());
     }
 
     #[test]

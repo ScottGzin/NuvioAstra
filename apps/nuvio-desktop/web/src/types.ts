@@ -34,8 +34,11 @@ export interface MetaPreview {
   id: string; contentType: string; name: string; poster: string | null; banner: string | null;
   logo: string | null; posterShape: PosterShape; description: string | null; releaseInfo: string | null;
   imdbRating: string | null; genres: string[]; landscapePoster: string | null; runtime: string | null;
+  /** Original artwork preserved when a custom poster template is applied. */
+  rawPosterUrl?: string | null; rawLandscapePosterUrl?: string | null;
 }
 export interface CatalogPage { items: MetaPreview[]; rawItemCount: number; nextSkip: number | null }
+export interface CatalogGenres { options: string[]; required: boolean }
 export interface HomeRow {
   key: string; title: string; addonName: string; contentType: string; catalogId: string; supportsPagination: boolean;
   /** Set for a collection row (key `collection_<id>`). */
@@ -44,8 +47,19 @@ export interface HomeRow {
 
 // ---- Collections (services::collections) ----
 export interface FolderSource {
+  /** `addon`, `tmdb` (a discover query) or `trakt` (a public list), both resolved in Rust. */
+  provider: string;
   key: string; genre: string | null; label: string; addonName: string; contentType: string; supportsPagination: boolean;
+  /** Stable id of a TMDB/Trakt source, used to ask Rust for its page. */
+  sourceId?: string | null;
 }
+export interface TraktList { id: number; slug: string; title: string; cover: string | null; itemCount: number; likes: number }
+export interface TraktResolvedList { id: number; slug: string; title: string; cover: string | null }
+export interface TraktComment {
+  id: number; author: string; username: string; text: string; spoiler: boolean; review: boolean;
+  likes: number; rating: number | null; createdAt: string; updatedAt: string; revealed?: boolean;
+}
+export interface TraktCommentsPage { items: TraktComment[]; page: number; pageCount: number; itemCount: number }
 export interface FolderView {
   id: string; title: string;
   /** GIF (when enabled) or cover; a `.mp4`/`.webm` URL is a video. */
@@ -64,6 +78,7 @@ export interface HomeView {
   /** Catalog keys whose first page feeds the hero (at most 2, hidden rows included). */
   heroSources: string[];
   rows: HomeRow[];
+  continueWatching: ContinueWatchingSettings;
 }
 
 // ---- Settings (nuvio-store::settings, per profile) ----
@@ -72,6 +87,7 @@ export interface SubtitleSettings {
   outlineWidth: number; bold: boolean; fontSizeSp: number; bottomOffset: number; stripSdh: boolean;
   fontId: string; shadowEnabled: boolean; shadowOpacity: number; shadowSize: number;
   italic: boolean; spacing: number; blur: number; align: "left" | "center" | "right"; overrideAss: boolean;
+  autoSyncEnabled: boolean;
 }
 export type MotionName = "off" | "steady" | "fluid";
 export type AnimeModeName = "auto" | "a" | "b" | "c" | "aa" | "bb" | "ca";
@@ -89,21 +105,55 @@ export interface PlayerSettings {
   preferredAudioLanguage: string; secondaryPreferredAudioLanguage: string | null;
   preferredSubtitleLanguage: string; secondaryPreferredSubtitleLanguage: string | null;
   subtitle: SubtitleSettings;
-  skipSegmentsEnabled: boolean; autoSkipSegments: string[];
+  skipSegmentsEnabled: boolean; animeSkipEnabled: boolean; introSubmitEnabled: boolean; autoSkipSegments: string[];
   nextEpisodeThresholdMode: "PERCENTAGE" | "MINUTES_BEFORE_END";
   nextEpisodeThresholdPercent: number; nextEpisodeThresholdMinutes: number; watchedPercent: number;
-  cards: CardStyle;
-  /** Interface language saved with the account (pt-BR, en, ar); null follows the computer. */
-  appLanguage?: string | null;
+  // Sources / automatic playback
+  reuseLastLinkEnabled: boolean; reuseLastLinkCacheHours: number;
+  autoPlayFallbackOnFailure: boolean; autoPlayFallbackMaxSources: number; autoPlayFallbackStartupTimeoutSeconds: number;
+  autoPlayMode: "manual" | "firstStream" | "regexMatch";
+  autoPlaySource: "allSources" | "installedAddonsOnly" | "enabledPluginsOnly";
+  autoPlaySelectedAddons: string[]; autoPlaySelectedPlugins: string[];
+  autoPlayRegex: string; autoPlayTimeoutSeconds: number;
+  // Next episode / chapters / hold / warnings
+  autoPlayNextEpisodeEnabled: boolean; autoPlayNextEpisodeFallbackEnabled: boolean;
+  autoPlayPreferBingeGroup: boolean; autoPlayReuseBingeGroup: boolean;
+  preloadNextEpisodeSources: boolean; chapterTitleEnabled: boolean;
+  holdToSpeedEnabled: boolean; holdToSpeedValue: number; showParentalGuide: boolean;
+  // Audio
+  rememberAudioDelayPerDevice: boolean; persistAudioAmplification: boolean;
+  audioAmplificationDb: number; downmixEnabled: boolean; audioOutputChannels: string;
+  maintainOriginalAudioOnDownmix: boolean; centerMixLevelDb: number;
+  audioPassthrough: boolean; subtitleCodepage: string;
+  // Buffer / cache
+  bufferEnabled: boolean; minBufferMs: number; maxBufferMs: number; bufferForPlaybackMs: number;
+  bufferForPlaybackAfterRebufferMs: number; backBufferDurationMs: number; targetBufferSizeMb: number;
+  vodCacheEnabled: boolean; vodCacheSizeMode: "auto" | "manual"; vodCacheSizeMb: number;
+  librarySource: string; progressSource: string; cards?: CardStyle; appLanguage?: string | null;
 }
 export interface HomeCatalogPreference { key: string; customTitle: string; enabled: boolean; heroSourceEnabled: boolean; order: number }
 export interface HomeCatalogSettings { heroEnabled: boolean; showCatalogType: boolean; hideUnreleasedContent: boolean; items: HomeCatalogPreference[]; heroCatalogs: string[] | null }
 export type P2pProfileName = "SOFT" | "BALANCED" | "FAST";
 export type P2pCacheName = "NONE" | "GB_2" | "GB_5" | "GB_10";
 export interface P2pSettings { enabled: boolean; enableUpload: boolean; hideTorrentStats: boolean; torrentProfile: P2pProfileName; cacheSize: P2pCacheName }
-export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; debrid: DebridSettings; search: SearchSettings }
-/** Addons left out of the search (`SearchAddon.key`), this computer only. */
-export interface SearchSettings { disabledAddons: string[] }
+export interface ContinueWatchingSettings {
+  visible: boolean; style: string; upNextFromFurthestEpisode: boolean; useEpisodeThumbnails: boolean;
+  showUnairedNextUp: boolean; blurNextUp: boolean; showResumePromptOnLaunch: boolean;
+  sortMode: string; clickAction: string;
+}
+export interface MetaSectionSetting { key: string; enabled: boolean; order: number }
+export interface MetaScreenSettings {
+  sections: MetaSectionSetting[]; backgroundMode: string; heroTrailerPlayback: boolean; tabLayout: boolean;
+  episodeCardStyle: string; blurUnwatchedEpisodes: boolean; traktCommentsEnabled: boolean; posterTransitionEnabled: boolean;
+  showOverallRatings: boolean; episodeRatingsVisibility: string;
+}
+export interface DiscordActivity { title: string; state?: string | null; poster?: string | null; playing: boolean; positionMs?: number | null; durationMs?: number | null }
+export interface ProfileSettings { player: PlayerSettings; home: HomeCatalogSettings; p2p: P2pSettings; continueWatching: ContinueWatchingSettings; metaScreen: MetaScreenSettings; discordRpcEnabled: boolean; debrid?: DebridSettings }
+/** A movie/episode watched mark (Settings → Library); ids stay opaque. */
+export interface WatchedItem {
+  id: string; contentType: string; name: string; poster: string | null; releaseInfo: string | null;
+  season: number | null; episode: number | null; videoId: string | null; markedAtEpochMs: number;
+}
 /** Selected file of a torrent prepared by the P2P engine (the local URL stays in Rust). */
 export interface TorrentPrepared { fileIndex: number; fileSize: number; fileName: string; fileCount: number }
 export interface P2pStatus {
@@ -121,12 +171,22 @@ export interface SettingsView {
 }
 
 export interface SearchSection { key: string; title: string; addonName: string; items: MetaPreview[] }
-/** An addon with search catalogs ("Pesquisar em"); `catalogs`: its types ("Filmes", "Séries"). */
+/** An addon with search catalogs ("Pesquisar em"); `catalogs`: its types. */
 export interface SearchAddon { key: string; name: string; logo: string | null; catalogs: string[]; enabled: boolean }
 /** A catalog of Descobrir; `key` is the catalog key of `catalogPage`. */
 export interface DiscoverCatalog {
   key: string; addonName: string; contentType: string; typeLabel: string; name: string;
   genres: string[]; genreRequired: boolean; supportsPagination: boolean;
+}
+
+// ---- Discover (services::discover) ----
+export interface DiscoverSource {
+  key: string; addonName: string; contentType: string; catalogId: string; catalogName: string;
+  genreOptions: string[]; genreRequired: boolean; defaultGenre: string | null; supportsPagination: boolean;
+}
+export interface DiscoverView { sources: DiscoverSource[]; typeOptions: string[]; selectedKey: string | null }
+export interface DiscoverPage {
+  items: MetaPreview[]; nextSkip: number | null; duplicatePages: number; supportsPagination: boolean;
 }
 
 export interface MetaPerson { name: string; role: string | null; photo: string | null }
@@ -154,30 +214,133 @@ export function metaRef(item: Pick<MetaPreview, "contentType" | "id" | "name">):
   if (!contentType) return t("o addon não informou o tipo deste título (filme/série)");
   return { contentType, id, name: item.name };
 }
-export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null }
+export interface ExternalRating { source: string; value: number; certified: boolean }
+export interface TrackingCredentialsView { traktConfigured: boolean; simklConfigured: boolean; traktConnected: boolean; simklConnected: boolean; traktFromBuild: boolean; simklFromBuild: boolean; mdblistConnected: boolean; mdblistFromBuild: boolean }
+export interface RemoteResume { season: number | null; episode: number | null; progressPercent: number; pausedAt: string | null }
+export interface TraktDeviceStart { userCode: string; verificationUrl: string; intervalSecs: number }
+export type TrackingPollResult = "pending" | "authorized" | "expired" | "denied" | "slowDown" | "noSession" | "error";
+export interface TrackingSyncResult { movies: number; episodes: number }
+export interface ServerConnection { id: string; provider: string; name: string; address: string; userId: string; userName: string; enabled: boolean }
+export interface ServerLibrary { id: string; name: string; kind: string }
+export interface PlexPin { id: string; code: string; authUrl: string }
+export interface SiloInfo { address: string; name: string; serverId: string; passwordLogin: boolean; deviceCode: boolean }
+export interface SiloCode { deviceCode: string; userCode: string; verificationUri: string; interval: number }
+export type DownloadStatus = "downloading" | "paused" | "completed" | "failed" | "queued" | "preparing" | "done";
+export interface StreamsSettings {
+  showSizeBadges: boolean | null; showAddonLogo: boolean; showInPlayer: boolean;
+  playerBadgeSource: string; badgePlacement: string; backgroundMode: string; badgeUrls: string[];
+}
+export interface StreamsSettingsView { settings: StreamsSettings; importedFilters: number }
+export interface CardStyle {
+  width: number; radius: number; landscape: boolean; hideLabels: boolean;
+  hoverPreviewEnabled: boolean; hoverPreviewDelayMs: number;
+  hoverPreviewTrailerEnabled: boolean; hoverPreviewTrailerSound: boolean; hoverPreviewTrailerStart: number;
+  customPosterUrlPattern: string; customPosterScreens: string[];
+}
+export interface DebridSettings { enabled: boolean }
+export interface DownloadsFolder { folder: string; freeBytes: number | null }
+export interface TorboxStatus { configured: boolean; enabled: boolean; account: string | null }
+export interface DownloadRequest { key: string; title: string; subtitle: string | null; poster: string | null; season: number | null; episode: number | null; playback: PlaybackItem | null }
+export interface DownloadItem {
+  id: string; poster?: string | null; contentType: string; parentMetaId: string; parentMetaType: string; videoId: string;
+  title: string; seasonNumber: number | null; episodeNumber: number | null; episodeTitle: string | null;
+  streamTitle: string; streamSubtitle: string | null; providerName: string; sourceUrl: string;
+  fileName: string; localFileUri: string | null; status: DownloadStatus; downloadedBytes: number;
+  totalBytes: number | null; errorMessage: string | null; createdAtEpochMs: number; updatedAtEpochMs: number;
+  /** Upstream aliases used by the account's Downloads list component. */
+  kind: string; subtitle?: string | null; folder: string; downloaded: number; total: number | null;
+  speed: number; connections: number; error: string | null; createdAt: number; sourceName: string;
+}
+export interface ShuffleView { available: boolean; enabled: boolean; includeWatched: boolean }
+export interface ParentalGuide { nudity: string | null; violence: string | null; profanity: string | null; alcohol: string | null; frightening: string | null }
+export interface Details { meta: MetaDetails; seasons: number[]; addonName: string; trailer: MetaTrailer | null; ratings: ExternalRating[]; watchedKeys: string[] }
 
 export type StreamKind = "direct" | "torrent" | "debrid" | "external" | "youTube";
 export interface StreamEntry {
-  key: string; name: string | null; description: string | null; kind: StreamKind;
+  key: string; name: string | null; title: string | null; description: string | null;
+  filename: string | null; videoSize: number | null; kind: StreamKind;
+  /** Played through the connected debrid service instead of local P2P. */
+  debridPlayable: boolean;
+  /** Name of the active provider (TorBox, Real-Debrid…) when this source uses debrid. */
+  debridProvider: string | null;
   headerNames: string[]; notWebReady: boolean;
-  /** An addon's own TorBox source. */
-  torbox: boolean; filename: string | null; size: number | null;
-}
-export interface TorboxStatus { configured: boolean; enabled: boolean; account: string | null }
-export interface DebridSettings { enabled: boolean }
-export interface CardStyle { width: number; radius: number; landscape: boolean; hideLabels: boolean }
-export interface DownloadsFolder { folder: string; freeBytes: number | null }
-export interface DownloadRequest {
-  key: string; title: string; subtitle: string | null; poster: string | null;
-  season: number | null; episode: number | null; playback: PlaybackItem | null;
-}
-export interface DownloadItem {
-  id: string; title: string; subtitle: string | null; poster: string | null; folder: string; fileName: string | null;
-  status: "queued" | "preparing" | "downloading" | "paused" | "done" | "failed"; kind: "http" | "torbox" | "p2p";
-  sourceName: string; downloaded: number; total: number | null; speed: number; connections: number;
-  error: string | null; createdAt: number;
+  /** Upstream alias of videoSize used by the stream badge parser. */
+  size?: number | null;
+  torbox?: boolean;
+  /** `externalUrl` source: safe only as a link to open in the browser. */
+  externalUrl: string | null;
+  /** `ytId` source: resolved in Rust by the YouTube extractor. */
+  youtubeId: string | null;
 }
 export interface StreamGroup { addonName: string; streams: StreamEntry[]; error: string | null }
+
+/** One group of a streamed answer (`streams-part`), handed over as soon as its addon or scraper
+ *  answers; `order` places it in the complete list (addons first, then the scrapers). */
+export interface StreamPart { requestId: number; order: number; group: StreamGroup }
+
+/** Badge rules imported in the original app (read only); matched by regex on the stream text. */
+export interface StreamBadgeFilter {
+  name: string; pattern: string; imageUrl: string; tagColor: string; tagStyle: string;
+  textColor: string; borderColor: string; groupId: string;
+}
+export interface StreamBadgeRules { filters: StreamBadgeFilter[]; showFileSizeBadges: boolean; placement: string }
+
+/** Settings → Services → MDBList Ratings. */
+export interface MdblistSettingsView {
+  enabled: boolean; apiKeySet: boolean; apiKeyFromAccount: boolean; apiKeyFromOriginal: boolean;
+  useImdb: boolean; useTmdb: boolean; useTomatoes: boolean; useMetacritic: boolean;
+  useTrakt: boolean; useLetterboxd: boolean; useAudience: boolean; useMal: boolean;
+}
+export interface MdblistSettingsInput {
+  enabled: boolean; apiKey?: string | null;
+  useImdb: boolean; useTmdb: boolean; useTomatoes: boolean; useMetacritic: boolean;
+  useTrakt: boolean; useLetterboxd: boolean; useAudience: boolean; useMal: boolean;
+}
+
+/** Settings → Services → Connected Services (debrid). Keys are never returned. */
+export interface DebridProviderView {
+  id: string; label: string; connected: boolean; fromAccount: boolean; fromOriginal: boolean;
+  account: string | null;
+}
+export interface DebridSettingsView {
+  enabled: boolean; providers: DebridProviderView[]; active: string | null;
+  // Kept for older builds of the UI.
+  torboxConnected: boolean; torboxFromAccount: boolean; torboxFromOriginal: boolean;
+  account: string | null;
+}
+export interface DebridSettingsInput {
+  enabled: boolean; torboxApiKey?: string | null;
+  keys?: Record<string, string | null>; active?: string | null;
+}
+
+/** Settings → Addons → Plugins (Nuvio scraper repositories). The manifest URL stays in Rust. */
+export interface PluginRepositoryView {
+  key: string; name: string; version: string; description: string | null;
+  scraperCount: number; lastUpdated: number; refreshDue: boolean;
+}
+export interface PluginScraperView {
+  key: string; repositoryKey: string; name: string; version: string;
+  supportedTypes: string[]; enabled: boolean; manifestEnabled: boolean;
+}
+export interface PluginsView {
+  profile: number; enabled: boolean; repositories: PluginRepositoryView[];
+  scrapers: PluginScraperView[]; error: string | null;
+}
+
+/** Settings → Services → TMDB (the key never leaves Rust). */
+export interface TmdbSettingsView {
+  enabled: boolean; language: string; useMoreLikeThis: boolean; useCollections: boolean;
+  useArtwork: boolean; useBasicInfo: boolean; useDetails: boolean; useCredits: boolean;
+  useEpisodes: boolean; useTrailers: boolean;
+  apiKeySet: boolean; apiKeyFromAccount: boolean; apiKeyFromOriginal: boolean;
+}
+export interface TmdbSettingsInput {
+  enabled: boolean; language: string; useMoreLikeThis: boolean; useCollections: boolean;
+  useArtwork: boolean; useBasicInfo: boolean; useDetails: boolean; useCredits: boolean;
+  useEpisodes: boolean; useTrailers: boolean;
+  /** null keeps the current key; "" clears Astra's key (the original's is used again). */
+  apiKey?: string | null;
+}
 
 export interface Channel {
   key: string; metaId: string; contentType: string; name: string; logo: string | null;
@@ -188,6 +351,7 @@ export interface ChannelList { channels: Channel[]; categories: [string, number]
 export interface Chapter { time: number; title: string }
 export interface SubtitleOption { index: number; source: string; language: string; title: string }
 export interface SubtitleList { options: SubtitleOption[]; addons: number; failed: number }
+export interface AutoSyncStatus { status: "applied" | "no-match" | "not-applicable" | "disabled" | "busy"; offsetMs: number | null; references: number }
 export interface Moment {
   kind: "intro" | "recap" | "outro" | "movie-credits" | "post-credits";
   start: number; end: number; target: number; toPostCredits: boolean; auto: boolean;
@@ -313,5 +477,14 @@ export interface UpdateInfo { version: string; currentVersion: string; notes: st
 export interface UpdateProgress { phase: "downloading" | "verifying" | "installing" | "error"; downloaded: number; total: number | null; error: string | null }
 
 /** Program guide of a live channel (times in UTC ms). */
+export interface MatchTeam { name: string; short: string; logo: string | null; score: string | null }
+export interface MatchChannel { key: string; name: string; logo: string | null; program: string }
+export interface LiveMatch {
+  id: string; league: string; leagueLogo: string | null; name: string; startMs: number;
+  state: "upcoming" | "live" | "finished"; status: string;
+  home: MatchTeam | null; away: MatchTeam | null; channels: MatchChannel[];
+}
+export interface MatchesView { matches: LiveMatch[]; fetchedAtMs: number; error: string | null }
+
 export interface EpgProgram { startMs: number; endMs: number; title: string; description: string | null }
 export interface EpgView { nowMs: number; programs: EpgProgram[]; hasSchedule: boolean }

@@ -1,0 +1,28 @@
+[package]
+name = "nuvio-plugins"
+description = "Nuvio Astra plugin contract: repository manifests, scraper metadata and runtime results (UI-free)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+md-5 = { workspace = true }
+sha1 = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+aes = { workspace = true }
+cbc = { workspace = true }
+cipher = { workspace = true }
+hex = { workspace = true }
+pbkdf2 = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+nuvio-core = { path = "../nuvio-core" }
+rquickjs = { version = "0.14", features = ["futures", "array-buffer", "parallel"] }
+scraper = "0.29"

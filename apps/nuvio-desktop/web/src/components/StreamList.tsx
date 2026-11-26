@@ -1,140 +1,269 @@
-// Sources of one title/episode, asked to the addons only when shown. Direct and torrent (P2P)
-// streams play in the app's player; with TorBox, cached torrents are marked "TB Instant" and the
-// addons' own TorBox sources play too. Right click: play or download. Badges come from the texts.
-// `reload` (the sources panel's "Recarregar"): each new value asks every addon again.
+// Sources of one title/episode. Addons are chips at the top (All, then one per addon, with a
+// refresh button), and every source is a card with the addon's own text plus the badges of the
+// rules imported in the original app (Settings → Streams → badges): the same regex filters and
+// chips, read from its store. Direct and torrent (P2P) streams play in the app's player; the other
+// YouTube sources are resolved by the in-app extractor and external links open in the browser.
 
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { api, errorText } from "../api";
-import { badgesOf, canDownload, type TorboxStates } from "../sources";
-import type { StreamEntry, StreamGroup, StreamKind } from "../types";
+import type { PlaybackItem, StreamBadgeFilter, StreamBadgeRules, StreamEntry, StreamGroup } from "../types";
 import { t } from "../i18n";
 import { message } from "../rustErrors";
-
-const PENDING: Record<Exclude<StreamKind, "direct" | "torrent">, string> = {
-  debrid: "Debrid — configure o TorBox em Configurações para abrir",
-  external: "Link externo — abre fora do player",
-  youTube: "YouTube — ainda não suportado nesta versão",
-};
 
 interface Props {
   contentType: string;
   id: string;
-  onPlay(stream: StreamEntry, torbox: TorboxStates): void;
-  onDownload?(stream: StreamEntry, torbox: TorboxStates): void;
-  reload?: number;
-  /** Whether the addons are being asked now (the reload button spins meanwhile). */
-  onLoading?(loading: boolean): void;
+  onPlay(stream: StreamEntry): void;
+  /** When given, direct sources get a download button (`PlaybackItem` stays opaque). */
+  downloadProgress?: PlaybackItem;
 }
 
-export function StreamList({ contentType, id, onPlay, onDownload, reload = 0, onLoading }: Props) {
+/** Text the badge rules are matched against, as `badgeMatchCandidates` in the original. */
+function candidates(stream: StreamEntry): string[] {
+  return [stream.filename, stream.name, stream.title, stream.description]
+    .map((value) => value?.replace(/\s+/g, " ").trim())
+    .filter((value): value is string => !!value);
+}
+
+/** Java/Kotlin patterns start with inline flags (`(?i)…`), which JavaScript does not accept;
+ *  the leading flags become the RegExp flags. A pattern the browser still rejects is skipped. */
+function compilePattern(pattern: string): RegExp | null {
+  let source = pattern;
+  let flags = "";
+  const leading = source.match(/^\(\?([ims]+)\)/);
+  if (leading) {
+    flags = [...new Set(leading[1])].join("");
+    source = source.slice(leading[0].length);
+  }
+  try {
+    return new RegExp(source, flags);
+  } catch {
+    return null;
+  }
+}
+
+/** `StreamBadgeMatcher`: the source's active filters that match one of the candidates, in order. */
+function matchedBadges(stream: StreamEntry, filters: StreamBadgeFilter[]): StreamBadgeFilter[] {
+  if (!filters.length) return [];
+  const texts = candidates(stream);
+  if (!texts.length) return [];
+  const seen = new Set<string>();
+  const matched: StreamBadgeFilter[] = [];
+  for (const filter of filters) {
+    const regex = compilePattern(filter.pattern);
+    if (!regex) continue;
+    if (!texts.some((text) => regex.test(text))) continue;
+    const key = (filter.imageUrl || filter.name).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matched.push(filter);
+  }
+  return matched;
+}
+
+/** `#RRGGBB` or `#AARRGGBB` (the original stores ARGB) → a CSS color. */
+function cssColor(value: string): string | undefined {
+  const hex = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{6}$/i.test(hex)) return `#${hex}`;
+  if (/^[0-9a-f]{8}$/i.test(hex)) {
+    const [a, r, g, b] = [0, 2, 4, 6].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+  }
+  return undefined;
+}
+
+/** `StreamFileSizeBadge`: GiB with one decimal, or MiB below 1 GiB. */
+function sizeLabel(bytes: number): string {
+  const gib = bytes / (1024 * 1024 * 1024);
+  if (gib >= 1) return `${Math.round(gib * 10) / 10} GB`;
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
+function Badge({ filter }: { filter: StreamBadgeFilter }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const style: CSSProperties = {};
+  if (filter.tagStyle === "filled" && filter.tagColor) style.background = cssColor(filter.tagColor);
+  if (filter.borderColor) style.borderColor = cssColor(filter.borderColor);
+  if (filter.textColor) style.color = cssColor(filter.textColor);
+  const showImage = !!filter.imageUrl && !imageFailed;
+  return (
+    <span className="badge" style={style} title={filter.name} role="img" aria-label={filter.name}>
+      {showImage ? (
+        <img src={filter.imageUrl} alt="" loading="lazy" decoding="async" onError={() => setImageFailed(true)} />
+      ) : (
+        filter.name
+      )}
+    </span>
+  );
+}
+
+export function StreamList({ contentType, id, onPlay, downloadProgress }: Props) {
   const [groups, setGroups] = useState<StreamGroup[] | null>(null);
+  const [parts, setParts] = useState<{ order: number; group: StreamGroup }[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [torbox, setTorbox] = useState<TorboxStates>({});
-  const [menu, setMenu] = useState<{ stream: StreamEntry; x: number; y: number } | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [rules, setRules] = useState<StreamBadgeRules | null>(null);
+  const loadId = useRef(0);
+
+  const load = useCallback(
+    async (refresh: boolean) => {
+      const seq = ++loadId.current;
+      if (refresh) setRefreshing(true);
+      setLoading(true);
+      try {
+        // Every addon/scraper group is shown as soon as it answers; the final list replaces them.
+        const next = await api.streams(contentType, id, refresh, (group, order) => {
+          if (loadId.current !== seq) return;
+          setParts((current) => [...current.filter((part) => part.order !== order), { order, group }]);
+        });
+        if (loadId.current !== seq) return;
+        setGroups(next);
+        setError(null);
+      } catch (e) {
+        if (loadId.current === seq) setError(errorText(e));
+      } finally {
+        if (loadId.current === seq) {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [contentType, id],
+  );
 
   useEffect(() => {
-    let cancelled = false;
     setGroups(null);
+    setParts([]);
+    setSelected(null);
     setError(null);
-    setTorbox({});
-    onLoading?.(true);
-    api.streams(contentType, id, reload > 0).then(
-      (g) => {
-        if (cancelled) return;
-        onLoading?.(false);
-        setGroups(g);
-        const keys = g.flatMap((group) => group.streams).filter((s) => s.kind === "torrent" || s.kind === "debrid").map((s) => s.key);
-        if (keys.length) api.torboxCheck(keys).then((states) => !cancelled && setTorbox(states), () => {});
-      },
-      (e) => {
-        if (cancelled) return;
-        onLoading?.(false);
-        setError(errorText(e));
-      },
+    void load(false);
+    // A search left behind by the previous title/episode must not touch this one.
+    return () => {
+      loadId.current += 1;
+    };
+  }, [load]);
+
+  // Badge rules imported in the original app; empty rules simply mean no chips.
+  useEffect(() => {
+    let cancelled = false;
+    api.streamBadges().then(
+      (value) => !cancelled && setRules(value),
+      () => {},
     );
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentType, id, reload]);
+  }, []);
 
-  useEffect(() => {
-    if (!menu) return;
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent && e.key !== "Escape") return;
-      if (e instanceof PointerEvent && menuRef.current?.contains(e.target as Node)) return;
-      setMenu(null);
-    };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", close, true);
-    window.addEventListener("blur", close);
-    return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", close, true);
-      window.removeEventListener("blur", close);
-    };
-  }, [menu]);
+  const live = useMemo(
+    () => groups ?? [...parts].sort((a, b) => a.order - b.order).map((part) => part.group),
+    [groups, parts],
+  );
+  const addonGroups = useMemo(() => live.filter((group) => group.streams.length > 0), [live]);
+  // A chip of an addon that answered nothing in a refresh falls back to All.
+  const effective = selected && addonGroups.some((g) => g.addonName === selected) ? selected : null;
+  const shown = effective ? addonGroups.filter((g) => g.addonName === effective) : addonGroups;
+  const failed = live.filter((group) => group.error && group.streams.length === 0);
 
   if (error) return <div className="row-error">{t("Falha ao buscar fontes: {error}", { error })}</div>;
-  if (!groups) return <div className="muted">{t("Buscando fontes nos addons…")}</div>;
-  if (!groups.length) return <div className="muted">{t("Nenhum addon instalado fornece fontes para este título.")}</div>;
-
-  const playable = (s: StreamEntry) => s.kind === "direct" || s.kind === "torrent" || (s.kind === "debrid" && (s.torbox && torbox[s.key] === "cached"));
+  if (!live.length) {
+    const waiting = loading || groups === null;
+    return <div className="muted">{waiting ? t("Buscando fontes nos addons…") : t("Nenhum addon instalado fornece fontes para este título.")}</div>;
+  }
 
   return (
     <div className="streams">
-      {groups.map((group) => (
-        <div key={group.addonName} className="stream-group">
-          <div className="stream-group-title">
+      <div className="source-filters" role="group" aria-label={t("Addons com fontes")}>
+        <button
+          className={`chip refresh ${refreshing ? "spinning" : ""}`}
+          aria-label={t("Atualizar fontes")}
+          title={t("Atualizar fontes")}
+          onClick={() => void load(true)}
+          disabled={refreshing}
+        >
+          ⟳
+        </button>
+        <button className={`chip ${effective === null ? "active" : ""}`} onClick={() => setSelected(null)}>
+          {t("Todos")}
+        </button>
+        {addonGroups.map((group) => (
+          <button
+            key={group.addonName}
+            className={`chip ${effective === group.addonName ? "active" : ""}`}
+            title={group.addonName}
+            onClick={() => setSelected(group.addonName)}
+          >
             {group.addonName}
-            <span className="muted small"> · {group.error ? t("erro: {error}", { error: message(group.error) }) : t("{count} fonte(s)", { count: group.streams.length })}</span>
-          </div>
-          {group.streams.map((s) => {
-            const ok = playable(s);
-            const instant = torbox[s.key] === "cached";
-            const badges = badgesOf(s);
-            return (
-              <button
-                key={s.key}
-                className="stream"
-                data-kind={s.kind}
-                data-key={s.key}
-                data-instant={instant || undefined}
-                disabled={!ok}
-                onClick={() => ok && onPlay(s, torbox)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  if (ok) setMenu({ stream: s, x: e.clientX, y: e.clientY });
-                }}
-              >
-                <span className="stream-name">
-                  {s.name || t("Fonte")}
-                  {instant && <span className="stream-tag instant" title={t("Já está no cache do TorBox: abre na hora")}>TB Instant</span>}
-                  {s.kind === "torrent" && !instant && <span className="stream-tag">P2P</span>}
-                </span>
-                <span className="stream-desc">{s.description}</span>
-                {badges.length > 0 && (
-                  <span className="stream-badges" aria-label={t("Detalhes da fonte")}>
-                    {badges.map((b) => <span key={b} className="stream-badge">{b}</span>)}
-                  </span>
-                )}
-                {!ok && <span className="stream-pending">{t(PENDING[s.kind as Exclude<StreamKind, "direct" | "torrent">])}</span>}
-              </button>
-            );
-          })}
+          </button>
+        ))}
+      </div>
+
+      {loading && (
+        <div className="muted small" data-testid="streams-loading">
+          {t("Buscando mais fontes…")}
+        </div>
+      )}
+
+      {failed.map((group) => (
+        <div key={group.addonName} className="stream-addon-error muted small">
+          {group.addonName} · {t("erro: {error}", { error: message(group.error ?? "") })}
         </div>
       ))}
-      {/* On the page itself: the sources panel's blur would clip and move a fixed menu. */}
-      {menu && createPortal(
-        <div ref={menuRef} className="context-menu" role="menu" style={{ left: Math.min(menu.x, window.innerWidth - 210), top: Math.min(menu.y, window.innerHeight - 100) }} data-testid="stream-menu">
-          <button role="menuitem" onClick={() => { const s = menu.stream; setMenu(null); onPlay(s, torbox); }}>{t("▶ Reproduzir")}</button>
-          {onDownload && canDownload(menu.stream, torbox) && (
-            <button role="menuitem" data-testid="stream-download" onClick={() => { const s = menu.stream; setMenu(null); onDownload(s, torbox); }}>{t("⤓ Baixar")}</button>
-          )}
-        </div>,
-        document.body,
+
+      {shown.map((group) =>
+        group.streams.map((stream) => {
+          const playable = stream.kind === "direct" || stream.kind === "torrent" || stream.kind === "debrid" || stream.kind === "youTube";
+          const external = stream.kind === "external" && !!stream.externalUrl;
+          const badges = rules ? matchedBadges(stream, rules.filters) : [];
+          const showSize = !!rules?.showFileSizeBadges && !!stream.videoSize;
+          return (
+            <div key={stream.key} className="stream" data-kind={stream.kind}>
+              <button
+                className="stream-main"
+                disabled={!playable}
+                onClick={() => playable && onPlay(stream)}
+              >
+                <span className="stream-name">
+                  {stream.name || t("Fonte")}
+                  {stream.kind === "torrent" && !stream.debridProvider && <span className="stream-tag">P2P</span>}
+                  {stream.debridProvider && <span className="stream-tag debrid-tag" title={t("Resolvido por debrid")}>{stream.debridProvider}</span>}
+                  {stream.kind === "youTube" && <span className="stream-tag">YouTube</span>}
+                  {stream.kind === "external" && <span className="stream-tag">↗</span>}
+                </span>
+                {stream.description && <span className="stream-desc">{stream.description}</span>}
+                {(badges.length > 0 || showSize) && (
+                  <span className="stream-badges">
+                    {showSize && <span className="badge badge-size">{t("SIZE {size}", { size: sizeLabel(stream.videoSize!) })}</span>}
+                    {badges.map((filter) => (
+                      <Badge key={`${filter.imageUrl || filter.name}`} filter={filter} />
+                    ))}
+                  </span>
+                )}
+              </button>
+              {downloadProgress && stream.kind === "direct" && (
+                <button
+                  className="stream-action"
+                  title={t("Baixar fonte")}
+                  aria-label={t("Baixar fonte")}
+                  data-download={stream.key}
+                  onClick={() => void api.downloadFromStream(stream.key, downloadProgress).catch(() => {})}
+                >↓</button>
+              )}
+              {external && (
+                <button
+                  className="stream-action"
+                  title={t("Abrir link externo")}
+                  aria-label={t("Abrir link externo")}
+                  onClick={() => void api.streamOpenExternal(stream.key).catch(() => {})}
+                >↗</button>
+              )}
+              {stream.kind === "external" && !external && <span className="stream-pending">{t("Link externo inválido")}</span>}
+            </div>
+          );
+        }),
       )}
     </div>
   );

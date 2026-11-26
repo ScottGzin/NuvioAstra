@@ -5,12 +5,14 @@
 import { ReleaseNotes } from "../components/ReleaseNotes";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon,
-  PendingLine as PendingIcon, TorboxLine as TorboxIcon, DownloadsLine as DownloadsIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
+  AccountLine as AccountIcon, AddonsLine as AddonsIcon, AudioLine as AudioIcon, HomeLine as HomeIcon, P2pLine as P2pIcon, TvLine as DetailsIcon,
+  PendingLine as PendingIcon, PlaybackLine as PlaybackIcon, ProfileDataLine as ProfileDataIcon, SubtitlesLine as SubtitlesIcon, UpdatesLine as UpdatesIcon,
+  ServicesLine as ServicesIcon,
 } from "../components/SidebarIcons";
 import { api, errorText, onRemoteSettingsChanged } from "../api";
 import { AccountPanel } from "../components/AccountPanel";
 import { AddonsManager } from "../components/AddonsManager";
+import { PluginsManager } from "../components/PluginsManager";
 import { checkForUpdates, installUpdate, useUpdates } from "../updates";
 import { Avatar } from "../components/ProfileMenu";
 import { LANGUAGES, languageLabel } from "../languages";
@@ -19,18 +21,24 @@ import { ANIME_MODES, ENHANCEMENTS, MOTIONS } from "../player/EnhanceMenu";
 import { Row, Toggle } from "../components/SettingControls";
 import { SubtitleAppearance } from "../components/SubtitleAppearance";
 import { HeroCatalogs } from "../components/HeroCatalogs";
+import { AudioSettings } from "../components/AudioSettings";
+import { BufferSettings } from "../components/BufferSettings";
+import { CollectionsManager } from "../components/CollectionsManager";
+import { ServersPanel } from "../components/ServersPanel";
+import { PosterCardStyle } from "../components/PosterCardStyle";
+import { SourceSettings } from "../components/SourceSettings";
+import { StreamsSettingsPanel } from "../components/StreamsSettingsPanel";
+import { TrackingCredentialsPanel } from "../components/TrackingCredentialsPanel";
 import { WatchingSettings } from "../components/WatchingSettings";
-import { DownloadsSection, TorboxSection } from "../components/ServiceSettings";
-import { applyCardStyle, CARD_RADII, CARD_WIDTHS } from "../cardStyle";
 import { refreshLibraryViews } from "../library";
-import type { CatalogChoice, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings } from "../types";
+import type { CatalogChoice, ContinueWatchingSettings, DebridSettingsInput, DebridSettingsView, MdblistSettingsInput, MdblistSettingsView, MetaScreenSettings, P2pCacheName, P2pProfileName, P2pSettings, PlayerSettings, ProfileSettings, AnimeModeName, EnhancementName, MotionName, ResizeModeName, SettingsView, SubtitleSettings, TmdbSettingsInput, TmdbSettingsView } from "../types";
 import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, t, useLang, type Lang } from "../i18n";
 import { chooseAppLanguage } from "../appLanguage";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "addons" | "playback" | "watching" | "p2p" | "torbox" | "downloads" | "audio" | "subtitles" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "watching" | "p2p" | "audio" | "subtitles" | "services" | "servers" | "debrid" | "data" | "updates" | "pending";
 
-// The menu: a few groups, each opening into its pages (only one group open at a time).
+// The upstream menu: a few groups, each opening into its pages (one group open at a time).
 const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Section; label: string; icon: ReactNode }[] }[] = [
   { id: "profile", label: "Conta e perfil", icon: <AccountIcon />, sections: [
     { id: "account", label: "Conta", icon: <AccountIcon /> },
@@ -38,6 +46,9 @@ const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Sect
   ] },
   { id: "content", label: "Conteúdo", icon: <HomeIcon />, sections: [
     { id: "home", label: "Início", icon: <HomeIcon /> },
+    { id: "layout", label: "Layout", icon: <HomeIcon /> },
+    { id: "details", label: "Detalhes", icon: <DetailsIcon /> },
+    { id: "collections", label: "Coleções", icon: <DetailsIcon /> },
     { id: "addons", label: "Addons", icon: <AddonsIcon /> },
   ] },
   { id: "player", label: "Player", icon: <PlaybackIcon />, sections: [
@@ -46,10 +57,16 @@ const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Sect
     { id: "audio", label: "Áudio", icon: <AudioIcon /> },
     { id: "subtitles", label: "Legendas", icon: <SubtitlesIcon /> },
   ] },
-  { id: "sources", label: "Fontes e downloads", icon: <DownloadsIcon />, sections: [
+  { id: "sources", label: "Fontes e downloads", icon: <AddonsIcon />, sections: [
+    { id: "sources", label: "Fontes", icon: <AddonsIcon /> },
     { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
-    { id: "torbox", label: "TorBox", icon: <TorboxIcon /> },
-    { id: "downloads", label: "Downloads", icon: <DownloadsIcon /> },
+  ] },
+  { id: "services", label: "Serviços", icon: <ServicesIcon />, sections: [
+    { id: "servers", label: "Servidores de mídia", icon: <AddonsIcon /> },
+    { id: "debrid", label: "Serviços conectados", icon: <ServicesIcon /> },
+  ] },
+  { id: "integrations", label: "Integrações", icon: <ServicesIcon />, sections: [
+    { id: "services", label: "Integrações", icon: <ServicesIcon /> },
   ] },
   { id: "app", label: "Sobre o app", icon: <UpdatesIcon />, sections: [
     { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
@@ -67,7 +84,31 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
+/** Extra words that lead to a Settings section, so the search finds more than section titles. */
+const SETTING_KEYWORDS: Partial<Record<Section, string>> = {
+  home: "início catalogo catálogo destaque continuar assistindo gênero genre hero",
+  details: "detalhes seções episódios elenco fundo pôster capítulos blur",
+  sources: "fontes streams regex automático fallback reutilizar link youtube addons",
+  addons: "addon instalar configurar manifest",
+  playback: "reprodução vídeo imagem decodificação mpv velocidade",
+  watching: "episódios pular próximo episódio threshold assistido buffer cache",
+  p2p: "torrent p2p engine cache upload",
+  audio: "áudio idioma som volume amplificação downmix canais atraso",
+  subtitles: "legendas subtitle legenda estilo sdsh cor tamanho",
+  services: "serviços tmdb mdblist debrid torbox discord trakt simkl integrações",
+  data: "perfil dados conta sincronização conta avatares idioma",
+  updates: "atualizações versão github",
+  pending: "não disponível recursos futuros downloads",
+};
+
 type Status = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; note?: string } | { kind: "error"; message: string };
+
+// Languages offered by the TMDB page (the original accepts any BCP-47 tag; these are the usual ones).
+const TMDB_LANGUAGES: [string, string][] = [
+  ["en", "English"], ["en-US", "English (US)"], ["pt-BR", "Português (Brasil)"], ["ar", "العربية"],
+  ["es-ES", "Español"], ["fr-FR", "Français"], ["de-DE", "Deutsch"], ["tr-TR", "Türkçe"],
+  ["hi-IN", "हिन्दी"], ["ja-JP", "日本語"], ["ko-KR", "한국어"], ["zh-CN", "中文"],
+];
 
 // ---------- small controls ----------
 
@@ -102,7 +143,23 @@ export function Settings() {
     const group = GROUPS.find((g) => g.id === id)!;
     if (!group.sections.some((s) => s.id === section)) setSection(group.sections[0].id);
   };
+  const [settingSearch, setSettingSearch] = useState("");
+  const [layoutPage, setLayoutPage] = useState<"menu" | "poster" | "streams">("menu");
   const [status, setStatus] = useState<Status>({ kind: "idle" });
+  // Services → Integrations → TMDB (the only integration ported so far).
+  const [servicePage, setServicePage] = useState<"menu" | "integrations" | "tracking" | "tmdb" | "debrid" | "mdblist" | "servers">("menu");
+  const [tmdb, setTmdb] = useState<TmdbSettingsView | null>(null);
+  const [tmdbError, setTmdbError] = useState<string | null>(null);
+  const [tmdbStatus, setTmdbStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [apiKeyDraft, setApiKeyDraft] = useState("");
+  const [debrid, setDebrid] = useState<DebridSettingsView | null>(null);
+  const [debridError, setDebridError] = useState<string | null>(null);
+  const [debridStatus, setDebridStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [debridDrafts, setDebridDrafts] = useState<Record<string, string>>({});
+  const [mdblist, setMdblist] = useState<MdblistSettingsView | null>(null);
+  const [mdblistError, setMdblistError] = useState<string | null>(null);
+  const [mdblistStatus, setMdblistStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [mdblistKeyDraft, setMdblistKeyDraft] = useState("");
   const timer = useRef<number>(0);
   const pending = useRef<{ next: ProfileSettings; note?: string } | null>(null);
   /** Latest settings, including changes not rendered yet (several quick changes in a row). */
@@ -111,6 +168,15 @@ export function Settings() {
   const baseRef = useRef<ProfileSettings | null>(null);
   const profileRef = useRef<number | undefined>(undefined);
   const saving = useRef(false);
+
+  useEffect(() => {
+    if (!view) return;
+    const cards = view.settings.player.cards;
+    if (cards) {
+      document.documentElement.style.setProperty("--card-width", `${cards.width}px`);
+      document.documentElement.style.setProperty("--card-radius", `${cards.radius}px`);
+    }
+  }, [view]);
 
   useEffect(() => {
     api.settingsGet().then(
@@ -124,6 +190,96 @@ export function Settings() {
       (e) => setError(errorText(e)),
     );
   }, []);
+
+  // TMDB settings of the profile, loaded with the Services page.
+  useEffect(() => {
+    if (section !== "services") return;
+    let cancelled = false;
+    setTmdbError(null);
+    api.tmdbSettings().then(
+      (value) => !cancelled && setTmdb(value),
+      (e) => !cancelled && setTmdbError(errorText(e)),
+    );
+    api.debridSettings().then(
+      (value) => !cancelled && setDebrid(value),
+      (e) => !cancelled && setDebridError(errorText(e)),
+    );
+    api.mdblistSettings().then(
+      (value) => !cancelled && setMdblist(value),
+      (e) => !cancelled && setMdblistError(errorText(e)),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [section, view?.profile.index]);
+
+  const saveTmdb = useCallback(async (change: Partial<TmdbSettingsInput>) => {
+    if (!tmdb) return;
+    setTmdbStatus("saving");
+    try {
+      const saved = await api.tmdbSettingsSet({
+        enabled: tmdb.enabled,
+        language: tmdb.language,
+        useMoreLikeThis: tmdb.useMoreLikeThis,
+        useCollections: tmdb.useCollections,
+        useArtwork: tmdb.useArtwork,
+        useBasicInfo: tmdb.useBasicInfo,
+        useDetails: tmdb.useDetails,
+        useCredits: tmdb.useCredits,
+        useEpisodes: tmdb.useEpisodes,
+        useTrailers: tmdb.useTrailers,
+        ...change,
+      });
+      setTmdb(saved);
+      setTmdbError(null);
+      setTmdbStatus("saved");
+      window.setTimeout(() => setTmdbStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setTmdbStatus("error");
+      setTmdbError(errorText(e));
+    }
+  }, [tmdb]);
+
+  const saveDebrid = useCallback(async (change: Partial<DebridSettingsInput>) => {
+    if (!debrid) return;
+    setDebridStatus("saving");
+    try {
+      const saved = await api.debridSettingsSet({ enabled: debrid.enabled, ...change });
+      setDebrid(saved);
+      setDebridError(null);
+      setDebridStatus("saved");
+      window.setTimeout(() => setDebridStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setDebridStatus("error");
+      setDebridError(errorText(e));
+    }
+  }, [debrid]);
+
+  const saveMdblist = useCallback(async (change: Partial<MdblistSettingsInput>) => {
+    if (!mdblist) return;
+    setMdblistStatus("saving");
+    try {
+      const saved = await api.mdblistSettingsSet({
+        enabled: mdblist.enabled,
+        useImdb: mdblist.useImdb,
+        useTmdb: mdblist.useTmdb,
+        useTomatoes: mdblist.useTomatoes,
+        useMetacritic: mdblist.useMetacritic,
+        useTrakt: mdblist.useTrakt,
+        useLetterboxd: mdblist.useLetterboxd,
+        useAudience: mdblist.useAudience,
+        useMal: mdblist.useMal,
+        ...change,
+      });
+      setMdblist(saved);
+      setMdblistError(null);
+      setMdblistStatus("saved");
+      window.setTimeout(() => setMdblistStatus((current) => (current === "saved" ? "idle" : current)), 1600);
+    } catch (e) {
+      setMdblistStatus("error");
+      setMdblistError(errorText(e));
+    }
+  }, [mdblist]);
 
   // The account sent something: shown at once. An edit still waiting keeps the screen as it is;
   // its save writes only that edit and returns both.
@@ -208,8 +364,8 @@ export function Settings() {
     update((s) => {
       switch (what) {
         case "home": return { ...s, home: { ...d.home } };
-        case "playback": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr, motionSmoothing: d.player.motionSmoothing, videoEnhancement: d.player.videoEnhancement, picture: { ...d.player.picture } } };
-        case "watching": return { ...s, player: { ...s.player, skipSegmentsEnabled: d.player.skipSegmentsEnabled, autoSkipSegments: [...d.player.autoSkipSegments], nextEpisodeThresholdMode: d.player.nextEpisodeThresholdMode, nextEpisodeThresholdPercent: d.player.nextEpisodeThresholdPercent, nextEpisodeThresholdMinutes: d.player.nextEpisodeThresholdMinutes, watchedPercent: d.player.watchedPercent } };
+        case "playback":
+        case "watching": return { ...s, player: { ...s.player, resizeMode: d.player.resizeMode, decoderPriority: d.player.decoderPriority, nvidiaRtxSuperResolution: d.player.nvidiaRtxSuperResolution, nvidiaRtxHdr: d.player.nvidiaRtxHdr, motionSmoothing: d.player.motionSmoothing, videoEnhancement: d.player.videoEnhancement, picture: { ...d.player.picture }, skipSegmentsEnabled: d.player.skipSegmentsEnabled, autoSkipSegments: [...d.player.autoSkipSegments], nextEpisodeThresholdMode: d.player.nextEpisodeThresholdMode, nextEpisodeThresholdPercent: d.player.nextEpisodeThresholdPercent, nextEpisodeThresholdMinutes: d.player.nextEpisodeThresholdMinutes, watchedPercent: d.player.watchedPercent } };
         case "audio": return { ...s, player: { ...s.player, preferredAudioLanguage: d.player.preferredAudioLanguage, secondaryPreferredAudioLanguage: d.player.secondaryPreferredAudioLanguage } };
         case "subtitles": return { ...s, player: { ...s.player, preferredSubtitleLanguage: d.player.preferredSubtitleLanguage, secondaryPreferredSubtitleLanguage: d.player.secondaryPreferredSubtitleLanguage, subtitle: { ...d.player.subtitle } } };
         default: return s;
@@ -221,6 +377,9 @@ export function Settings() {
   if (!view || !draft) return <div className="screen-message">{t("Carregando configurações…")}</div>;
   const p = draft.player;
   const sub = p.subtitle;
+  // Media servers and debrid are their own Settings pages; the old service sub-pages stay under
+  // "Integrações" for TMDB/MDBList/tracking.
+  const effectivePage = section === "servers" ? "servers" : section === "debrid" ? "debrid" : servicePage;
 
   return (
     <div className="settings">
@@ -232,26 +391,42 @@ export function Settings() {
             <div className="muted small">{t("Configurações deste perfil")}</div>
           </div>
         </div>
-        {GROUPS.map((g) => {
-          const open = openGroup === g.id;
-          const current = g.sections.some((s) => s.id === section);
-          return (
-            <div key={g.id} className={`nav-group ${open ? "open" : ""}`}>
-              <button className={`nav-item nav-group-head ${current ? "current" : ""}`} data-group={g.id} aria-expanded={open} onClick={() => toggleGroup(g.id)}>
-                <span className="nav-icon" aria-hidden>{g.icon}</span>
-                <span className="nav-group-label">{t(g.label)}</span>
-                <Chevron open={open} />
-              </button>
-              <div className="nav-sub-list" hidden={!open}>
-                {g.sections.map((s) => (
-                  <button key={s.id} className={`nav-item nav-sub ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => choose(s.id)}>
-                    <span>{t(s.label)}</span>
-                  </button>
-                ))}
-              </div>
+        <input
+          className="settings-search"
+          type="search"
+          aria-label={t("Buscar nas configurações")}
+          placeholder={t("Buscar nas configurações")}
+          data-testid="settings-search"
+          value={settingSearch}
+          onChange={(e) => setSettingSearch(e.target.value)}
+        />
+        {settingSearch.trim() === "" ? GROUPS.map((g) => (
+          <div key={g.id} className="nav-group">
+            <button className="nav-group-head" data-group={g.id} aria-expanded={openGroup === g.id} onClick={() => toggleGroup(g.id)}>
+              <span className="nav-icon" aria-hidden>{g.icon}</span>
+              <span>{t(g.label)}</span>
+              <Chevron open={openGroup === g.id} />
+            </button>
+            <div className="nav-sub-list">
+              {openGroup === g.id && g.sections.map((s) => (
+                <button key={s.id} className={`nav-item nav-sub ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); choose(s.id); }}>
+                  <span className="nav-icon" aria-hidden>{s.icon}</span>
+                  <span>{t(s.label)}</span>
+                </button>
+              ))}
             </div>
-          );
-        })}
+          </div>
+        )) : SECTIONS.filter((s) => {
+          const q = settingSearch.trim().toLocaleLowerCase();
+          const label = t(s.label).toLocaleLowerCase();
+          const keywords = SETTING_KEYWORDS[s.id] ?? "";
+          return label.includes(q) || keywords.includes(q);
+        }).map((s) => (
+          <button key={s.id} className={`nav-item ${section === s.id ? "active" : ""}`} data-section={s.id} onClick={() => { if (s.id === "services") setServicePage("menu"); choose(s.id); }}>
+            <span className="nav-icon" aria-hidden>{s.icon}</span>
+            <span>{t(s.label)}</span>
+          </button>
+        ))}
       </nav>
 
       <div className="settings-body" key={section}>
@@ -262,7 +437,7 @@ export function Settings() {
             {status.kind === "saved" && `${t("✓ Salvo")}${status.note ? ` · ${status.note}` : ""}`}
             {status.kind === "error" && t("Não foi possível salvar: {error}", { error: message(status.message) })}
           </span>
-          {["home", "playback", "watching", "audio", "subtitles"].includes(section) && (
+          {["home", "playback", "audio", "subtitles"].includes(section) && (
             <button className="ghost" onClick={() => resetSection(section)}>{t("Restaurar padrões")}</button>
           )}
         </header>
@@ -270,9 +445,58 @@ export function Settings() {
         {section === "home" && (
           <HomeSection settings={draft} catalogs={view.catalogs} update={update} />
         )}
+        {section === "layout" && (layoutPage === "menu" ? (
+          <div className="settings-group">
+            <button className="integration-row" data-service="poster" onClick={() => setLayoutPage("poster")}>
+              <span className="integration-icon link">▧</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Poster Card Style")}</span>
+                <span className="muted small">{t("Tune card width and corner radius.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" data-service="streams" onClick={() => setLayoutPage("streams")}>
+              <span className="integration-icon link">≡</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Streams")}</span>
+                <span className="muted small">{t("Stream result display and badge URL rules.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          </div>
+        ) : layoutPage === "streams" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setLayoutPage("menu")}>← {t("Layout")}</button>
+              <h2>{t("Streams")}</h2>
+            </div>
+            <StreamsSettingsPanel />
+          </>
+        ) : (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setLayoutPage("menu")}>← {t("Layout")}</button>
+              <h2>{t("Poster Card Style")}</h2>
+            </div>
+            {draft && <PosterCardStyle value={draft.player} onChange={(change) => update((s) => ({ ...s, player: change(s.player) }))} />}
+          </>
+        ))}
+
+        {section === "details" && (
+          <DetailsSection
+            settings={draft.metaScreen}
+            update={(change) => update((s) => ({ ...s, metaScreen: change(s.metaScreen) }), t("A tela de detalhes é atualizada."))}
+          />
+        )}
 
         {section === "account" && <AccountPanel />}
-        {section === "addons" && <AddonsManager />}
+        {section === "collections" && <CollectionsManager />}
+        {section === "sources" && (
+          <div className="settings-group">
+            <SourceSettings value={draft.player} addons={[...new Set(view.catalogs.map((c) => c.addonName))].sort()} onChange={player} />
+          </div>
+        )}
+        {section === "addons" && <><AddonsManager /><PluginsManager /></>}
 
         {section === "playback" && (
           <div className="settings-group">
@@ -318,11 +542,10 @@ export function Settings() {
         {section === "watching" && (
           <div className="settings-group">
             <WatchingSettings value={p} onChange={player} />
+            <BufferSettings value={p} onChange={player} />
           </div>
         )}
 
-        {section === "torbox" && <TorboxSection settings={draft.debrid} update={(change) => update((s) => ({ ...s, debrid: change(s.debrid) }), t("Vale para as próximas fontes."), 0)} />}
-        {section === "downloads" && <DownloadsSection />}
         {section === "p2p" && <P2pSection settings={draft.p2p} update={(change) => update((s) => ({ ...s, p2p: change(s.p2p) }), t("Vale a partir da próxima fonte torrent."), 0)} />}
 
         {section === "audio" && (
@@ -333,6 +556,7 @@ export function Settings() {
             <Row title={t("Idioma de áudio secundário")} description={t("Usado quando o preferido não existe no arquivo.")}>
               <LanguageSelect label={t("Idioma de áudio secundário")} value={p.secondaryPreferredAudioLanguage} special={[["", t("Nenhum")]]} onChange={(v) => player((x) => ({ ...x, secondaryPreferredAudioLanguage: v }))} />
             </Row>
+            <AudioSettings value={p} onChange={player} />
             <p className="muted small pad-top">{t("“Idioma original” usa o idioma do dispositivo enquanto o Nuvio Astra não conhece o idioma original do título (mesma regra do Nuvio original quando essa informação falta).")}</p>
           </div>
         )}
@@ -349,8 +573,294 @@ export function Settings() {
             <Row title={t("Remover descrições para surdos (SDH)")} description={t("Oculta trechos como [música] e (risos).")}>
               <Toggle label={t("Remover SDH")} checked={sub.stripSdh} onChange={(v) => subtitle((s) => ({ ...s, stripSdh: v }))} />
             </Row>
+            <Row title={t("Sincronização automática da legenda")} description={t("Compara a legenda escolhida com outras disponíveis e aplica o atraso encontrado. Sem chave, sem análise de áudio e só quando há correspondência confiável.")}>
+              <Toggle label={t("Sincronizar ao escolher uma legenda")} checked={sub.autoSyncEnabled} onChange={(v) => subtitle((s) => ({ ...s, autoSyncEnabled: v }))} />
+            </Row>
           </div>
         )}
+
+        {(section === "services" || section === "servers" || section === "debrid") && (effectivePage === "menu" ? (
+          <div className="settings-group">
+            <button className="integration-row" data-service="integrations" onClick={() => setServicePage("integrations")}>
+              <span className="integration-icon link">↔</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Integrações")}</span>
+                <span className="muted small">{t("Gerenciar integrações disponíveis")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" data-service="tracking" onClick={() => setServicePage("tracking")}>
+              <span className="integration-icon link">♻</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Rastreamento")}</span>
+                <span className="muted small">{t("Conecte provedores de rastreamento e escolha qual alimenta sua Biblioteca e Continuar assistindo.")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          </div>
+        ) : effectivePage === "tracking" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
+              <h2>{t("Rastreamento")}</h2>
+            </div>
+            <TrackingCredentialsPanel settings={draft} update={update} />
+          </>
+        ) : effectivePage === "integrations" ? (
+          <>
+          <div className="settings-subhead">
+            <button className="ghost" data-testid="integrations-back" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
+            <h2>{t("Integrações")}</h2>
+          </div>
+          <div className="settings-group">
+            <button className="integration-row" onClick={() => setServicePage("tmdb")} data-service="tmdb">
+              <span className="integration-icon tmdb">TMDB</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("Enriquecimento TMDB")}</span>
+                <span className="muted small">{t("Controles de enriquecimento de metadados")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+            <button className="integration-row" data-service="mdblist" data-testid="mdblist-open" onClick={() => setServicePage("mdblist")}>
+              <span className="integration-icon mdb">M</span>
+              <span className="integration-text">
+                <span className="setting-title">{t("MDBList Ratings")}</span>
+                <span className="muted small">{t("Avaliações externas")}</span>
+              </span>
+              <span className="integration-arrow" aria-hidden>›</span>
+            </button>
+          <Row title={t("Presença no Discord")} description={t("Mostra o que você está assistindo no Discord.")}>
+            <Toggle
+              label={t("Presença no Discord")}
+              checked={draft.discordRpcEnabled}
+              onChange={(v) => {
+                update((x) => ({ ...x, discordRpcEnabled: v }));
+                if (!v) void api.discordActivity(null);
+              }}
+            />
+          </Row>
+          </div>
+          </>
+        ) : effectivePage === "servers" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => choose("services")}>← {t("Serviços")}</button>
+              <h2>{t("Servidores de mídia")}</h2>
+            </div>
+            <ServersPanel />
+          </>
+        ) : effectivePage === "mdblist" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
+              <h2>{t("MDBList Ratings")}</h2>
+              <span className={`save-status ${mdblistStatus}`} role="status" data-testid="mdblist-save-status">
+                {mdblistStatus === "saving" && t("Salvando…")}
+                {mdblistStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {mdblistError && <div className="row-error">{mdblistError}</div>}
+            {!mdblist ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row
+                  title={t("Ativar avaliações externas")}
+                  description={
+                    mdblist.apiKeyFromAccount
+                      ? t("Chave sincronizada da conta Nuvio.")
+                      : mdblist.apiKeyFromOriginal
+                        ? t("Chave do Nuvio original em uso.")
+                        : mdblist.apiKeySet
+                          ? t("Uma chave está configurada.")
+                          : t("Sem chave: as avaliações ficam indisponíveis.")
+                  }
+                >
+                  <Toggle label={t("Ativar avaliações externas")} checked={mdblist.enabled} onChange={(v) => void saveMdblist({ enabled: v })} />
+                </Row>
+                <Row title={t("Chave do MDBList")} description={t("Chave da API do MDBList (mdblist.com).")}>
+                  <span className="tmdb-key">
+                    <input
+                      type="password"
+                      value={mdblistKeyDraft}
+                      placeholder={mdblist.apiKeySet ? "••••••••" : t("Cole a chave")}
+                      aria-label={t("Chave do MDBList")}
+                      onChange={(e) => setMdblistKeyDraft(e.target.value)}
+                    />
+                    <button className="ghost" disabled={!mdblistKeyDraft.trim()} onClick={() => { const key = mdblistKeyDraft.trim(); if (key) { setMdblistKeyDraft(""); void saveMdblist({ apiKey: key }); } }}>
+                      {t("Salvar")}
+                    </button>
+                  </span>
+                </Row>
+                {([
+                  ["useImdb", "IMDb"],
+                  ["useTmdb", "TMDB"],
+                  ["useTomatoes", "Rotten Tomatoes"],
+                  ["useMetacritic", "Metacritic"],
+                  ["useTrakt", "Trakt"],
+                  ["useLetterboxd", "Letterboxd"],
+                  ["useAudience", "Audience"],
+                  ["useMal", "MyAnimeList"],
+                ] as const).map(([key, label]) => (
+                  <Row key={key} title={label}>
+                    <Toggle label={label} checked={mdblist[key]} disabled={!mdblist.enabled} onChange={(v) => void saveMdblist({ [key]: v } as Partial<MdblistSettingsInput>)} />
+                  </Row>
+                ))}
+                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio; as avaliações aparecem no ecrã de detalhes.")}</p>
+              </div>
+            )}
+          </>
+        ) : effectivePage === "debrid" ? (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => choose("services")}>← {t("Serviços")}</button>
+              <h2>{t("Serviços conectados")}</h2>
+              <span className={`save-status ${debridStatus}`} role="status" data-testid="debrid-save-status">
+                {debridStatus === "saving" && t("Salvando…")}
+                {debridStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {debridError && <div className="row-error">{debridError}</div>}
+            {!debrid ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row title={t("Ativar resolução de links")} description={t("Resolve as fontes de debrid para uma ligação direta antes de reproduzir.")}>
+                  <Toggle label={t("Ativar resolução de links")} checked={debrid.enabled} disabled={!debrid.active} onChange={(v) => void saveDebrid({ enabled: v })} />
+                </Row>
+                {debrid.providers.map((provider) => (
+                  <Row
+                    key={provider.id}
+                    title={provider.label}
+                    description={
+                      provider.fromAccount
+                        ? t("Chave sincronizada da conta Nuvio.")
+                        : provider.fromOriginal
+                          ? t("Chave do Nuvio original em uso.")
+                          : provider.connected
+                            ? t("Ligado{account}.", { account: provider.account ? ` · ${provider.account}` : "" })
+                            : t("Sem chave: cole a sua chave de API.")
+                    }
+                  >
+                    <span className="tmdb-key">
+                      <input
+                        type="password"
+                        value={debridDrafts[provider.id] ?? ""}
+                        placeholder={provider.connected ? "••••••••" : t("Cole a chave")}
+                        aria-label={provider.label}
+                        onChange={(e) => setDebridDrafts((drafts) => ({ ...drafts, [provider.id]: e.target.value }))}
+                      />
+                      <button
+                        className="ghost"
+                        disabled={!(debridDrafts[provider.id] ?? "").trim()}
+                        onClick={() => {
+                          const key = (debridDrafts[provider.id] ?? "").trim();
+                          if (!key) return;
+                          setDebridDrafts((drafts) => ({ ...drafts, [provider.id]: "" }));
+                          void saveDebrid({ keys: { [provider.id]: key }, ...(debrid.active ? {} : { active: provider.id }) });
+                        }}
+                      >
+                        {t("Salvar")}
+                      </button>
+                      {provider.connected && debrid.active !== provider.id && (
+                        <button className="ghost" onClick={() => void saveDebrid({ active: provider.id })}>
+                          {t("Usar")}
+                        </button>
+                      )}
+                      {provider.connected && (
+                        <button className="ghost" onClick={() => void saveDebrid({ keys: { [provider.id]: "" }, active: debrid.active === provider.id ? "" : debrid.active })}>
+                          {t("Remover chave")}
+                        </button>
+                      )}
+                      {debrid.active === provider.id && <span className="integration-tag">{t("Em uso")}</span>}
+                    </span>
+                  </Row>
+                ))}
+                <p className="muted small settings-note">{t("As chaves são sincronizadas com a sua conta Nuvio (ProviderCredentialSync) por perfil. O primeiro serviço ligado é usado por padrão.")}</p>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="settings-subhead">
+              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
+              <h2>{t("Enriquecimento TMDB")}</h2>
+              <span className={`save-status ${tmdbStatus}`} role="status" data-testid="tmdb-save-status">
+                {tmdbStatus === "saving" && t("Salvando…")}
+                {tmdbStatus === "saved" && t("✓ Salvo")}
+              </span>
+            </div>
+            {tmdbError && <div className="row-error">{tmdbError}</div>}
+            {!tmdb ? (
+              <div className="muted">{t("Carregando…")}</div>
+            ) : (
+              <div className="settings-group">
+                <Row title={t("Ativar enriquecimento TMDB")} description={t("Fontes TMDB nas coleções e “Mais como este”.")}>
+                  <Toggle label={t("Ativar enriquecimento TMDB")} checked={tmdb.enabled} onChange={(v) => void saveTmdb({ enabled: v })} />
+                </Row>
+                <Row
+                  title={t("Chave da API do TMDB")}
+                  description={
+                    tmdb.apiKeyFromAccount
+                      ? t("Chave sincronizada da conta Nuvio.")
+                      : tmdb.apiKeyFromOriginal
+                        ? t("A chave do Nuvio original está em uso.")
+                        : tmdb.apiKeySet
+                        ? t("Uma chave está configurada.")
+                        : t("Sem chave: os recursos TMDB ficam indisponíveis.")
+                  }
+                >
+                  <span className="tmdb-key">
+                    <input
+                      type="password"
+                      value={apiKeyDraft}
+                      placeholder={tmdb.apiKeySet ? "••••••••" : t("Cole a chave")}
+                      aria-label={t("Chave da API do TMDB")}
+                      onChange={(e) => setApiKeyDraft(e.target.value)}
+                    />
+                    <button className="ghost" disabled={!apiKeyDraft.trim()} onClick={() => { const key = apiKeyDraft.trim(); if (key) { setApiKeyDraft(""); void saveTmdb({ apiKey: key }); } }}>
+                      {t("Salvar")}
+                    </button>
+                    {tmdb.apiKeySet && !tmdb.apiKeyFromOriginal && (
+                      <button className="ghost" onClick={() => void saveTmdb({ apiKey: "" })}>{t("Remover")}</button>
+                    )}
+                  </span>
+                </Row>
+                <Row title={t("Idioma preferido")} description={t("Idioma dos títulos e sinopses do TMDB.")}>
+                  <select aria-label={t("Idioma preferido")} value={tmdb.language} onChange={(e) => void saveTmdb({ language: e.target.value })}>
+                    {!TMDB_LANGUAGES.some(([code]) => code === tmdb.language) && <option value={tmdb.language}>{tmdb.language}</option>}
+                    {TMDB_LANGUAGES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+                  </select>
+                </Row>
+                <Row title={t("Imagens (arte)")} description={t("Cartazes, fundos e logotipos do TMDB.")}>
+                  <Toggle label={t("Imagens (arte)")} checked={tmdb.useArtwork} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useArtwork: v })} />
+                </Row>
+                <Row title={t("Informações básicas")} description={t("Título, sinopse, avaliação e géneros.")}>
+                  <Toggle label={t("Informações básicas")} checked={tmdb.useBasicInfo} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useBasicInfo: v })} />
+                </Row>
+                <Row title={t("Detalhes")} description={t("Estado, classificação etária, duração, país e idioma.")}>
+                  <Toggle label={t("Detalhes")} checked={tmdb.useDetails} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useDetails: v })} />
+                </Row>
+                <Row title={t("Elenco e equipa")} description={t("Elenco, realização e argumento do TMDB.")}>
+                  <Toggle label={t("Elenco e equipa")} checked={tmdb.useCredits} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useCredits: v })} />
+                </Row>
+                <Row title={t("Episódios")} description={t("Títulos, sinopses e imagens dos episódios.")}>
+                  <Toggle label={t("Episódios")} checked={tmdb.useEpisodes} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useEpisodes: v })} />
+                </Row>
+                <Row title={t("Trailers")} description={t("Trailers do TMDB no ecrã de detalhes.")}>
+                  <Toggle label={t("Trailers")} checked={tmdb.useTrailers} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useTrailers: v })} />
+                </Row>
+                <Row title={t("Mais como este")} description={t("Recomendações do TMDB no ecrã de detalhes.")}>
+                  <Toggle label={t("Mais como este")} checked={tmdb.useMoreLikeThis} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useMoreLikeThis: v })} />
+                </Row>
+                <Row title={t("Fontes TMDB nas coleções")} description={t("Catálogos TMDB dos folders das coleções do perfil.")}>
+                  <Toggle label={t("Fontes TMDB nas coleções")} checked={tmdb.useCollections} disabled={!tmdb.enabled} onChange={(v) => void saveTmdb({ useCollections: v })} />
+                </Row>
+                <p className="muted small settings-note">{t("Os módulos de produtoras, redes, cartazes de temporada e coleções do TMDB ainda não foram portados.")}</p>
+              </div>
+            )}
+          </>
+        ))}
 
         {section === "data" && (
           <div className="settings-group">
@@ -361,8 +871,8 @@ export function Settings() {
                 <div className="muted small">{t("Versão")} {view.appVersion} · {t("Windows x64 · fork do Nuvio Desktop, compatível com seus addons e dados")}</div>
               </div>
             </div>
-            <Row title={t("Idioma da interface")} description={t("Aplicado na hora e salvo na sua conta Nuvio: os outros computadores com o Nuvio Astra abrem no mesmo idioma.")}>
-              <select aria-label={t("Idioma da interface")} data-setting="appLanguage" value={lang} onChange={(e) => void chooseAppLanguage(e.target.value as Lang)}>
+            <Row title={t("Idioma da interface")} description={t("Aplicado imediatamente a todo o aplicativo.")}>
+              <select aria-label={t("Idioma da interface")} value={lang} onChange={(e) => void chooseAppLanguage(e.target.value as Lang)}>
                 {LANGUAGES_UI.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
               </select>
             </Row>
@@ -395,26 +905,10 @@ export function Settings() {
         {section === "pending" && (
           <div className="settings-group">
             <p className="muted">{t("Recursos do Nuvio original que o Nuvio Astra ainda não tem. Eles aparecem nas Configurações quando forem adicionados — nenhuma opção fica visível sem funcionar.")}</p>
+            <p className="muted small">{t("Já disponíveis: Trakt e Simkl (com IDs locais), conexão MDBList, retomada pelo serviço escolhido, downloads, embaralhamento, servidores Jellyfin/Emby, editor de coleções, busca nas configurações, seleção automática e regex, fallback, reutilização de link, links externos e YouTube, capítulos, áudio, buffer/cache, Discord, Descobrir na pesquisa, títulos semelhantes, marcar assistidos, estilo e ordenação de Continuar assistindo, MDBList, TMDB, chaves de serviço e TorBox.")}</p>
             <ul className="pending-list">
-              <li><b>{t("Início e catálogos")}</b> {t("— prévia ao passar o mouse e fonte de pôsteres personalizada.")}</li>
-              <li><b>{t("Tela de detalhes")}</b> {t("— escolher as seções exibidas, títulos semelhantes, comentários e desfocar episódios não assistidos.")}</li>
-              <li><b>{t("Assistidos")}</b> {t("— marcar ou desmarcar filmes e episódios como assistidos manualmente.")}</li>
-              <li><b>{t("Continuar assistindo")}</b> {t("— estilo, ordenação, ação do clique, aviso de retomada ao abrir e opções para ocultar a fileira ou os episódios futuros.")}</li>
-              <li><b>{t("Fontes")}</b> {t("— seleção automática, filtros por regex, outra fonte em caso de falha, reutilizar o último link, emblemas personalizados (Fusion), links externos e fontes do YouTube.")}</li>
-              <li><b>{t("Player")}</b> {t("— trocar de fonte e escolher qualquer episódio sem sair do vídeo, painel de capítulos, avisos de conteúdo e segurar para acelerar.")}</li>
-              <li><b>{t("Próximo episódio")}</b> {t("— tocar sozinho sem escolher a fonte, pré-carregar as fontes, preferir o mesmo grupo de fontes e ordem aleatória.")}</li>
-              <li><b>{t("Pular introdução e créditos")}</b> {t("— Anime-Skip como serviço extra e envio de novos tempos ao IntroDB (estes dois exigem chave pessoal). Pular com IntroDB e AniSkip já funciona sem chave.")}</li>
-              <li><b>{t("Legendas")}</b> {t("— sincronização automática com o áudio.")}</li>
-              <li><b>{t("Áudio")}</b> {t("— ajuste de atraso no player, amplificação e downmix.")}</li>
-              <li><b>{t("Buffer e cache")}</b> {t("— ajustes de buffer e cache em disco para streams HTTP.")}</li>
-              <li><b>{t("Debrid")}</b> {t("— Real-Debrid, Premiumize, entrar no TorBox sem copiar a chave e biblioteca na nuvem.")}</li>
-              <li><b>{t("Integrações")}</b> {t("— Trakt, Simkl, MDBList, TMDB e Discord Rich Presence.")}</li>
-              <li><b>{t("Servidores de mídia")}</b> {t("— Plex, Jellyfin, Emby e Silo.")}</li>
-              <li><b>{t("Plugins e Watch Party")}</b> {t("— plugins de fontes e assistir junto com outras pessoas.")}</li>
-              <li><b>{t("Coleções")}</b> {t("— criar e editar no app e pastas com catálogos do TMDB ou do Trakt.")}</li>
-              <li><b>{t("Conta e perfis")}</b> {t("— entrar com outro dispositivo (QR), sincronizar chaves de serviços e avatares exclusivos de membros.")}</li>
-              <li><b>{t("Aparência")}</b> {t("— prévia ao passar o mouse e efeito de profundidade dos cards.")}</li>
-              <li><b>{t("Aplicativo")}</b> {t("— busca dentro das Configurações.")}</li>
+              <li><b>{t("Debrid")}</b>{t("— biblioteca na nuvem (os serviços de debrid e a resolução de links já funcionam).")}</li>
+              <li><b>{t("Conta e perfis")}</b>{t("— entrar com outro dispositivo (QR).")}</li>
             </ul>
           </div>
         )}
@@ -530,29 +1024,79 @@ function P2pSection({ settings, update }: { settings: P2pSettings; update(change
 
 // ---------- Início ----------
 
-/** Format of the poster cards (`PosterCardStyleRepository`), synced with the account. */
-function CardRows({ cards, update }: { cards: ProfileSettings["player"]["cards"]; update(cards: ProfileSettings["player"]["cards"]): void }) {
+/** The original's MetaScreenSettings: which details sections appear, their order and look. */
+function DetailsSection({ settings, update }: {
+  settings: MetaScreenSettings;
+  update(change: (s: MetaScreenSettings) => MetaScreenSettings): void;
+}) {
+  const sections = [...settings.sections].sort((a, b) => a.order - b.order);
+  const patch = (change: Partial<MetaScreenSettings>) => update((s) => ({ ...s, ...change }));
+  const setSection = (key: string, enabled: boolean) =>
+    patch({ sections: settings.sections.map((s) => (s.key === key ? { ...s, enabled } : s)) });
+  const move = (index: number, dir: -1 | 1) => {
+    const next = [...sections];
+    const [item] = next.splice(index, 1);
+    next.splice(index + dir, 0, item);
+    patch({ sections: next.map((s, i) => ({ ...s, order: i })) });
+  };
   return (
     <>
-      <Row title={t("Tamanho dos cards")} description={t("Largura dos pôsteres no Início, na pesquisa e na biblioteca.")}>
-        <select aria-label={t("Tamanho dos cards")} data-setting="cardWidth" value={cards.width} onChange={(e) => update({ ...cards, width: Number(e.target.value) })}>
-          {CARD_WIDTHS.map(([v, label]) => <option key={v} value={v}>{t(label)}</option>)}
-        </select>
-      </Row>
-      <Row title={t("Cantos dos cards")}>
-        <select aria-label={t("Cantos dos cards")} data-setting="cardRadius" value={cards.radius} onChange={(e) => update({ ...cards, radius: Number(e.target.value) })}>
-          {CARD_RADII.map(([v, label]) => <option key={v} value={v}>{t(label)}</option>)}
-        </select>
-      </Row>
-      <Row title={t("Pôsteres em paisagem")} description={t("Usa a imagem larga do título nos catálogos, quando o addon tiver.")}>
-        <Toggle label={t("Pôsteres em paisagem")} checked={cards.landscape} onChange={(v) => update({ ...cards, landscape: v })} />
-      </Row>
-      <Row title={t("Ocultar nomes")} description={t("Mostra só a imagem nos cards.")}>
-        <Toggle label={t("Ocultar nomes")} checked={cards.hideLabels} onChange={(v) => update({ ...cards, hideLabels: v })} />
-      </Row>
+      <div className="settings-group">
+        <Row title={t("Seções exibidas")} description={t("Escolha e ordene as seções da tela de detalhes.")}>
+          <span className="muted small">{t("A tela de detalhes é atualizada.")}</span>
+        </Row>
+        {sections.map((s, i) => (
+          <div className="setting-row meta-section-row" key={s.key}>
+            <div className="setting-text">
+              <div className="setting-title">{t(metaSectionLabel(s.key))}</div>
+            </div>
+            <div className="setting-control meta-section-controls">
+              <Toggle label={t(metaSectionLabel(s.key))} checked={s.enabled} onChange={(v) => setSection(s.key, v)} />
+              <button className="icon-btn" aria-label={t("Subir")} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
+              <button className="icon-btn" aria-label={t("Descer")} disabled={i === sections.length - 1} onClick={() => move(i, 1)}>↓</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="settings-group">
+        <Row title={t("Comentários do Trakt")} description={t("Mostra avaliações da comunidade quando a conta Trakt está conectada.")}>
+          <Toggle label={t("Comentários do Trakt")} checked={settings.traktCommentsEnabled !== false} onChange={(v) => patch({ traktCommentsEnabled: v })} />
+        </Row>
+        <Row title={t("Fundo da tela de detalhes")}>
+          <select aria-label={t("Fundo da tela de detalhes")} value={settings.backgroundMode} onChange={(e) => patch({ backgroundMode: e.target.value })}>
+            <option value="normal">{t("Normal")}</option>
+            <option value="cinematic">{t("Cinematográfico")}</option>
+            <option value="dominant_color">{t("Cor dominante")}</option>
+          </select>
+        </Row>
+        <Row title={t("Cartões de episódio")}>
+          <select aria-label={t("Cartões de episódio")} value={settings.episodeCardStyle} onChange={(e) => patch({ episodeCardStyle: e.target.value })}>
+            <option value="horizontal">{t("Horizontal")}</option>
+            <option value="list">{t("Lista")}</option>
+          </select>
+        </Row>
+        <Row title={t("Desfocar episódios não assistidos")}>
+          <Toggle label={t("Desfocar episódios não assistidos")} checked={settings.blurUnwatchedEpisodes} onChange={(v) => patch({ blurUnwatchedEpisodes: v })} />
+        </Row>
+        <Row title={t("Mostrar avaliações gerais")}>
+          <Toggle label={t("Mostrar avaliações gerais")} checked={settings.showOverallRatings} onChange={(v) => patch({ showOverallRatings: v })} />
+        </Row>
+        <Row title={t("Reproduzir trailer no destaque")}>
+          <Toggle label={t("Reproduzir trailer no destaque")} checked={settings.heroTrailerPlayback} onChange={(v) => patch({ heroTrailerPlayback: v })} />
+        </Row>
+        <Row title={t("Layout em abas")} description={t("Agrupa as seções em abas na tela de detalhes.")}>
+          <Toggle label={t("Layout em abas")} checked={settings.tabLayout} onChange={(v) => patch({ tabLayout: v })} />
+        </Row>
+      </div>
     </>
   );
 }
+
+const META_SECTION_LABELS: Record<string, string> = {
+  actions: "Ações", overview: "Sinopse", episodes: "Episódios", cast: "Elenco", details: "Detalhes",
+  production: "Produção", trailers: "Trailers", comments: "Comentários", collection: "Coleção", moreLikeThis: "Títulos semelhantes",
+};
+function metaSectionLabel(key: string): string { return META_SECTION_LABELS[key] ?? key; }
 
 function HomeSection({ settings, catalogs, update }: {
   settings: ProfileSettings;
@@ -568,6 +1112,9 @@ function HomeSection({ settings, catalogs, update }: {
     return pa - pb || catalogs.indexOf(a) - catalogs.indexOf(b);
   });
   const pref = (c: CatalogChoice) => home.items.find((i) => i.key === c.key);
+  const cw = settings.continueWatching;
+  const setCw = (change: Partial<ContinueWatchingSettings>) =>
+    update((s) => ({ ...s, continueWatching: { ...s.continueWatching, ...change } }), note);
 
   /** Rewrites the preference list in `order`, keeping hero-source flags. Rows not listed now (an
    *  addon that is off or did not answer) keep their saved position, as in the original. */
@@ -601,7 +1148,6 @@ function HomeSection({ settings, catalogs, update }: {
         <Row title={t("Destaque no topo")} description={t("Mostra o título em destaque no início da tela.")}>
           <Toggle label={t("Destaque no topo")} checked={home.heroEnabled} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, heroEnabled: v } }), note)} />
         </Row>
-        <CardRows cards={settings.player.cards} update={(cards) => { applyCardStyle(cards); update((s) => ({ ...s, player: { ...s.player, cards } }), note, 0); }} />
         {home.heroEnabled && (
           <HeroCatalogs home={home} catalogs={ordered} onChange={(heroCatalogs) => update((s) => ({ ...s, home: { ...s.home, heroCatalogs } }), note, 0)} />
         )}
@@ -610,6 +1156,42 @@ function HomeSection({ settings, catalogs, update }: {
         </Row>
         <Row title={t("Ocultar conteúdo ainda não lançado")} description={t("Remove dos catálogos títulos com data de lançamento futura.")}>
           <Toggle label={t("Ocultar conteúdo ainda não lançado")} checked={home.hideUnreleasedContent} onChange={(v) => update((s) => ({ ...s, home: { ...s.home, hideUnreleasedContent: v } }), note)} />
+        </Row>
+      </div>
+      <h2 className="settings-subtitle">{t("Continuar assistindo")}</h2>
+      <div className="settings-group">
+        <Row title={t("Mostrar a seção")} description={t("Esconde a fila de Continuar assistindo na tela Início.")}>
+          <Toggle label={t("Mostrar a seção")} checked={cw.visible} onChange={(v) => setCw({ visible: v })} />
+        </Row>
+        <Row title={t("Estilo dos cartões")}>
+          <select aria-label={t("Estilo dos cartões")} value={cw.style} onChange={(e) => setCw({ style: e.target.value })}>
+            <option value="card">{t("Cartão")}</option>
+            <option value="wide">{t("Largo")}</option>
+            <option value="poster">{t("Pôster")}</option>
+          </select>
+        </Row>
+        <Row title={t("Ordenação")}>
+          <select aria-label={t("Ordenação")} value={cw.sortMode} onChange={(e) => setCw({ sortMode: e.target.value })}>
+            <option value="default">{t("Padrão")}</option>
+            <option value="streaming">{t("Estilo streaming")}</option>
+            <option value="splitUpcoming">{t("Separar próximos episódios")}</option>
+          </select>
+        </Row>
+        <Row title={t("Ao clicar")}>
+          <select aria-label={t("Ao clicar")} value={cw.clickAction} onChange={(e) => setCw({ clickAction: e.target.value })}>
+            <option value="stream">{t("Reproduzir direto")}</option>
+            <option value="details">{t("Abrir detalhes")}</option>
+            <option value="detailsForUpcoming">{t("Detalhes só nos próximos episódios")}</option>
+          </select>
+        </Row>
+        <Row title={t("Aviso ao abrir o app")} description={t("Pergunta se quer continuar assistindo ao iniciar o aplicativo.")}>
+          <Toggle label={t("Aviso ao abrir o app")} checked={cw.showResumePromptOnLaunch} onChange={(v) => setCw({ showResumePromptOnLaunch: v })} />
+        </Row>
+        <Row title={t("Mostrar episódios ainda não exibidos")} description={t("Próximos episódios com data futura na fila.")}>
+          <Toggle label={t("Mostrar episódios ainda não exibidos")} checked={cw.showUnairedNextUp} onChange={(v) => setCw({ showUnairedNextUp: v })} />
+        </Row>
+        <Row title={t("Desfocar próximos episódios")}>
+          <Toggle label={t("Desfocar próximos episódios")} checked={cw.blurNextUp} onChange={(v) => setCw({ blurNextUp: v })} />
         </Row>
       </div>
       <h2 className="settings-subtitle">{t("Catálogos ({shown} de {total} visíveis)", { shown: ordered.filter((c) => pref(c)?.enabled ?? c.enabled).length, total: ordered.length })}</h2>

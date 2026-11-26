@@ -8,15 +8,20 @@
 // - answers of this session are kept in memory: going back to a query is instant;
 // - typing is debounced lightly (220 ms); an outdated answer never replaces a newer one.
 // Recent searches are remembered (last 12) and shown when the field is empty.
-// "Pesquisar em" (Astra): each addon with search catalogs can be left out of the search, e.g. to
-// search only the metadata addon. Kept per profile on this computer.
+//
+// Discover (empty field) is the original's type / catalog / genre browser: the listable catalogs
+// of the enabled addons (`supportsDiscover`), the genre options of each catalog's `genre` extra,
+// the catalog remembered per profile, endless paging with the original's duplicate-page guard, and
+// the Home "hide unreleased" filter (applied by Rust). See `services::discover`.
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, dataEpoch, onDataEpoch } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { api, dataEpoch, errorText, onDataEpoch, onRemoteSettingsChanged } from "../api";
+import { PosterCard } from "../components/PosterCard";
 import { ResultRow } from "../components/ResultRow";
+import { useWhenVisible } from "../components/useInView";
 import { invoke, listen } from "../tauri";
-import type { MetaPreview, SearchAddon, SearchSection } from "../types";
-import { t } from "../i18n";
+import type { DiscoverSource, DiscoverView, MetaPreview, SearchSection } from "../types";
+import { addonLabel, localizeCatalogTitle, mediaTypeLabel, t } from "../i18n";
 
 interface Props {
   onOpen(item: MetaPreview): void;
@@ -74,60 +79,20 @@ function saveHistory(list: string[]) {
   }
 }
 
-/** "Pesquisar em": button with the count of addons searched and a list to turn each on or off. */
-function SearchAddons({ addons, onToggle }: { addons: SearchAddon[]; onToggle(key: string | null, enabled: boolean): void }) {
-  const [open, setOpen] = useState(false);
-  const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: Event) => {
-      if (e instanceof KeyboardEvent ? e.key === "Escape" : !box.current?.contains(e.target as Node)) setOpen(false);
-    };
-    window.addEventListener("pointerdown", close, true);
-    window.addEventListener("keydown", close, true);
-    return () => {
-      window.removeEventListener("pointerdown", close, true);
-      window.removeEventListener("keydown", close, true);
-    };
-  }, [open]);
-  if (addons.length < 2) return null;
-  const on = addons.filter((a) => a.enabled).length;
-  return (
-    <div className="search-addons" ref={box}>
-      <button
-        className={`search-addons-btn ${on < addons.length ? "filtered" : ""}`}
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        data-testid="search-addons"
-        title={t("Escolher em quais addons pesquisar")}
-      >
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
-        <span>{on === addons.length ? t("Todos os addons") : t("{on} de {total} addons", { on, total: addons.length })}</span>
-      </button>
-      {open && (
-        <div className="search-addons-pop" role="dialog" aria-label={t("Pesquisar em")} data-testid="search-addons-pop">
-          <div className="search-addons-head">
-            <b>{t("Pesquisar em")}</b>
-            {on < addons.length && (
-              <button className="link" onClick={() => onToggle(null, true)}>{t("Marcar todos")}</button>
-            )}
-          </div>
-          {addons.map((a) => (
-            <label key={a.key} className="search-addon" data-addon={a.name}>
-              <input type="checkbox" checked={a.enabled} onChange={(e) => onToggle(a.key, e.target.checked)} />
-              {a.logo ? <img src={a.logo} alt="" /> : <span className="search-addon-logo" aria-hidden>{a.name.slice(0, 1)}</span>}
-              <span className="search-addon-text">
-                <span>{a.name}</span>
-                <small className="muted">{a.catalogs.map((c) => t(c)).join(" · ")}</small>
-              </span>
-            </label>
-          ))}
-          <p className="muted small">{t("Só os addons marcados são consultados na pesquisa deste perfil.")}</p>
-        </div>
-      )}
-    </div>
-  );
+const itemKey = (item: MetaPreview) => `${item.contentType}:${item.id}`;
+
+/** Appends `incoming` to `existing`, dropping items already shown (same `type:id`). */
+function mergeDiscover(existing: MetaPreview[], incoming: MetaPreview[]): MetaPreview[] {
+  const seen = new Set(existing.map(itemKey));
+  return [...existing, ...incoming.filter((item) => !seen.has(itemKey(item)))];
+}
+
+/** Genre the picker should use with this catalog (`resolveGenreSelection`): the requested option
+ *  when the catalog offers it, else the required genre's first option, else all genres. */
+function resolveGenre(source: DiscoverSource, requested: string): string {
+  if (!source.genreOptions.length) return "";
+  if (requested && source.genreOptions.includes(requested)) return requested;
+  return source.defaultGenre ?? "";
 }
 
 export function Search({ onOpen }: Props) {
@@ -138,33 +103,8 @@ export function Search({ onOpen }: Props) {
   const requestId = useRef(0);
   const pending = useRef<{ id: number; q: string; epoch: number; parts: Part[] } | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  const [addons, setAddons] = useState<SearchAddon[]>([]);
-  // Changes when the searched addons change: the same query is asked again.
-  const [scope, setScope] = useState(0);
 
   useEffect(() => input.current?.focus(), []);
-  useEffect(() => {
-    let alive = true;
-    api.searchAddons().then((list) => alive && setAddons(list), () => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-  /** One addon on/off; `key` null: every addon on ("Marcar todos"), saved one after the other. */
-  const toggleAddon = async (key: string | null, enabled: boolean) => {
-    const keys = key === null ? addons.filter((a) => !a.enabled).map((a) => a.key) : [key];
-    setAddons((list) => list.map((a) => (keys.includes(a.key) ? { ...a, enabled } : a)));
-    try {
-      let list: SearchAddon[] = [];
-      for (const k of keys) list = await api.searchAddonSet(k, enabled);
-      setAddons(list);
-    } catch {
-      api.searchAddons().then(setAddons, () => {});
-    }
-    cache.clear();
-    setScope((n) => n + 1);
-  };
-  const noneSearched = addons.length > 0 && addons.every((a) => !a.enabled);
 
   const addHistory = (q: string) => {
     const t = q.trim();
@@ -215,7 +155,7 @@ export function Search({ onOpen }: Props) {
   useEffect(() => {
     const q = query.trim();
     lastQuery = query;
-    if (q.length < 2 || noneSearched) {
+    if (q.length < 2) {
       pending.current = null;
       setResult(null);
       setPreview(null);
@@ -242,8 +182,7 @@ export function Search({ onOpen }: Props) {
       });
     }, DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, scope, noneSearched]);
+  }, [query]);
 
   // A search left on screen for a moment with results goes to the history.
   useEffect(() => {
@@ -255,13 +194,151 @@ export function Search({ onOpen }: Props) {
   }, [result]);
 
   const shown = result?.sections.length ? result.sections : preview ?? [];
-  const loading = query.trim().length >= 2 && !result?.done && !noneSearched;
+  const loading = query.trim().length >= 2 && !result?.done;
   const open = (item: MetaPreview) => {
     addHistory(query);
     onOpen(item);
   };
   const empty = useMemo(() => query.trim().length < 2, [query]);
 
+  // ---- Discover: the original's "Movies / TMDB Popular / All Genres" filters, backed by every
+  // listable catalog of the enabled addons (a catalog's `genre` extra provides its genres). ----
+  const [discover, setDiscover] = useState<DiscoverView | null>(null);
+  const [discoverType, setDiscoverType] = useState("");
+  const [discoverSourceKey, setDiscoverSourceKey] = useState("");
+  const [discoverGenre, setDiscoverGenre] = useState("");
+  const [discoverItems, setDiscoverItems] = useState<MetaPreview[]>([]);
+  const [discoverNext, setDiscoverNext] = useState<number | null>(null);
+  const [discoverDuplicates, setDiscoverDuplicates] = useState(0);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
+  const [discoverStarted, setDiscoverStarted] = useState(false);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [discoverReload, setDiscoverReload] = useState(0);
+  const discoverRequest = useRef(0);
+  const discoverBusy = useRef(false);
+  const discoverItemsRef = useRef<MetaPreview[]>([]);
+  discoverItemsRef.current = discoverItems;
+  const discoverNextRef = useRef<number | null>(null);
+  discoverNextRef.current = discoverNext;
+  const discoverDuplicatesRef = useRef(0);
+  discoverDuplicatesRef.current = discoverDuplicates;
+
+  const discoverSource = discover?.sources.find((s) => s.key === discoverSourceKey) ?? null;
+  const catalogOptions = discover?.sources.filter((s) => s.contentType === discoverType) ?? [];
+  const discoverSourceRef = useRef<DiscoverSource | null>(null);
+  discoverSourceRef.current = discoverSource;
+  const discoverGenreRef = useRef("");
+  discoverGenreRef.current = discoverGenre;
+
+  // Catalogs of the enabled addons + the catalog remembered for this profile.
+  useEffect(() => {
+    let cancelled = false;
+    api.discoverSources().then(
+      (view) => {
+        if (cancelled) return;
+        setDiscover(view);
+        // `resolveDiscoverCatalog`: the saved catalog when it still exists, else the first.
+        const first = view.sources.find((s) => s.key === view.selectedKey) ?? view.sources[0];
+        if (first) {
+          setDiscoverType(first.contentType);
+          setDiscoverSourceKey(first.key);
+          setDiscoverGenre(first.defaultGenre ?? "");
+        }
+      },
+      (e) => {
+        if (!cancelled) setDiscoverError(errorText(e));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Home settings changed (this app or the account): refetch, keeping a genre the catalog still
+  // offers (`hideUnreleasedContent` changes what the page shows).
+  useEffect(() => {
+    const refresh = () => {
+      const source = discoverSourceRef.current;
+      if (source) {
+        const genre = resolveGenre(source, discoverGenreRef.current);
+        if (genre !== discoverGenreRef.current) setDiscoverGenre(genre);
+      }
+      setDiscoverReload((n) => n + 1);
+    };
+    const offHome = api.onHomeSettingsChanged(refresh);
+    const offRemote = onRemoteSettingsChanged(refresh);
+    return () => {
+      offHome();
+      offRemote();
+    };
+  }, []);
+
+  const loadDiscover = useCallback(
+    async (reset: boolean) => {
+      const source = discover?.sources.find((s) => s.key === discoverSourceKey);
+      if (!source) return;
+      const skip = reset ? 0 : discoverNextRef.current;
+      if (skip === null) return;
+      // A new catalog/genre supersedes a page in flight; another "load more" waits for it.
+      if (!reset && discoverBusy.current) return;
+      discoverBusy.current = true;
+      const id = ++discoverRequest.current;
+      setDiscoverLoading(true);
+      setDiscoverError(null);
+      if (reset) {
+        setDiscoverItems([]);
+        setDiscoverNext(null);
+        setDiscoverDuplicates(0);
+      }
+      try {
+        const existing = reset ? [] : discoverItemsRef.current.map(itemKey);
+        const page = await api.discoverPage(
+          source.key,
+          skip,
+          reset,
+          existing,
+          reset ? 0 : discoverDuplicatesRef.current,
+          discoverGenre || null,
+        );
+        if (id !== discoverRequest.current) return;
+        setDiscoverItems((prev) => (reset ? page.items : mergeDiscover(prev, page.items)));
+        setDiscoverNext(page.nextSkip);
+        setDiscoverDuplicates(page.duplicatePages);
+      } catch (e) {
+        if (id !== discoverRequest.current) return;
+        setDiscoverError(errorText(e));
+        setDiscoverNext(null);
+      } finally {
+        if (id === discoverRequest.current) {
+          setDiscoverLoading(false);
+          setDiscoverStarted(true);
+          discoverBusy.current = false;
+        }
+      }
+    },
+    [discover, discoverSourceKey, discoverGenre],
+  );
+
+  // A new catalog/genre loads its first page; a Home settings change reloads it.
+  useEffect(() => {
+    if (!discoverSource) return;
+    void loadDiscover(true);
+  }, [discoverSource, discoverReload, loadDiscover]);
+
+  const discoverSentinel = useWhenVisible<HTMLDivElement>(() => {
+    if (discoverNextRef.current !== null && !discoverBusy.current) void loadDiscover(false);
+  }, [discoverNext, discoverLoading, discoverItems.length, discoverSourceKey, discoverGenre]);
+
+  const selectDiscoverSource = (source: DiscoverSource) => {
+    setDiscoverSourceKey(source.key);
+    setDiscoverGenre(resolveGenre(source, ""));
+    void api.discoverSelect(source.key).catch(() => {});
+  };
+  const selectDiscoverType = (type: string) => {
+    setDiscoverType(type);
+    const first = discover?.sources.find((s) => s.contentType === type);
+    if (first) selectDiscoverSource(first);
+  };
 
   return (
     <div className="search">
@@ -277,8 +354,76 @@ export function Search({ onOpen }: Props) {
           data-testid="search-input"
         />
         {loading && <span className="spinner" aria-label={t("Buscando")} />}
-        <SearchAddons addons={addons} onToggle={(key, enabled) => void toggleAddon(key, enabled)} />
       </div>
+
+      {empty && (
+        <div className="discover">
+          <h1 className="discover-title">{t("Discover")}</h1>
+          {discover && discover.sources.length > 0 && (
+            <>
+              <div className="discover-filters">
+                <select aria-label={t("Tipo")} value={discoverType} onChange={(e) => selectDiscoverType(e.target.value)}>
+                  {discover.typeOptions.map((type) => (
+                    <option key={type} value={type}>{mediaTypeLabel(type)}</option>
+                  ))}
+                </select>
+                <select aria-label={t("Fontes")} value={discoverSourceKey} onChange={(e) => {
+                  const source = discover.sources.find((s) => s.key === e.target.value);
+                  if (source) selectDiscoverSource(source);
+                }}>
+                  {catalogOptions.map((s) => (
+                    <option key={s.key} value={s.key}>{localizeCatalogTitle(s.catalogName)}</option>
+                  ))}
+                </select>
+                <select
+                  aria-label={t("Gêneros")}
+                  value={discoverGenre}
+                  disabled={!discoverSource || (discoverSource.genreOptions.length === 0 && !discoverSource.genreRequired)}
+                  onChange={(e) => setDiscoverGenre(e.target.value)}
+                >
+                  {(!discoverSource || !discoverSource.genreRequired) && <option value="">{t("All Genres")}</option>}
+                  {(discoverSource?.genreOptions ?? []).map((genre) => (
+                    <option key={genre} value={genre}>{genre}</option>
+                  ))}
+                </select>
+              </div>
+              {discoverSource && (
+                <div className="discover-context muted small">
+                  {addonLabel(discoverSource.addonName)} · {localizeCatalogTitle(discoverSource.catalogName)}
+                  {discoverGenre ? ` · ${discoverGenre}` : ""}
+                </div>
+              )}
+              {discoverError && (
+                <div className="discover-error" role="alert">
+                  {t("Não foi possível carregar este catálogo ({error}).", { error: discoverError })}
+                </div>
+              )}
+              {discoverItems.length > 0 && (
+                <div className="grid discover-grid">
+                  {discoverItems.map((item) => (
+                    <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={open} />
+                  ))}
+                </div>
+              )}
+              {discoverLoading && discoverItems.length === 0 && !discoverError && (
+                <div className="grid discover-grid">
+                  {Array.from({ length: 12 }, (_, i) => <div key={i} className="card skeleton" />)}
+                </div>
+              )}
+              {!discoverLoading && !discoverError && discoverStarted && discoverItems.length === 0 && (
+                <div className="discover-empty muted">{t("Nenhum título neste catálogo.")}</div>
+              )}
+              {discoverLoading && discoverItems.length > 0 && <div className="discover-more muted small">{t("Carregando…")}</div>}
+              <div ref={discoverSentinel} className="grid-sentinel" />
+            </>
+          )}
+          {discover && discover.sources.length === 0 && (
+            <div className="screen-message">{t("Nenhum addon instalado tem catálogo para descobrir.")}</div>
+          )}
+          {!discover && !discoverError && <div className="discover-empty muted">{t("Carregando…")}</div>}
+          {!discover && discoverError && <div className="discover-error" role="alert">{discoverError}</div>}
+        </div>
+      )}
 
       {empty && (
         history.length ? (
@@ -303,8 +448,6 @@ export function Search({ onOpen }: Props) {
           <div className="screen-message muted">{t("Digite ao menos 2 letras.")}</div>
         )
       )}
-
-      {!empty && noneSearched && <div className="screen-message">{t("Nenhum addon marcado em “Pesquisar em”.")}</div>}
 
       {!empty && result?.done && !result.sections.length && <div className="screen-message">{t("Nada encontrado para “{query}”.", { query: query.trim() })}</div>}
 

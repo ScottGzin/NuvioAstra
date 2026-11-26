@@ -1,7 +1,5 @@
 // One Home row. The catalog is requested only when the row comes near the viewport; more pages
 // are requested when the user scrolls the row to its end (if the catalog paginates).
-// With `limit` (Home): only the first titles are shown, then a "+" card that opens the whole
-// catalog (`onSeeAll`) as a grid.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
@@ -16,13 +14,20 @@ interface Props {
   onLoaded?(row: HomeRow, items: MetaPreview[]): void;
   /** Genre filter (catalogs of a collection folder). */
   genre?: string | null;
-  /** Titles shown in the row; the rest is in the catalog screen opened by the "+" card. */
-  limit?: number;
+  /** Set for a TMDB source of a collection folder (its page comes from Rust, not the addon). */
+  tmdb?: { collectionId: string; folderId: string; sourceId: string };
+  /** Set for a Trakt list source of a collection folder. */
+  trakt?: { collectionId: string; folderId: string; sourceId: string };
+  /** Custom-poster screen key (`home`, `collections`, `search`…). */
+  surface?: string;
+  /** Opens the full catalog grid (the original's "See all"). */
   onSeeAll?(row: HomeRow): void;
+  /** Home rows show only the first N titles, then a "+" card that opens the whole catalog. */
+  limit?: number;
 }
 
-export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAll }: Props) {
-  const [ref, inView] = useInView<HTMLElement>();
+export function CatalogRow({ row, onOpen, onLoaded, genre = null, tmdb, trakt, surface = "home", onSeeAll, limit }: Props) {
+  const [ref, inView] = useInView<HTMLElement>("1200px");
   const [items, setItems] = useState<MetaPreview[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nextSkip, setNextSkip] = useState<number | null>(null);
@@ -34,7 +39,12 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
       if (loading.current) return;
       loading.current = true;
       try {
-        const page = await api.catalogPage(row.key, skip, genre);
+        // TMDB/Trakt folder sources use a 1-based page number instead of a skip.
+        const page = tmdb
+          ? await api.tmdbSourcePage(tmdb.collectionId, tmdb.folderId, tmdb.sourceId, skip ?? 1)
+          : trakt
+            ? await api.traktSourcePage(trakt.collectionId, trakt.folderId, trakt.sourceId, skip ?? 1)
+            : await api.catalogPage(row.key, skip, genre, surface);
         setItems((prev) => {
           const seen = new Set((prev ?? []).map((i) => i.id));
           return [...(prev ?? []), ...page.items.filter((i) => !seen.has(i.id))];
@@ -47,7 +57,7 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
         loading.current = false;
       }
     },
-    [row, onLoaded, genre],
+    [row, onLoaded, genre, surface, tmdb?.collectionId, tmdb?.folderId, tmdb?.sourceId, trakt?.collectionId, trakt?.folderId, trakt?.sourceId],
   );
 
   useEffect(() => {
@@ -55,6 +65,9 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
   }, [inView, items, error, load]);
 
   const limited = limit !== undefined && !!onSeeAll;
+  const shown = items && limited ? items.slice(0, limit) : items;
+  const seeAllCard = limited && items !== null && (items.length > limit! || nextSkip !== null);
+
   const onScroll = () => {
     const el = track.current;
     if (el && !limited && nextSkip !== null && el.scrollLeft + el.clientWidth > el.scrollWidth - 600) void load(nextSkip);
@@ -64,8 +77,6 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
 
   // A catalog that answered with nothing is hidden, like the original's empty rows.
   if (items !== null && items.length === 0) return null;
-  const shown = items && limited ? items.slice(0, limit) : items;
-  const seeAll = limited && items !== null && (items.length > limit! || nextSkip !== null);
 
   return (
     <section className="row-section" ref={ref} data-content-type={row.contentType}>
@@ -73,6 +84,9 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
         <h2>{localizeCatalogTitle(row.title)}</h2>
         <span className="muted small">{addonLabel(row.addonName)}</span>
         <span className="spacer" />
+        {items && onSeeAll && !limited && !genre && !tmdb && (
+          <button className="see-all-btn" data-see-all={row.key} onClick={() => onSeeAll(row)}>{t("Ver todos")}</button>
+        )}
         {items && (
           <>
             <button className="icon-btn" aria-label={t("Anterior")} onClick={() => scrollBy(-1)}>‹</button>
@@ -90,12 +104,10 @@ export function CatalogRow({ row, onOpen, onLoaded, genre = null, limit, onSeeAl
           {shown
             ? shown.map((item) => <PosterCard key={`${item.contentType}/${item.id}`} item={item} onOpen={onOpen} />)
             : Array.from({ length: 8 }, (_, i) => <div key={i} className="card skeleton" />)}
-          {seeAll && (
+          {seeAllCard && (
             <div className="card-wrap see-all-wrap">
-              <button className="card see-all" onClick={() => onSeeAll!(row)} title={t("Ver todos")} aria-label={t("Ver todos de {title}", { title: localizeCatalogTitle(row.title) })} data-testid="see-all">
-                <div className="card-art">
-                  <span className="see-all-plus" aria-hidden>+</span>
-                </div>
+              <button className="card see-all" data-testid="see-all" title={t("Ver todos")} aria-label={t("Ver todos de {title}", { title: localizeCatalogTitle(row.title) })} onClick={() => onSeeAll!(row)}>
+                <div className="card-art"><span className="see-all-plus" aria-hidden>+</span></div>
                 <div className="card-title">{t("Ver todos")}</div>
               </button>
             </div>

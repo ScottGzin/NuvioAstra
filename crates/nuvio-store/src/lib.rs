@@ -339,6 +339,7 @@ pub mod nextgen;
 pub mod profiles;
 pub mod settings;
 pub mod sync_state;
+pub mod tracking;
 
 #[cfg(test)]
 mod tests {

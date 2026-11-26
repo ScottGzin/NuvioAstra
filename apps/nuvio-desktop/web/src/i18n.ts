@@ -1,24 +1,32 @@
-// UI language: Portuguese (original), English and Arabic, with a persisted switcher and RTL.
-// The dictionary lives in i18n.strings.ts; keys are the exact Portuguese source strings.
-// Strings missing from the dictionary fall back to Portuguese, so this layer is safe to roll out
-// incrementally.
+// UI language: Portuguese (original) plus the 28 languages the original Nuvio offers, with a
+// persisted switcher and RTL. The dictionary lives in i18n.strings.ts; keys are the exact
+// Portuguese source strings and every entry carries one translation per language.
+// Strings missing from the dictionary fall back to English and then to Portuguese, so this layer
+// is safe to roll out incrementally.
 
 import { useSyncExternalStore } from "react";
 import { STRINGS } from "./i18n.strings";
+import {
+  LANGS,
+  LANG_LOCALES,
+  LANGUAGES_UI,
+  RTL_LANGS,
+  isLang,
+  langFromTag,
+  type Lang,
+} from "./i18nLangs";
 
-export type Lang = "pt" | "en" | "ar";
+export { LANGS, LANGUAGES_UI, isLang, langFromTag };
+export type { Lang };
 
 const STORAGE_KEY = "nuvio.ui.language";
 
 function initialLang(): Lang {
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === "pt" || saved === "en" || saved === "ar") return saved;
+    if (isLang(saved)) return saved;
   } catch { /* storage may be blocked */ }
-  const nav = (navigator.language || "").toLowerCase();
-  if (nav.startsWith("ar")) return "ar";
-  if (nav.startsWith("en")) return "en";
-  return "pt";
+  return langFromTag(navigator.language) ?? "pt";
 }
 
 let current: Lang = initialLang();
@@ -27,7 +35,7 @@ const listeners = new Set<() => void>();
 function applyDocumentLang() {
   const root = document.documentElement;
   root.lang = current;
-  root.dir = current === "ar" ? "rtl" : "ltr";
+  root.dir = RTL_LANGS.has(current) ? "rtl" : "ltr";
 }
 
 applyDocumentLang();
@@ -56,7 +64,8 @@ export function useLang(): Lang {
 
 /** Translates a Portuguese source string into the active UI language, with `{name}` interpolation. */
 export function t(source: string, vars?: Record<string, string | number>): string {
-  let out = current === "pt" ? source : (STRINGS[source]?.[current] || source);
+  const entry = STRINGS[source];
+  let out = current === "pt" ? source : (entry?.[current] || entry?.en || source);
   if (vars) {
     for (const [key, value] of Object.entries(vars)) {
       out = out.replaceAll(`{${key}}`, String(value));
@@ -76,7 +85,7 @@ export function decimal(value: number, digits = 1): string {
 
 /** BCP-47 locale for date/time formatting in the active UI language. */
 export function locale(): string {
-  return current === "pt" ? "pt-BR" : current === "ar" ? "ar" : "en-US";
+  return LANG_LOCALES[current];
 }
 
 /** Addon names come from the addons themselves; the only one the app writes is the collection marker. */
@@ -87,17 +96,30 @@ export function addonLabel(name: string): string {
 /** Translates the suffix addons append to catalog names ("- Filmes" → "- Movies"). */
 export function localizeCatalogTitle(title: string): string {
   if (current === "pt") return title;
-  const suffixes: Record<string, string> = current === "ar"
-    ? { "filmes": "أفلام", "séries": "مسلسلات", "series": "مسلسلات", "canais": "قنوات", "channels": "قنوات" }
-    : { "filmes": "Movies", "séries": "Series", "series": "Series", "canais": "Channels", "channels": "Channels" };
+  const suffixes: Record<string, string> = {
+    filmes: t("Filmes"),
+    séries: t("Séries"),
+    series: t("Séries"),
+    canais: t("Canais"),
+    channels: t("Canais"),
+  };
   return title.replace(/\s-\s([^-\s].*)$/, (match, rest: string) => {
     const key = rest.trim().toLowerCase();
     return suffixes[key] ? ` - ${suffixes[key]}` : match;
   });
 }
 
-export const LANGUAGES_UI: [Lang, string][] = [
-  ["pt", "Português"],
-  ["en", "English"],
-  ["ar", "العربية"],
-];
+/** Content type as the original's `localizedMediaTypeLabel` shows it in the Discover picker. */
+export function mediaTypeLabel(contentType: string): string {
+  switch (contentType.trim().toLowerCase()) {
+    case "movie": return t("Filmes");
+    case "series": return t("Séries");
+    case "anime": return t("Anime");
+    case "channel": return t("Canais");
+    case "tv": return t("TV");
+    default: {
+      const type = contentType.trim();
+      return type ? type[0].toUpperCase() + type.slice(1) : "";
+    }
+  }
+}

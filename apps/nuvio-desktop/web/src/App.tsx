@@ -1,17 +1,18 @@
 // App shell: sidebar + current screen. Screens stay mounted while hidden behind the full-window
 // player, so returning keeps scroll position and loaded rows.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { start as startAccount } from "./account";
+import { startAppLanguage } from "./appLanguage";
 import { api, errorText, onDataEpoch, onProfilesChanged, reloadProfileData } from "./api";
+import { useGamepad, useInputNavigation } from "./input/navigation";
 import { listen } from "./tauri";
 import { LockScreen } from "./screens/LockScreen";
 import { Welcome } from "./screens/Welcome";
-import { startAppLanguage } from "./appLanguage";
-import { startCardStyle } from "./cardStyle";
-import { useToasts } from "./toast";
 import { PinDialog } from "./components/PinDialog";
-import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
+import { ProfileMenu } from "./components/ProfileMenu";
+import { ProfileSelection } from "./components/ProfileSelection";
+import { ResumePrompt } from "./components/ResumePrompt";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { FullPlayer } from "./player/FullPlayer";
@@ -25,17 +26,32 @@ import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
 import { Discover } from "./screens/Discover";
 import { Settings } from "./screens/Settings";
-import { metaRef, type Bootstrap, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { metaRef, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
 import { t } from "./i18n";
 
 
 export function App() {
+  useInputNavigation();
+  useGamepad();
   const player = usePlayer();
   const [appMode, setAppMode] = useState<string>("");
   useEffect(() => {
     api.appMode().then(setAppMode, () => setAppMode("app"));
   }, []);
-  const [boot, setBoot] = useState<Bootstrap | null>(null);
+
+  // OAuth callbacks arrive through the `nuvio://` scheme; forward them to the settings panel.
+  // On Linux/Windows the scheme starts a new instance, so also read the URL that started this one.
+  useEffect(() => {
+    const forward = (urls: string[] | null) => {
+      const url = urls?.[0] ?? "";
+      if (url.startsWith("nuvio://auth/simkl")) {
+        window.dispatchEvent(new CustomEvent("nuvio-simkl-callback", { detail: url }));
+      }
+    };
+    const unlisten = listen<string[]>("deep-link://new-url", forward);
+    void api.deepLinkCurrent().then(forward, () => {});
+    return unlisten;
+  }, []);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [details, setDetails] = useState<MetaRef | null>(null);
@@ -46,6 +62,8 @@ export function App() {
   const [profilesFailed, setProfilesFailed] = useState(false);
   /** The account screen of the first opening; it waits while a profile is locked. */
   const [welcome, setWelcome] = useState<"unknown" | "waiting" | "open" | "none">("unknown");
+  /** The original asks "Who's watching?" on every launch, before opening the last profile. */
+  const [needChooser, setNeedChooser] = useState(true);
   const [menu, setMenu] = useState(false);
   const [manage, setManage] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
@@ -57,11 +75,10 @@ export function App() {
   const [addonsEpoch, setAddonsEpoch] = useState(0);
 
   useEffect(() => {
-    api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+    api.bootstrap().catch((e) => setBootError(errorText(e)));
     api.profilesList().then(setProfiles, () => setProfilesFailed(true));
     api.welcomeNeeded().then((needed) => setWelcome(needed ? "waiting" : "none"), () => setWelcome("none"));
     startAccount();
-    startCardStyle();
     startAppLanguage();
     // The event listeners just registered must hear the first sync.
     const ready = window.setTimeout(() => void api.appReady().catch(() => {}), 200);
@@ -89,6 +106,7 @@ export function App() {
   }, []);
   const openFromLock = useCallback((next: ProfilesView) => {
     setProfiles(next);
+    setNeedChooser(false);
     reloadProfileData();
   }, []);
 
@@ -103,13 +121,12 @@ export function App() {
           setDetails(null);
           setFolder(null);
           setOpenError(null);
-          setBoot(null);
           api.profilesList().then(setProfiles, () => {});
         } else {
           setAddonsEpoch((e) => e + 1);
           setFolder(null); // its catalogs were resolved with the previous addons
         }
-        api.bootstrap().then(setBoot, (e) => setBootError(errorText(e)));
+        api.bootstrap().catch((e) => setBootError(errorText(e)));
       }),
     [],
   );
@@ -165,12 +182,28 @@ export function App() {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title, resume: resumeTarget(entry) });
   }, []);
+  // Resume prompt on launch shows the most recent title once per app session.
+  const [resumeEntry, setResumeEntry] = useState<HistoryEntry | null>(null);
+  const resumePrompted = useRef(false);
+  useEffect(() => {
+    if (resumePrompted.current) return;
+    const timer = window.setTimeout(() => {
+      void Promise.all([api.settingsGet(), api.libraryContinueWatching()]).then(([settings, entries]) => {
+        if (resumePrompted.current) return;
+        resumePrompted.current = true;
+        if (settings.settings.continueWatching.showResumePromptOnLaunch && entries.length > 0) {
+          setResumeEntry(entries[0]);
+        }
+      }, () => {});
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const openEntry = useCallback((entry: HistoryEntry) => {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title });
   }, []);
 
-  const toasts = useToasts();
   const full = player.session?.view === "full";
   const profile = profiles?.profiles.find((p) => p.index === profiles.active) ?? null;
   const dataKey = `${profileEpoch}-${addonsEpoch}`;
@@ -178,11 +211,11 @@ export function App() {
   // Nothing of the profile is drawn before it is known to be open.
   const starting = (!profiles && !profilesFailed) || welcome === "unknown" || (welcome === "waiting" && !profiles?.locked && !profilesFailed);
   if (starting) return <div className="gate" aria-busy />;
-  if (welcome === "open" || profiles?.locked) {
+  if (welcome === "open" || profiles?.locked || needChooser) {
     return (
       <div className="gate-page">
         <UpdateBanner automatic={appMode === "app"} />
-        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} />}
+        {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} initialMode={needChooser ? "profiles" : "pin"} />}
       </div>
     );
   }
@@ -201,7 +234,15 @@ export function App() {
             onCancel={() => setPinFor(null)}
           />
         )}
-        {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
+        {manage && profiles && (
+          <ProfileSelection
+            view={profiles}
+            initialManage
+            onOpen={setProfiles}
+            onChanged={setProfiles}
+            onDone={() => setManage(false)}
+          />
+        )}
         {switching !== null && (
           <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para")} {switching || t("outro perfil")}…</div>
         )}
@@ -209,14 +250,11 @@ export function App() {
           <UpdateBanner automatic={appMode === "app"} waiting={full} />
           {bootError && <div className="banner error">{t("Não foi possível ler os dados do Nuvio Astra:")} {bootError}</div>}
           {openError && <div className="banner error" role="alert">{openError}</div>}
-          {boot && boot.addonsFailed > 0 && (
-            <div className="banner">{t("{failed} de {total} addon(s) não responderam; os demais estão disponíveis.", { failed: boot.addonsFailed, total: boot.addonsEnabled })}</div>
-          )}
           <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
             <Home key={dataKey} onOpen={open} onResume={resume} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
           </div>
           {folder && tab === "home" && (
-            <div className="screen" hidden={details !== null}>
+            <div className="screen" key={`folder-${folder.collection.id}-${folder.folder.id}`} hidden={details !== null}>
               <Folder key={`${dataKey}/${folder.collection.id}/${folder.folder.id}`} collection={folder.collection} folder={folder.folder} onOpen={open} onBack={() => setFolder(null)} />
             </div>
           )}
@@ -226,18 +264,23 @@ export function App() {
           {tab === "library" && <div className="screen" hidden={details !== null}><Library key={profileEpoch} onOpen={open} onResume={resume} onOpenEntry={openEntry} /></div>}
           {tab === "settings" && <div className="screen screen-fill" hidden={details !== null}><Settings key={profileEpoch} /></div>}
           {details && (
-            <div className="screen">
-              <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} />
+            <div className="screen" key={`details-${details.contentType}-${details.id}`}>
+              <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} onOpen={open} />
             </div>
           )}
         </main>
       </div>
-      {full && <FullPlayer />}
-      {toasts.length > 0 && (
-        <div className="toasts" role="status" aria-live="polite">
-          {toasts.map((t) => <div key={t.id} className={`toast ${t.error ? "error" : ""}`}>{t.text}</div>)}
-        </div>
+      {resumeEntry && !full && (
+        <ResumePrompt
+          entry={resumeEntry}
+          onResume={() => { const entry = resumeEntry; setResumeEntry(null); resume(entry); }}
+          onDismiss={() => setResumeEntry(null)}
+        />
       )}
+      <div className="gamepad-hints" aria-hidden>
+        <span>✕ / A — {t("Selecionar")}</span><span>○ / B — {t("Voltar")}</span><span>✛ — {t("Navegar")}</span>
+      </div>
+      {full && <FullPlayer />}
     </>
   );
 }

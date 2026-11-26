@@ -30,35 +30,45 @@ pub fn set(app: &AppHandle, state: &AppState, enabled: bool, title: &str) -> Res
     }
     // A window left by a session that ended has no container in it.
     close_window(state);
-    let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
-        .initialization_script("window.__NUVIO_PIP__ = true;")
-        .title(title)
-        .decorations(false)
-        // Without it an undecorated window keeps a 1 px light line on top.
-        .shadow(false)
-        .resizable(true)
-        .maximizable(false)
-        .always_on_top(true)
-        .visible(false)
-        .inner_size(480.0, 270.0)
-        .build()
-        .map_err(|e| format!("janela do picture-in-picture: {e}"))?;
-    let entered = crate::make_webview_transparent(&window)
-        .and_then(|()| window.hwnd())
-        .map_err(|e| e.to_string())
-        .and_then(|hwnd| state.with_player(|p| p.enter_picture_in_picture(hwnd.0 as isize).map_err(|e| e.to_string())));
-    if let Err(error) = entered {
-        let _ = window.destroy();
-        return Err(error);
+    #[cfg(not(windows))]
+    {
+        // The Linux backend creates its own X11 PiP window; no Tauri webview needed here.
+        state.with_player(|p| p.enter_picture_in_picture(0).map_err(|e| e.to_string()))?;
+        let _ = app.emit("player-pip", true);
+        return Ok(());
     }
-    *state.pip.lock().expect("pip window lock") = Some(window.clone());
-    let _ = app.emit("player-pip", true);
-    std::thread::spawn(move || {
-        std::thread::sleep(SHOW_FALLBACK);
-        if !window.is_visible().unwrap_or(true) {
-            let _ = window.show();
+#[cfg(windows)]
+    {
+        let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
+            .initialization_script("window.__NUVIO_PIP__ = true;")
+            .title(title)
+            .decorations(false)
+            // Without it an undecorated window keeps a 1 px light line on top.
+            .shadow(false)
+            .resizable(true)
+            .maximizable(false)
+            .always_on_top(true)
+            .visible(false)
+            .inner_size(480.0, 270.0)
+            .build()
+            .map_err(|e| format!("janela do picture-in-picture: {e}"))?;
+        let entered = crate::make_webview_transparent(&window)
+            .and_then(|()| window.hwnd())
+            .map_err(|e| e.to_string())
+            .and_then(|hwnd| state.with_player(|p| p.enter_picture_in_picture(hwnd.0 as isize).map_err(|e| e.to_string())));
+        if let Err(error) = entered {
+            let _ = window.destroy();
+            return Err(error);
         }
-    });
+        *state.pip.lock().expect("pip window lock") = Some(window.clone());
+        let _ = app.emit("player-pip", true);
+        std::thread::spawn(move || {
+            std::thread::sleep(SHOW_FALLBACK);
+            if !window.is_visible().unwrap_or(true) {
+                let _ = window.show();
+            }
+        });
+    }
     Ok(())
 }
 

@@ -125,6 +125,11 @@ pub fn create_container(host: HWND) -> Result<HWND, String> {
     unsafe {
         let mut rect = RECT::default();
         GetClientRect(host, &mut rect).map_err(|e| e.to_string())?;
+        // The window can later become borderless fullscreen without any child-window resize:
+        // a child is clipped to its parent's client area, so making it as large as the primary
+        // monitor up front covers both the normal and the fullscreen size.
+        let width = rect.right.max(GetSystemMetrics(SM_CXSCREEN)).max(1);
+        let height = rect.bottom.max(GetSystemMetrics(SM_CYSCREEN)).max(1);
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE::default(),
             CONTAINER_CLASS,
@@ -136,8 +141,8 @@ pub fn create_container(host: HWND) -> Result<HWND, String> {
             WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
             0,
             0,
-            rect.right.max(1),
-            rect.bottom.max(1),
+            width,
+            height,
             Some(host),
             None,
             GetModuleHandleW(None).ok().map(Into::into),

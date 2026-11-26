@@ -5,13 +5,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, errorText } from "../api";
 import { ContinueCard, loadContinueWatching } from "../components/ContinueWatching";
-import { DownloadsList } from "../components/DownloadsList";
 import { PosterCard } from "../components/PosterCard";
 import { useWhenVisible } from "../components/useInView";
 import {
   clock, episodeCode, lastWatched, previewFromLibraryItem, remaining, removeHistory, useLibraryVersion,
 } from "../library";
-import type { HistoryEntry, LibraryItem, MetaPreview } from "../types";
+import type { DownloadItem, HistoryEntry, LibraryItem, MetaPreview } from "../types";
+import { usePlayer } from "../player/PlayerContext";
 import { locale, t } from "../i18n";
 
 type Section = "continue" | "favorites" | "history" | "downloads";
@@ -61,7 +61,63 @@ export function Library({ onOpen, onResume, onOpenEntry }: Props) {
       {section === "continue" && <ContinueSection onResume={onResume} />}
       {section === "favorites" && <FavoritesSection onOpen={onOpen} />}
       {section === "history" && <HistorySection onResume={onResume} onOpenEntry={onOpenEntry} />}
-      {section === "downloads" && <DownloadsList />}
+      {section === "downloads" && <DownloadsSection />}
+    </div>
+  );
+}
+
+function DownloadsSection() {
+  const player = usePlayer();
+  const [items, setItems] = useState<DownloadItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = () => api.downloadList().then((list) => { setItems(list); setError(null); }, (e) => setError(errorText(e)));
+  useEffect(() => {
+    let active = true;
+    const timer = window.setInterval(() => {
+      if (active) void reload();
+    }, 1200);
+    void reload();
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+  const control = (item: DownloadItem, action: "pause" | "resume" | "retry" | "remove") => {
+    void api.downloadControl(item.id, action).then(setItems, (e) => setError(errorText(e)));
+  };
+  const play = (item: DownloadItem) => {
+    void player.play(() => api.downloadPlay(item.id, null), { title: item.title, view: "full", returnTo: null });
+  };
+  return (
+    <div className="downloads-section">
+      {error && <div className="row-error" role="alert">{error}</div>}
+      {items && items.length > 0 && (
+        <div className="settings-group downloads-actions">
+          <button className="ghost" onClick={() => void api.downloadControl("", "clearCompleted").then(setItems)}>{t("Limpar concluídos")}</button>
+        </div>
+      )}
+      {items && items.length === 0 && <Empty>{t("Nenhum download. Use o botão ↓ em uma fonte para baixar.")}</Empty>}
+      {items?.map((item) => (
+        <div key={item.id} className="download-row" data-status={item.status} data-testid={`download-${item.id}`}>
+          <div className="download-info">
+            <div className="setting-title">{item.title}</div>
+            <div className="muted small">{item.streamTitle} · {item.providerName}</div>
+            {item.errorMessage && <div className="muted small download-error">{item.errorMessage}</div>}
+            <div className="download-progress"><div style={{ width: `${(item.totalBytes && item.totalBytes > 0 ? Math.min(100, item.downloadedBytes / item.totalBytes * 100) : 0).toFixed(1)}%` }} /></div>
+          </div>
+          <span className="muted small">
+            {item.status === "downloading" && t("Baixando {percent}%", { percent: Math.round(item.totalBytes && item.totalBytes > 0 ? item.downloadedBytes / item.totalBytes * 100 : 0) })}
+            {item.status === "paused" && t("Pausado")}
+            {item.status === "completed" && t("Concluído")}
+            {item.status === "failed" && t("Falhou")}
+          </span>
+          {item.status === "completed" && <button className="chip" onClick={() => play(item)}>{t("Reproduzir")}</button>}
+          {(item.status === "downloading" || item.status === "paused") && (
+            <button className="chip" onClick={() => control(item, item.status === "downloading" ? "pause" : "resume")}>
+              {item.status === "downloading" ? t("Pausar") : t("Retomar")}
+            </button>
+          )}
+          {item.status === "failed" && <button className="chip" onClick={() => control(item, "retry")}>{t("Tentar novamente")}</button>}
+          <button className="chip" aria-label={t("Remover")} onClick={() => control(item, "remove")}>✕</button>
+        </div>
+      ))}
     </div>
   );
 }

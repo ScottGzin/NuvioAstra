@@ -14,8 +14,6 @@ import "./styles.css";
 // The automated player tests get only the video overlay: no catalogs are loaded, so their
 // measurements are not mixed with addon traffic.
 function Root() {
-  // The interface re-mounts in another language; the player session (and the video) stays.
-  const lang = useLang();
   const [mode, setMode] = useState<"app" | "selftest" | "uitest" | null>(null);
   useEffect(() => {
     api.appMode().then(setMode, () => setMode("app"));
@@ -30,7 +28,7 @@ function Root() {
   if (mode === "selftest") return <SelftestView />;
   return (
     <PlayerProvider>
-      <App key={lang} />
+      <App />
     </PlayerProvider>
   );
 }
@@ -39,9 +37,10 @@ installDesktopFeel();
 // The picture-in-picture window loads this same page and shows only its controls (`pip.rs`).
 const pip = (window as { __NUVIO_PIP__?: boolean }).__NUVIO_PIP__ === true;
 
+// Re-mount the UI when the language changes so every t() call is re-evaluated.
 function LangRoot() {
   const lang = useLang();
-  return pip ? <PipView key={lang} /> : <Root />;
+  return pip ? <PipView /> : <Root key={lang} />;
 }
 
 createRoot(document.getElementById("root")!).render(

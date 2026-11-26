@@ -22,6 +22,7 @@ Status legend: ✅ ported and verified (self-test or unit test) · 🟡 ported, 
 | 6 | Seek | `absolute+exact` / `relative+exact` | ✅ | self-test: exact seek on long sources |
 | 7 | Volume / pause | volume 0–200 (`volume-max=200`), pause flag, toggle | ✅ | self-test: 150 read back |
 | 7b | Resize modes | Fit (`keepaspect=yes`, `panscan=0`), Fill/Zoom (`panscan=1.0`), Stretch (`keepaspect=no`) | ✅ | self-test: Zoom → `panscan=1.000000` |
+| 7c | Keyboard / mouse | the desktop dispatcher: Space/Enter toggle, ←/→ seek 10 s, ↑/↓ volume, M mute, F/F11 full screen, N next, S subtitles, C chapters, E sources, P PiP, Esc back (panels first). Mouse: wheel seeks 10 s, click toggles playback, double click seeks at the sides / full screen in the middle | ➕/✅ page bindings; Linux re-asserts WebView key focus over the native video window (`player_focus`) | manual Linux check (wheel + keys) |
 | 8 | RTX filters | VSR `d3d11vpp=scale=2:scaling-mode=nvidia`; HDR `…nvidia-true-hdr…pq/bt.2020`; both combined; forces `gpu-api=d3d11`, `hwdec=d3d11va`, `d3d11-adapter=NVIDIA` | 🟡 options identical | unit test on generated options; **not run on video yet** (needs RTX settings exposed in UI) |
 | 8b | Quality profile | `profile=fast` on unified-memory GPUs without RTX; else `deband`, `spline36` | ✅ (D3D11 `UnifiedMemoryArchitecture` check ported) | unit test; this machine: discrete GPU → deband/spline36 |
 | 9 | Picture-in-picture | container moved to an always-on-top window; aspect from `video-out-params`; min 320×180; default 480 wide, bottom-right, 24 px margin; Fit while in PiP; restore | ✅ (Win32 window, aspect lock on resize, drag anywhere, double-click/close restores) | self-test: playback continues in PiP and after restore (all sources); unit test on default bounds |
@@ -29,7 +30,7 @@ Status legend: ✅ ported and verified (self-test or unit test) · 🟡 ported, 
 | 11 | Stream headers | `http-header-fields` from `proxyHeaders.request` (trimmed, blank skipped, `Range` dropped by `sanitizePlaybackHeaders`) | ✅ **fixed**: passed as a node array (no escaping) | local proxy test: Referer, Cookie, User-Agent, custom token with `,` and `\` all received intact; 403 without them |
 | 12 | Network resilience | `stream-lavf-o` reconnect options, demuxer cache 150 MiB / 50 MiB back | ✅ unchanged (not reduced) | options unit test |
 | 13 | State to UI | 500 ms polling in the bridge | ✅ property observation, ≤ 4 snapshots/s | self-test |
-| — | Not ported yet | chapters / skip intro, next-episode autoplay, source fallback runs, auto-sync subtitles, external subtitle download (addon subtitles), resume position persistence, Discord/now-playing metadata, display-sleep inhibition while playing, keyboard shortcuts of `controls.js`, watch-party sync | ⏳ | — |
+| — | Not ported yet | chapters / skip intro, next-episode autoplay, source fallback runs, auto-sync subtitles, external subtitle download (addon subtitles), resume position persistence, Discord/now-playing metadata, display-sleep inhibition while playing, watch-party sync | ⏳ | — |
 
 ## Original behavior corrected in the next-gen player
 

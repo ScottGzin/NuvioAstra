@@ -5,7 +5,7 @@
 // cache ahead, the same for HTTP and P2P sources), played part with glow and a moving dot; an
 // invisible range input on top handles dragging and keyboard.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { PlayerSnapshot, ResizeMode, Track } from "../types";
 import { EnhanceMenu } from "./EnhanceMenu";
@@ -40,7 +40,6 @@ const Icons = {
   pip: svg(<><rect x="3" y="5" width="18" height="14" rx="2.5" /><rect x="12" y="11" width="6.5" height="5.5" rx="1.2" /></>),
   fullscreen: svg(<><path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" /></>),
   exitFullscreen: svg(<><path d="M9 4v5H4" /><path d="M15 4v5h5" /><path d="M9 20v-5H4" /><path d="M15 20v-5h5" /></>),
-  download: svg(<><path d="M12 4v11" /><path d="M7.5 10.5L12 15l4.5-4.5" /><path d="M5 19.5h14" /></>),
   next: svg(<><path d="M5.5 5v14l10-7z" /><path d="M19 5v14" /></>),
   close: svg(<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>),
 };
@@ -58,11 +57,37 @@ interface Props {
   subtitles?: ReactNode;
   /** A series with a following episode: opens its sources. */
   next?: { label: string; disabled: boolean; open(): void };
-  /** Downloads what is playing. */
-  onDownload?(): void;
+  /** Hold the forward button to play faster (the original's holdToSpeed). */
+  holdSpeed?: { enabled: boolean; value: number };
+  /** Opens the chapters panel when the video provides chapters. */
+  onChapters?(): void;
+  /** Opens the sources of the current video without leaving the player. */
+  onSources?(): void;
 }
 
-export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, onDownload }: Props) {
+export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, holdSpeed, onChapters, onSources }: Props) {
+  const holdTimer = useRef<number>(0);
+  const holdActive = useRef(false);
+  const holdSpeedBefore = useRef<number>(1);
+  const startHold = () => {
+    if (!holdSpeed?.enabled) return;
+    holdSpeedBefore.current = s?.speed ?? 1;
+    holdActive.current = false;
+    window.clearTimeout(holdTimer.current);
+    holdTimer.current = window.setTimeout(() => {
+      holdActive.current = true;
+      void api.playerCommand({ type: "setSpeed", speed: holdSpeed.value });
+    }, 350);
+  };
+  const endHold = () => {
+    window.clearTimeout(holdTimer.current);
+    if (holdActive.current) {
+      holdActive.current = false;
+      void api.playerCommand({ type: "setSpeed", speed: holdSpeedBefore.current });
+    } else if (holdSpeed?.enabled) {
+      void api.playerCommand({ type: "seek", seconds: 10, relative: true });
+    }
+  };
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
   const [mode, setMode] = useState<ResizeMode>("fit");
   const duration = s?.duration ?? 0;
@@ -142,7 +167,16 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             <button className="pc-btn pc-skip" aria-label={t("Voltar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: -10, relative: true })}>
               {Icons.back}<span>10</span>
             </button>
-            <button className="pc-btn pc-skip" aria-label={t("Avançar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: 10, relative: true })}>
+            <button
+              className={`pc-btn pc-skip ${holdActive.current ? "holding" : ""}`}
+              aria-label={holdSpeed?.enabled ? t("Avançar 10 s (segure para acelerar)") : t("Avançar 10 s")}
+              data-testid="forward-10"
+              onPointerDown={holdSpeed?.enabled ? startHold : undefined}
+              onPointerUp={holdSpeed?.enabled ? endHold : undefined}
+              onPointerLeave={holdSpeed?.enabled ? endHold : undefined}
+              onPointerCancel={holdSpeed?.enabled ? endHold : undefined}
+              onClick={holdSpeed?.enabled ? undefined : () => void api.playerCommand({ type: "seek", seconds: 10, relative: true })}
+            >
               <span>10</span>{Icons.forward}
             </button>
             <span className="time">
@@ -156,6 +190,16 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
         {next && (
           <button className="pc-btn pc-next" aria-label={t("Próximo episódio")} title={next.label} disabled={next.disabled} data-testid="next-episode" onClick={next.open}>
             {Icons.next}<span>{t("Próximo episódio")}</span>
+          </button>
+        )}
+        {onSources && (
+          <button className="pc-btn pc-chapters" aria-label={t("Fontes no player")} data-testid="player-sources" onClick={onSources}>
+            {t("Fontes")}
+          </button>
+        )}
+        {onChapters && (
+          <button className="pc-btn pc-chapters" aria-label={t("Capítulos")} data-testid="chapters" onClick={onChapters}>
+            {t("Capítulos")}
           </button>
         )}
         <span className="spacer" />
@@ -191,7 +235,6 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             </select>
           )}
           {!live && s && <EnhanceMenu key={`enhance-${s.session}`} snapshot={s} />}
-          {onDownload && <button className="pc-icon" aria-label={t("Baixar este vídeo")} title={t("Baixar este vídeo")} data-testid="player-download" onClick={onDownload}>{Icons.download}</button>}
           {onPictureInPicture && <button className="pc-icon" aria-label={t("Picture-in-picture")} onClick={onPictureInPicture}>{Icons.pip}</button>}
           {onClose && <button className="pc-icon" aria-label={t("Fechar")} onClick={onClose}>{Icons.close}</button>}
           <button className="pc-icon" aria-label={fullscreen ? t("Sair da tela cheia") : t("Tela cheia")} onClick={onToggleFullscreen}>

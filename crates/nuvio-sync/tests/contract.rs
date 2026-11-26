@@ -699,3 +699,18 @@ fn pin_removed_elsewhere_is_followed_and_another_account_never_opens_a_profile()
         assert!(!store.profiles().unwrap().get(1).unwrap().pin_enabled, "removed on the account");
     });
 }
+
+#[test]
+fn offline_first_unlock_registers_a_local_pin() {
+    let d = dir("offline-pin");
+    let store = AppStore::open(&d).unwrap();
+    store.create_profile("Protegido", "#112233", false).unwrap().unwrap();
+    store.set_profile_pin_state(2, true).unwrap();
+    let e = engine("http://127.0.0.1:1", &d, None);
+    let rt = rt();
+    assert!(rt.block_on(e.verify_pin(2, "6969")).unlocked, "first offline unlock registers the PIN");
+    assert!(!rt.block_on(e.verify_pin(2, "0000")).unlocked, "wrong PIN rejected afterwards");
+    assert!(rt.block_on(e.verify_pin(2, "6969")).unlocked, "the registered PIN keeps working");
+    let cache = std::fs::read_to_string(d.join("pin-cache.json")).unwrap();
+    assert!(!cache.contains("6969"), "PIN never stored in clear");
+}

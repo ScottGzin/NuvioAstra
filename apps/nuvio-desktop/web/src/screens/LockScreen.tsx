@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import { set as setAccount, useAccount } from "../account";
 import { PinPad } from "../components/PinPad";
-import { ProfileChooser } from "../components/ProfileChooser";
+import { ProfileSelection } from "../components/ProfileSelection";
 import { Avatar } from "../components/ProfileMenu";
 import { SignInForm } from "../components/SignInForm";
 import type { ProfilesView } from "../types";
@@ -16,13 +16,15 @@ type Mode = "pin" | "profiles" | "account";
 
 interface Props {
   view: ProfilesView;
+  /** At startup show the profile chooser first, like the original app. */
+  initialMode?: Mode;
   /** The lock is gone: the PIN was right, it was removed, or another profile was opened. */
   onOpen(view: ProfilesView): void;
 }
 
-export function LockScreen({ view, onOpen }: Props) {
+export function LockScreen({ view, onOpen, initialMode }: Props) {
   const account = useAccount();
-  const [mode, setMode] = useState<Mode>("pin");
+  const [mode, setMode] = useState<Mode>(initialMode ?? "pin");
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const profile = view.profiles.find((p) => p.index === view.active) ?? view.profiles[0];
@@ -52,12 +54,15 @@ export function LockScreen({ view, onOpen }: Props) {
     [account?.signedIn, onOpen, view.active],
   );
 
+  // Only the PIN gate looks for a lock removed in Nuvio; the chooser waits for the user to say who
+  // is watching (checking there reopened the last profile by itself).
   useEffect(() => {
+    if (mode !== "pin") return;
     void check(false);
     const onFocus = () => void check(false);
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [check]);
+  }, [check, mode]);
 
   const openAccount = async () => {
     setNote(null);
@@ -104,13 +109,7 @@ export function LockScreen({ view, onOpen }: Props) {
             </div>
           </>
         )}
-        {mode === "profiles" && (
-          <>
-            <h1>{t("Quem está assistindo?")}</h1>
-            <ProfileChooser view={view} onChosen={onOpen} />
-            <button className="gate-link" onClick={() => setMode("pin")}>{t("Voltar")}</button>
-          </>
-        )}
+        {mode === "profiles" && <ProfileSelection view={view} onOpen={onOpen} />}
         {mode === "account" && (
           <>
             <h1>{t("Entre na conta Nuvio")}</h1>

@@ -112,18 +112,10 @@ export const UpdatesLine = () => (
   </Svg>
 );
 
-export const TorboxLine = () => (
+export const ServicesLine = () => (
   <Svg>
-    <path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" />
-    <path d="M4 7.5l8 4.5 8-4.5M12 12v9" />
-  </Svg>
-);
-
-export const DownloadsLine = () => (
-  <Svg>
-    <path d="M12 4v11" />
-    <path d="M7.5 10.5L12 15l4.5-4.5" />
-    <path d="M5 19.5h14" />
+    <path d="M10 13.5a4.5 4.5 0 0 0 6.4 0l2.3-2.3a4.5 4.5 0 0 0-6.4-6.4l-1.2 1.2" />
+    <path d="M14 10.5a4.5 4.5 0 0 0-6.4 0l-2.3 2.3a4.5 4.5 0 0 0 6.4 6.4l1.2-1.2" />
   </Svg>
 );
 

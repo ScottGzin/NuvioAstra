@@ -7,10 +7,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, dataEpoch, errorText, onDataEpoch } from "../api";
 import { AddonPicker } from "../components/AddonPicker";
 import { EpgGuide } from "../components/EpgGuide";
+import { Matches } from "../components/MatchesView";
 import { usePlayer } from "../player/PlayerContext";
 import { PlayerControls } from "../player/PlayerControls";
 import { PlayerSurface } from "../player/PlayerSurface";
-import type { Channel, ChannelList } from "../types";
+import type { Channel, ChannelList, MatchesView } from "../types";
 import { addonLabel, locale, t } from "../i18n";
 import { message } from "../rustErrors";
 
@@ -58,7 +59,36 @@ export function LiveTv() {
   const [resolving, setResolving] = useState(false);
   const [channelError, setChannelError] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [matches, setMatches] = useState<MatchesView | null>(null);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+  const [m3uList, setM3uList] = useState<ChannelList | null>(null);
+  const [m3uUrl, setM3uUrl] = useState("");
+  const [m3uBusy, setM3uBusy] = useState(false);
   const request = useRef(0);
+
+  const importM3u = async (url: string) => {
+    setM3uBusy(true);
+    try {
+      const imported = await api.liveTvImportM3u(url);
+      setM3uList(imported);
+      void loadMatches([...(list?.channels ?? []), ...imported.channels]);
+    } catch (e) {
+      setChannelError(errorText(e));
+    } finally {
+      setM3uBusy(false);
+    }
+  };
+
+  const loadMatches = async (source: Channel[]) => {
+    setMatchesLoading(true);
+    try {
+      setMatches(await api.liveTvMatches(source, new Date().getTimezoneOffset()));
+    } catch {
+      setMatches(null);
+    } finally {
+      setMatchesLoading(false);
+    }
+  };
 
   useEffect(() => {
     const epoch = dataEpoch();
@@ -69,6 +99,7 @@ export function LiveTv() {
         if (epoch !== dataEpoch()) return; // answer for the previous profile/addons
         channelsCache = l;
         setList(l);
+        void loadMatches(l.channels);
       },
       (e) => setError(errorText(e)),
     );
@@ -90,16 +121,19 @@ export function LiveTv() {
     return addons.length > 0 && known.length === 0 ? null : known;
   }, [addons, addonOptions]);
   // Channels of the chosen addons: categories, counts and favorites are all computed from them.
+  const allChannels = useMemo(() => [...(list?.channels ?? []), ...(m3uList?.channels ?? [])], [list, m3uList]);
   const pool = useMemo(
-    () => (list?.channels ?? []).filter((c) => activeAddons === null || activeAddons.includes(c.addonName)),
-    [list, activeAddons],
+    () => allChannels.filter((c) => c.addonName === "M3U" || activeAddons === null || activeAddons.includes(c.addonName)),
+    [allChannels, activeAddons],
   );
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of pool) for (const g of c.genres.length ? c.genres : [t("Outros")]) counts.set(g, (counts.get(g) ?? 0) + 1);
     // Same order as the full list.
-    return (list?.categories ?? []).filter(([name]) => counts.has(name)).map(([name]) => [name, counts.get(name)!] as [string, number]);
-  }, [pool, list]);
+    const order = [...(list?.categories ?? []), ...(m3uList?.categories ?? [])];
+    const seen = new Set<string>();
+    return order.filter(([name]) => counts.has(name) && !seen.has(name) && seen.add(name)).map(([name]) => [name, counts.get(name)!] as [string, number]);
+  }, [pool, list, m3uList]);
   const favoriteCount = useMemo(() => pool.filter((c) => favoriteSet.has(c.key)).length, [pool, favoriteSet]);
   useEffect(() => {
     // The chosen category is not offered by the chosen addons: back to t("Todos").
@@ -202,7 +236,26 @@ export function LiveTv() {
             </svg>
           </button>
         </div>
+        <form className="livetv-m3u" onSubmit={(e) => { e.preventDefault(); if (m3uUrl.trim()) void importM3u(m3uUrl.trim()); }}>
+          <input
+            type="text"
+            placeholder={t("Cole a URL de uma playlist M3U (IPTV)")}
+            aria-label={t("URL da playlist M3U")}
+            value={m3uUrl}
+            onChange={(e) => setM3uUrl(e.target.value)}
+          />
+          <button type="submit" disabled={m3uBusy || !m3uUrl.trim()}>{m3uBusy ? t("Carregando…") : t("Adicionar canais")}</button>
+
+        </form>
       </header>
+
+      <Matches
+        data={matches}
+        channels={pool}
+        loading={matchesLoading}
+        onRefresh={() => void loadMatches(pool)}
+        onTune={(channel) => void tune(channel)}
+      />
 
       <nav className="livetv-categories" aria-label={t("Categorias de canais")}>
         <button className={`cat-item ${category === ALL ? "active" : ""}`} onClick={() => setCategory(ALL)}>
@@ -257,7 +310,7 @@ export function LiveTv() {
       </div>
 
       <aside className="livetv-preview">
-        <PlayerSurface active={embedded} playback={player.session} className="preview-hole">
+        <PlayerSurface active={embedded} className="preview-hole">
           {!embedded && (
             <div className="hole-placeholder">
               {resolving ? t("Sintonizando…") : current ? "" : t("Escolha um canal para assistir")}

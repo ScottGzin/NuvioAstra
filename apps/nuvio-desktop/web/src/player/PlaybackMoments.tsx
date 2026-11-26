@@ -66,11 +66,13 @@ interface Props {
   /** The sources panel is open: nothing is drawn over it. */
   covered: boolean;
   chromeVisible: boolean;
+  /** Settings → Reprodução → "enviar tempos": offer the captured segment to IntroDB. */
+  canSubmit?: boolean;
   onNext(): void;
 }
 
 /** Remounted for each session (keyed by it). */
-export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVisible, onNext }: Props) {
+export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVisible, canSubmit, onNext }: Props) {
   const [freshKey, setFreshKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -135,6 +137,19 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
   if (covered || s.pictureInPicture) return null;
   const showSkip = active !== null && (freshKey === activeKey || chromeVisible);
   const showCard = next !== null && reachedNextEpisode(s, moments) && (!dismissed || reachedEnd(s));
+  const submit = canSubmit
+    ? moments.segments.find((m) => (m.kind === "intro" || m.kind === "recap" || m.kind === "outro") && m.end > m.start)
+    : undefined;
+
+  const sendTiming = async () => {
+    if (!submit) return;
+    try {
+      const sent = await api.skipSubmitTiming(s.session, submit.kind as "intro" | "recap" | "outro", submit.start, submit.end);
+      setNotice(sent ? t("Tempo enviado à IntroDB.") : t("A IntroDB não aceitou o tempo."));
+    } catch (e) {
+      setNotice(t("Não foi possível enviar o tempo: {error}", { error: String(e) }));
+    }
+  };
   const aired = next ? hasAired(next.released) : false;
 
   return (
@@ -148,6 +163,11 @@ export function PlaybackMoments({ snapshot: s, moments, next, covered, chromeVis
               <path d="M5 5.5v13l9-6.5z" />
               <path d="M18.5 5v14" />
             </svg>
+          </button>
+        )}
+        {submit && (
+          <button className="skip-button" data-testid="submit-intro" title={t("Enviar tempo à IntroDB")} onClick={() => void sendTiming()}>
+            {t("Enviar tempo")}
           </button>
         )}
         {showCard && (

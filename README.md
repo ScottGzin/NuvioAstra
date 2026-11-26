@@ -5,146 +5,209 @@
 <h1 align="center">Nuvio Astra</h1>
 
 <p align="center">
-  Fork não oficial do <a href="https://github.com/NuvioMedia/NuvioDesktop">Nuvio Desktop</a> para Windows, reescrito em <b>Rust + Tauri</b> para ser leve e rápido.<br/>
-  Usa os mesmos addons do ecossistema Stremio e a mesma conta Nuvio.
+  A lightweight, unofficial fork of <a href="https://github.com/NuvioMedia/NuvioDesktop">Nuvio Desktop</a>,
+  rewritten in <b>Rust + Tauri</b>. It uses the same Stremio-compatible addons and the same Nuvio account.
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><b>⬇️ Baixar a versão mais recente</b></a>
+  <a href="../../releases/latest"><b>Download the latest release</b></a>
 </p>
 
 ---
 
-## Capturas de tela
+## What it is
 
-| Início | Detalhes |
+Nuvio Astra is a desktop player for catalogs, streams, and subtitles supplied by addons you install yourself.
+The app ships **no media**. It reads the same addon manifests, catalogs, streams, and subtitle resources as
+Nuvio Desktop, and can sync your profiles, addons, favorites, watch progress, Home layout, collections, and
+compatible settings with your Nuvio account.
+
+The UI is React/TypeScript; the data layer, Addon protocol, player integration, P2P engine bridge, sync engine,
+and all secret handling live in Rust. Secrets (API keys, tokens, credentials) stay in Rust-owned documents and
+are never returned to the webview.
+
+| Home | Details |
 |---|---|
-| ![Tela inicial](docs/screenshots/home.jpg) | ![Detalhes de um título](docs/screenshots/details.jpg) |
-| **Pesquisa** | **TV ao vivo** |
-| ![Pesquisa](docs/screenshots/search.jpg) | ![TV ao vivo com guia de programação](docs/screenshots/tvaovivo.jpg) |
+| ![Home](docs/screenshots/home.jpg) | ![Title details](docs/screenshots/details.jpg) |
+| **Search** | **Live TV** |
+| ![Search](docs/screenshots/search.jpg) | ![Live TV guide](docs/screenshots/tvaovivo.jpg) |
 
-<sub>Os catálogos, capas e informações exibidos vêm dos addons instalados pelo usuário. Nenhum conteúdo acompanha o aplicativo.</sub>
+## Features
 
-## Recursos
+### Discovery
 
-### Início e descoberta
+- Hero carousel built from the two catalogs you choose.
+- Catalog rows you can rename, reorder, or hide, with endless scrolling.
+- Account collections with folders, animated GIF covers, and TMDB/Trakt list sources.
+- Instant search with history, plus a Discover screen with type/catalog/genre filters from your addons.
+- Details pages with seasons, episodes, cast, trailers, similar titles, parental guide, and Trakt comments.
+- Hover previews on poster cards (configurable delay, optional muted trailer).
+- Custom poster source: a URL template with `{id}`, `{id_type}`, `{typed_id}`, `{type}`, `{shape}`,
+  `{imdb_id}`, `{tmdb_id}`, `{tvdb_id}`, `{mal_id}`, `{kitsu_id}`, `{anilist_id}`, `{anidb_id}`,
+  optional `{token?}`, and `{first|second}` fallbacks, enabled per screen.
 
-- **Destaque em carrossel**, com os dois catálogos que você escolher.
-- **Catálogos dos seus addons** em fileiras, que podem ser renomeadas, ocultadas e reordenadas.
-- **Coleções da conta Nuvio**, com capas em GIF que animam ao passar o mouse.
-- **Pesquisa** com resultados enquanto você digita e histórico.
-- **Detalhes** com temporadas, episódios, elenco e trailers do YouTube.
-- **Formato dos cards:** tamanho, cantos, pôsteres em paisagem e opção de ocultar os nomes.
+### Playback
 
-### Fontes e downloads
+- Embedded **libmpv** player with hardware decoding, audio/subtitle tracks, speed control, chapter markers,
+  and a source picker overlay.
+- Skip intro / recap / credits from video chapters, **IntroDB**, **AniSkip**, and (with your own client id)
+  **Anime-Skip**. You can also submit new timings back to IntroDB.
+- Automatic subtitle sync with audio for addon/external subtitles, plus manual delay, styling, embedded fonts,
+  and legacy subtitle code pages.
+- Picture-in-picture, automatic next episode, and a watched threshold from 90% to 100%.
+- Direct HTTP, HLS with custom headers (through a local relay), and torrent/P2P playback through the bundled
+  Nuvio Engine — playback starts before the download finishes.
+- Image quality: Anime4K, sharpening/line-art/denoise shaders, color controls, judder-free or smooth motion,
+  and NVIDIA RTX Video Super Resolution/HDR on supported hardware.
 
-- **TorBox:** com a sua chave de API, torrents que já estão no cache aparecem como **TB Instant** e abrem na hora, sem P2P. Funciona também com addons de torrent configurados sem chave.
-- **Downloads** de fontes HTTP, TorBox ou torrent, pelo botão no player ou com o botão direito na fonte, para a pasta que você escolher. Usa várias conexões ao mesmo tempo e continua de onde parou.
-- **Etiquetas nas fontes:** qualidade, HDR/Dolby Vision, codec, áudio, tamanho e seeds.
+### Sources and libraries
 
-### Player
+- **Debrid:** TorBox, Real-Debrid, AllDebrid, Premiumize, and Debrid-Link. Cached torrents play instantly as
+  direct links, without P2P. Keys are per profile and synced with your account.
+- **Downloads** from HTTP, TorBox, or torrent sources, with parallel connections and resume.
+- **Source badges:** quality, HDR/Dolby Vision, codec, audio, size, and seeds.
+- **Scraper plugins:** community Nuvio `manifest.json` repositories, executed in a sandboxed QuickJS engine
+  with no file, local-network, or session access.
+- **Media servers:** Jellyfin, Emby, Plex (PIN sign-in), and Silo (password or device code). Libraries open with
+  the same poster cards and paging as Home.
 
-- **Player embutido** (libmpv), com aceleração por hardware, faixas de áudio e controle de velocidade.
-- **Legendas dentro do player:** do arquivo, da fonte e dos addons, com atraso, tamanho e posição.
-- **Estilo das legendas:** fontes do sistema ou importadas, cores, contorno, sombra, fundo e alinhamento.
-- **Pular introdução, recapitulação e créditos**, usando os capítulos do vídeo, IntroDB e AniSkip, sem precisar de chave. Também pode pular automaticamente.
-- **Próximo episódio**, com a escolha da fonte por cima do vídeo.
-- **Picture-in-picture** com controles.
-- **Torrent / P2P** no próprio player, com reprodução antes do download terminar.
+### Account and sharing
 
-### Qualidade de imagem
+- Profiles with PINs and avatars, favorites, history, and Continue Watching.
+- Account sync of profiles, addons, favorites, progress, Home order, collections, and compatible settings.
+- **Watch Party:** create or join a room by code and watch together through Supabase Realtime, with Syncplay-style
+  drift correction. Requires a Supabase project with Realtime enabled.
+- Interface languages: the same 29 as Nuvio Desktop (Portuguese and Brazilian Portuguese, English, Arabic,
+  Hebrew, Urdu and 24 more), with right-to-left layouts for Arabic, Hebrew, and Urdu.
 
-- **Anime4K** com modos A, B, C, A+A, B+B e C+A, além de efeitos de nitidez, traço e redução de ruído.
-- **Ajustes de cor** e melhoria para filmes e séries.
-- **Movimento:** "Sem tremidas" (ajusta o ritmo ao monitor) ou "Fluido" (mistura quadros vizinhos).
-- **NVIDIA RTX Video** Super Resolution e HDR, em placas e drivers compatíveis.
+### System
 
-### Biblioteca, conta e perfis
+- Live TV with categories, favorites, addon filtering, and EPG when the addon provides one.
+- In-app automatic updates with signature verification.
+- DNS-over-HTTPS fallback for addon/debrid requests, and a local header relay for streams that need custom
+  request headers.
 
-- **Continuar assistindo** com o próximo episódio e porcentagem de assistido ajustável de 90% a 100%.
-- **Favoritos e histórico** por perfil.
-- **Perfis** com PIN e avatares.
-- **Sincronização automática com a conta Nuvio:** perfis, addons, favoritos, progresso, ordem do Início e preferências compatíveis. As coleções são recebidas da conta.
-- **Idioma da interface:** português, inglês ou árabe (da direita para a esquerda), salvo na conta Nuvio. Tradução para inglês e árabe com base na contribuição de aelrased.
+## Requirements
 
-### TV ao vivo e atualizações
+- **Windows 10/11 (x64)** with Microsoft Edge WebView2 (included in Windows 11).
+- **Linux (experimental):** WebKitGTK 4.1, libmpv 2 (`libmpv.so.2`), and X11/XWayland.
 
-- **TV ao vivo** com categorias, favoritos, filtro por addon e guia de programação (quando o addon informa).
-- **Atualizações automáticas** pelo próprio app, com verificação de assinatura.
+## Install
 
-O que ainda não foi portado do Nuvio original está em **Configurações → Ainda não disponível**.
+1. Download `Nuvio-Astra-<version>-x64-setup.exe` from [Releases](../../releases/latest).
+2. Run the installer. Administrator rights are not required.
+3. Updates arrive inside the app, with a banner showing the version and changelog.
 
-## Instalação
+The installer is not yet digitally signed; SmartScreen may ask for confirmation on first run
+(**More info → Run anyway**). Release checksums are in `SHA256SUMS.txt`.
 
-1. Baixe `Nuvio-Astra-<versão>-x64-setup.exe` na página de [Releases](../../releases/latest).
-2. Execute o instalador. Não é preciso ser administrador.
-3. Novas versões chegam pelo próprio aplicativo: um aviso no topo mostra a versão e as novidades.
+On first launch you can sign in with your Nuvio account or continue offline. Existing Nuvio Desktop data is
+imported automatically (profiles, addons, library, and settings); the original files are never modified and your
+Nuvio password/session is not copied.
 
-**Requisitos:** Windows 10 ou 11 (64 bits) com o Microsoft Edge WebView2 (já incluído no Windows 11).
+Data locations:
 
-O instalador ainda não tem assinatura digital, então o Windows SmartScreen pode pedir confirmação na primeira vez: **Mais informações → Executar assim mesmo**. Os arquivos de cada versão têm checksums em `SHA256SUMS.txt`.
+- Windows: `%APPDATA%\NuvioNextGen`
+- Linux: `$XDG_DATA_HOME/NuvioNextGen` (default `~/.local/share/NuvioNextGen`)
 
-Na primeira abertura, o app pede a conta Nuvio e sincroniza sozinho (também dá para continuar sem conta). Quem já usa o Nuvio Desktop pode ter perfis, addons e biblioteca importados automaticamente; a senha e o login do Nuvio Desktop não são copiados, e os arquivos originais não são alterados. Os dados do Nuvio Astra ficam em `%APPDATA%\NuvioNextGen` e são mantidos em atualizações e desinstalações.
+## Build from source
 
-## Compilar a partir do código
-
-```powershell
+```bash
 cargo test --workspace
-cd apps\nuvio-desktop\web; npm ci; npm run build; cd ..\..\..
+cd apps/nuvio-desktop/web && npm ci && npm run build && cd ../../..
 cargo build --release -p nuvio-desktop
-powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-release.ps1 -SkipBuild -LibMpv <caminho\libmpv-2.dll>
 ```
 
-Configurações opcionais de build (servidor da conta, repositório de atualizações) estão em [`local.properties.example`](local.properties.example). Publicação e releases automáticas: [`GITHUB_PUBLISH.md`](GITHUB_PUBLISH.md). Detalhes técnicos: [`docs/`](docs/).
+Windows packaging (after the build):
 
-## Créditos e direitos autorais
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging\windows\build-release.ps1 -SkipBuild -LibMpv <path\to\libmpv-2.dll>
+```
 
-**Nuvio Astra:** modificações e código novo © 2026 [ScottGzin](https://github.com/ScottGzin) e contribuidores, sob a GPL-3.0.
+Linux prerequisites (Debian/Ubuntu):
 
-**Projeto original:** o Nuvio Astra é uma versão modificada, iniciada em novembro de 2026, do [Nuvio Desktop](https://github.com/NuvioMedia/NuvioDesktop), © equipe Nuvio / [NuvioMedia](https://github.com/NuvioMedia) e seus contribuidores, licenciado sob a GPL-3.0. Os direitos sobre o código original continuam com seus autores. O nome, a marca e o logotipo **Nuvio** pertencem aos seus respectivos donos.
+```bash
+sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
+    libssl-dev libayatana-appindicator3-dev librsvg2-dev
+```
 
-### Componentes incluídos
+Then run `./target/release/nuvio-desktop`.
 
-| Componente | Autoria | Licença |
-|---|---|---|
-| [Nuvio Engine](https://github.com/NuvioMedia/nuvio-engine) (`nuvio_engine.dll`) | © NuvioMedia | GPL-3.0-or-later |
-| [libtorrent](https://www.libtorrent.org), dentro do Nuvio Engine | © Arvid Norberg e contribuidores | BSD-3-Clause |
-| [Boost](https://www.boost.org), dentro do Nuvio Engine | © autores do Boost | BSL-1.0 |
-| [OpenSSL](https://www.openssl.org), dentro do Nuvio Engine | © autores do OpenSSL | Apache-2.0 |
-| [try_signal](https://github.com/arvidn/try_signal), dentro do Nuvio Engine | © 2016 Arvid Norberg | BSD-3-Clause |
-| [mpv / libmpv](https://mpv.io) (`libmpv-2.dll`) | © autores do mpv | GPL-2.0-or-later |
-| [FFmpeg](https://ffmpeg.org), dentro do libmpv | © desenvolvedores do FFmpeg | GPL, nesta compilação |
-| [Anime4K](https://github.com/bloc97/Anime4K) | © 2019–2021 bloc97 | MIT (`AutoDownscalePre`: Unlicense) |
-| [Tauri](https://tauri.app) | © 2017–presente Tauri Apps Contributors | MIT ou Apache-2.0 |
-| [React](https://react.dev) | © Meta Platforms, Inc. e afiliadas | MIT |
+Optional build configuration goes in `local.properties` (see [`local.properties.example`](local.properties.example)):
+account server, update repository, and optional Trakt/Simkl/MDBList client ids. Release automation is documented in
+[`GITHUB_PUBLISH.md`](GITHUB_PUBLISH.md); technical notes are in [`docs/`](docs/).
 
-As demais bibliotecas usam licenças livres, como MIT, Apache-2.0, BSD, ISC, Zlib e Unicode-3.0. Os avisos de terceiros estão em [`packaging/licenses`](packaging/licenses).
+### Environment variables
 
-### Serviços e dados de terceiros
+| Variable | Purpose |
+|---|---|
+| `NUVIO_DOH_URL` | DNS-over-HTTPS endpoint (default `https://cloudflare-dns.com/dns-query`). |
+| `NUVIO_DOH_FORCE=1` | Always try DoH first for public hostnames. |
+| `NUVIO_DOH_POISONED` | Comma-separated extra IPs to treat as poisoned DNS answers. |
+| `NUVIO_RELAY=0` | Disable the local header relay for streams with custom headers. |
+| `NUVIO_MPV_AUDIO_DEVICE` | Pin the mpv audio output device. |
+| `NUVIO_LIBMPV`, `NUVIO_MPV_GPU_CONTEXT`, `NUVIO_MPV_HWDEC`, `NUVIO_ENGINE_DLL` | Linux player/engine overrides. |
+| `NUVIO_SUPABASE_URL`, `NUVIO_SUPABASE_ANON_KEY`, `NUVIO_SUPABASE_FALLBACK_URL` | Account/Realtime server (build-time). |
+| `NUVIO_INTRODB_API_URL`, `NUVIO_ANISKIP_API_URL`, `NUVIO_ANIME_MAPPING_API_URL`, `NUVIO_TRAKT_API_URL` | Optional service endpoint overrides. |
 
-Estes serviços não fazem parte do Nuvio Astra, não têm vínculo com o projeto e seguem os próprios termos:
+## Project layout
 
-- **[IntroDB](https://introdb.app):** tempos de introdução, recapitulação e créditos enviados pela comunidade ([termos](https://introdb.app/docs/terms)).
-- **[AniSkip](https://api.aniskip.com/api-docs):** tempos de abertura e encerramento de animes enviados pela comunidade.
-- **[ARM](https://github.com/BeeeQueue/arm-server)**, de BeeeQueue, com dados de [Fribb/anime-lists](https://github.com/Fribb/anime-lists): correspondência entre identificadores de animes.
-- **YouTube:** reprodução de trailers. YouTube é uma marca da Google LLC.
-- **Addons:** catálogos, capas, informações, fontes e legendas pertencem aos seus provedores e autores.
+| Path | Contents |
+|---|---|
+| `apps/nuvio-desktop/web` | React/TypeScript UI. |
+| `apps/nuvio-desktop/src` | Tauri commands and application services. |
+| `crates/nuvio-core` | Addon protocol, catalog/meta models, skip segments, subsync helpers. |
+| `crates/nuvio-store` | Per-profile settings and NextGen migration/transaction layer. |
+| `crates/nuvio-sync` | Nuvio account sync engine. |
+| `crates/nuvio-player` | libmpv integration (Windows and Linux backends). |
+| `crates/nuvio-p2p`, `crates/nuvio-plugins` | Torrent engine bridge and sandboxed scraper plugins. |
 
-NVIDIA e RTX são marcas da NVIDIA Corporation. Windows e WebView2 são produtos da Microsoft Corporation.
+## Limitations
 
-## Aviso legal
+Some original features are still partial: cloud-library browsing for debrid accounts is not implemented;
+account sign-in from another device (`nuvio.tv/link`) is still missing; Watch Party needs Realtime enabled in the
+Supabase project; and hover trailers still render the video stream with a separately synchronized audio track.
+Linux now has AppImage/.deb builds and GitHub release links in the updater, but support is still experimental.
+The current parity status is tracked in
+[`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md), and settings marked **Not yet available** list what is missing.
 
-- O Nuvio Astra **não é afiliado, patrocinado nem endossado** pela equipe do Nuvio.
-- O aplicativo **não hospeda, distribui nem fornece** filmes, séries, canais ou qualquer outro conteúdo. Ele apenas exibe o que os addons escolhidos pelo usuário oferecem. Os addons são de terceiros e não fazem parte deste projeto.
-- Cada usuário é responsável pelos addons que instala e pelo conteúdo que acessa, de acordo com as leis do seu país. Ao usar torrent/P2P, o seu endereço IP fica visível para outros participantes da rede.
-- Marcas, capas e imagens que aparecem no aplicativo ou nas capturas pertencem aos seus respectivos donos.
+## Credits and licenses
 
-## Privacidade
+**Nuvio Astra:** modifications and new code © 2026 [ScottGzin](https://github.com/ScottGzin) and contributors,
+licensed under GPL-3.0.
 
-- A senha da conta Nuvio é enviada apenas ao servidor da conta e não é armazenada. A sessão fica criptografada neste computador pelo Windows (DPAPI).
-- Com os botões de pular ativados, o app envia ao IntroDB, AniSkip ou ARM o identificador público do título e, para séries, a temporada ou o episódio. Como em qualquer acesso à internet, esses serviços veem o seu IP. Os botões podem ser desligados em **Configurações → Reprodução**.
-- Os addons instalados recebem os pedidos de catálogo, fontes e legendas. Para legendas, isso pode incluir o nome, o tamanho e o identificador do arquivo de vídeo.
+**Original project:** a modified version of [Nuvio Desktop](https://github.com/NuvioMedia/NuvioDesktop),
+© Nuvio team / [NuvioMedia](https://github.com/NuvioMedia) and contributors, GPL-3.0. The Nuvio name and brand
+belong to their respective owners.
 
-## Licença
+| Component | License |
+|---|---|
+| Nuvio Engine (libtorrent, Boost, OpenSSL, try_signal) | GPL-3.0-or-later / BSD / BSL / Apache-2.0 |
+| mpv / libmpv and FFmpeg | GPL-2.0-or-later / GPL |
+| Anime4K | MIT (Unlicense for `AutoDownscalePre`) |
+| Tauri, React | MIT or Apache-2.0 / MIT |
 
-[GNU General Public License v3.0](LICENSE), a mesma do Nuvio Desktop. Você pode usar, estudar, modificar e redistribuir o Nuvio Astra seguindo os termos dessa licença, mantendo os avisos de direitos autorais e disponibilizando o código-fonte. O programa é fornecido **sem qualquer garantia**. O código-fonte completo de cada versão está neste repositório.
+Other dependencies use permissive licenses. Third-party notices are in [`packaging/licenses`](packaging/licenses).
+
+**Third-party services:** [IntroDB](https://introdb.app), [AniSkip](https://api.aniskip.com/api-docs),
+[ARM](https://github.com/BeeeQueue/arm-server), Trakt, TMDB, YouTube, and every addon author. They are not
+affiliated with this project and are governed by their own terms.
+
+## Disclaimer
+
+Nuvio Astra is **not affiliated with, sponsored by, or endorsed by** the Nuvio team. It does not host or provide
+any media: it only displays what the addons you install return. You are responsible for the addons you use and for
+compliance with local law. With torrent/P2P streams, your IP is visible to other peers.
+
+## Privacy
+
+- Your Nuvio password is sent only to the account server and is never stored. The session is encrypted locally
+  (DPAPI on Windows, an AES-256-GCM key file on Linux).
+- With skip buttons enabled, the title's public id and season/episode are sent to IntroDB, AniSkip, or ARM.
+- Addons receive catalog/source/subtitle requests; subtitle lookups can include the video filename, size, and hash.
+- API keys and tokens are kept in Rust-owned files, never in the webview.
+
+## License
+
+[GNU General Public License v3.0](LICENSE). You may use, study, modify, and redistribute this project under those
+terms, preserving notices and making the source available. Provided **without warranty**.

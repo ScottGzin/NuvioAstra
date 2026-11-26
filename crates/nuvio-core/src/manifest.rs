@@ -83,8 +83,10 @@ impl AddonCatalog {
             && !self.extra.iter().any(|e| e.is_required && e.name != "search")
     }
 
-    /// Discover catalogs (`supportsDiscover` of the original): browsable without a search, and every
-    /// required extra can be filled (a required genre needs its options; skip is optional paging).
+    /// Discover catalogs (`AddonCatalog.supportsDiscover`): a catalog can be listed without asking
+    /// for anything the picker cannot provide. A required `search` excludes it, any other required
+    /// extra except `genre`/`skip` excludes it, and a required `genre` without options excludes it
+    /// (there would be nothing to choose).
     pub fn supports_discover(&self) -> bool {
         if self.extra.iter().any(|e| e.name == "search" && e.is_required) {
             return false;
@@ -96,6 +98,7 @@ impl AddonCatalog {
         })
     }
 
+    /// The `genre` extra, whose options feed the Discover genre picker.
     pub fn genre_extra(&self) -> Option<&AddonExtraProperty> {
         self.extra.iter().find(|e| e.name == "genre")
     }
@@ -287,6 +290,34 @@ mod tests {
         assert_eq!(all.extra[0].options, vec!["News", "Sports"]);
         assert_eq!(m.catalogs[1].name, "search"); // name falls back to id
         assert!(m.catalogs[1].supports_search());
+    }
+
+    #[test]
+    fn discover_catalogs_need_no_extra_the_picker_cannot_fill() {
+        const DISCOVER: &str = r#"{
+            "id": "a", "name": "A", "version": "1", "resources": ["catalog"], "types": ["movie"],
+            "catalogs": [
+                {"type": "movie", "id": "top", "name": "Top"},
+                {"type": "movie", "id": "search", "name": "Search",
+                 "extra": [{"name": "search", "isRequired": true}]},
+                {"type": "movie", "id": "optionalSearch", "name": "Optional",
+                 "extra": [{"name": "search"}]},
+                {"type": "movie", "id": "genres", "name": "Genres",
+                 "extra": [{"name": "genre", "isRequired": true, "options": ["Action", "Drama"]}]},
+                {"type": "movie", "id": "emptyGenre", "name": "Empty genre",
+                 "extra": [{"name": "genre", "isRequired": true}]},
+                {"type": "movie", "id": "year", "name": "Year",
+                 "extra": [{"name": "year", "isRequired": true}]},
+                {"type": "movie", "id": "paged", "name": "Paged", "extra": [{"name": "skip"}]}
+            ]
+        }"#;
+        let m = parse_manifest("https://a.test/manifest.json", DISCOVER).unwrap();
+        let eligible: Vec<&str> = m.catalogs.iter().filter(|c| c.supports_discover()).map(|c| c.id.as_str()).collect();
+        assert_eq!(eligible, vec!["top", "optionalSearch", "genres", "paged"]);
+        let genre = m.catalogs[3].genre_extra().unwrap();
+        assert!(genre.is_required);
+        assert_eq!(genre.options, vec!["Action", "Drama"]);
+        assert!(m.catalogs[0].genre_extra().is_none());
     }
 
     #[test]

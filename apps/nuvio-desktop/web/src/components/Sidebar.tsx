@@ -1,4 +1,4 @@
-// Side navigation: Início, TV, Buscar, Descobrir, Biblioteca; Configurações at the bottom above the profile.
+// Side navigation: Início, TV, Buscar, Biblioteca; Configurações at the bottom above the profile.
 // Line icons (`SidebarIcons.tsx`) in the app icon's palette; the logo at the top is the app's own,
 // centered on the same axis as the icons. The sync state is shown in Settings → Conta only.
 

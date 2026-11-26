@@ -22,7 +22,7 @@ interface Props {
 
 const SELECTION_KEY = "nuvio.discover.selection";
 
-type Group = "movie" | "series" | "anime";
+type Group = "movie" | "series" | "anime" | "all";
 const GROUPS: { id: Group; label: string }[] = [
   { id: "movie", label: "Filmes" },
   { id: "series", label: "Séries" },
@@ -102,8 +102,8 @@ export function Discover({ onOpen }: Props) {
   }, []);
 
   const catalog = catalogs?.find((c) => c.key === key) ?? null;
-  const ofGroup = catalogs?.filter((c) => groupOf(c) === group) ?? [];
-  const shown = catalog && groupOf(catalog) === group ? catalog : null;
+  const ofGroup = group === "all" ? catalogs ?? [] : catalogs?.filter((c) => groupOf(c) === group) ?? [];
+  const shown = catalog && (group === "all" || groupOf(catalog) === group) ? catalog : null;
 
   const load = useCallback(async (cat: DiscoverCatalog, g: string | null, skip: number | null) => {
     const id = `${cat.key}#${g ?? ""}`;
@@ -145,7 +145,7 @@ export function Discover({ onOpen }: Props) {
   const chooseGroup = (g: Group) => {
     if (g === group) return;
     setGroup(g);
-    pick(catalogs?.find((c) => groupOf(c) === g));
+    pick(g === "all" ? catalogs?.[0] : catalogs?.find((c) => groupOf(c) === g));
   };
 
   return (
@@ -168,6 +168,19 @@ export function Discover({ onOpen }: Props) {
                 </button>
               ))}
             </div>
+            <label className="discover-field">
+              <span>{t("Tipo")}</span>
+              <select
+                className="select pill-select"
+                data-testid="discover-type"
+                value={group === "anime" ? "all" : group}
+                onChange={(e) => chooseGroup(e.target.value as Group)}
+              >
+                <option value="all">{t("Todos")}</option>
+                <option value="movie">{t("Filmes")}</option>
+                <option value="series">{t("Séries")}</option>
+              </select>
+            </label>
             {shown && (
             <label className="discover-field">
               <span>{t("Catálogo")}</span>

@@ -141,8 +141,15 @@ pub fn uitest_process_resources() -> Result<Value, String> {
     Ok(serde_json::json!({ "tcpListening": listening, "tcpEstablished": established, "tcpOther": other_tcp, "udp": udp, "threads": threads }))
 }
 
+#[cfg(not(windows))]
 fn thread_count() -> usize {
-    std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or_else(|_| {
+    std::fs::read_dir("/proc/self/task").map(|d| d.count()).unwrap_or(0)
+}
+
+#[cfg(windows)]
+fn thread_count() -> usize {
+    {
+        // Toolhelp snapshot of this process's threads.
         // Windows: Toolhelp snapshot of this process's threads.
         use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32};
         let pid = std::process::id();
@@ -161,7 +168,7 @@ fn thread_count() -> usize {
             let _ = windows::Win32::Foundation::CloseHandle(snap);
             n
         }
-    })
+    }
 }
 
 /// Phase `install-check`: where the app found its native libraries and whether they load —

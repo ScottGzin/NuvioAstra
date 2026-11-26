@@ -23,7 +23,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
 pub const ENGINE_DLL: &str = "nuvio_engine.dll";
+
+/// Name of the engine when it is rebuilt as a Linux shared library (phase 3 of the port).
+#[cfg(not(windows))]
+pub const ENGINE_DLL: &str = "libnuvio_engine.so";
 
 /// Trackers the original always adds (`DEFAULT_TRACKERS`).
 pub const DEFAULT_TRACKERS: &[&str] = &[
@@ -200,14 +205,31 @@ pub fn load_api(path: &Path) -> Result<Arc<Api>, String> {
     API.get_or_init(|| Api::load(path).map(Arc::new)).clone()
 }
 
-/// `nuvio_engine.dll` next to the executable, or `NUVIO_ENGINE_DLL`.
+/// Native engine next to the executable, or `NUVIO_ENGINE_DLL`.
+///
+/// Windows uses the shipped `nuvio_engine.dll`. Linux uses the upstream
+/// `libnuvio_engine.so` (same C ABI, exported symbols verified against `ffi.rs`); in dev builds it
+/// is also found in `apps/nuvio-desktop/native/linux/engine/` next to the source tree.
 pub fn locate_engine() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("NUVIO_ENGINE_DLL").map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(p);
     }
-    let exe = std::env::current_exe().ok()?;
-    let p = exe.parent()?.join(ENGINE_DLL);
-    p.is_file().then_some(p)
+    if let Some(parent) = std::env::current_exe().ok().and_then(|p| p.parent().map(PathBuf::from)) {
+        let p = parent.join(ENGINE_DLL);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let p = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../apps/nuvio-desktop/native/linux/engine")
+            .join(ENGINE_DLL);
+        if p.is_file() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 struct Native {

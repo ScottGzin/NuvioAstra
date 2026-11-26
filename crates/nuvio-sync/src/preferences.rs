@@ -404,8 +404,11 @@ mod tests {
         assert_eq!(merge(&local, Some(&local), &changed).app_language.as_deref(), Some("pt-BR"));
 
         // No language chosen here is never sent, and an unknown code is ignored.
-        let unknown = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "de" } } } });
+        let unknown = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "xx" } } } });
         assert_eq!(from_blob(&unknown).app_language, None);
+        // Every language the app offers is accepted, including the ones added with the 29-language UI.
+        let german = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "de" } } } });
+        assert_eq!(from_blob(&german).app_language.as_deref(), Some("de"));
         assert!(!differs(&PlayerSettings::default(), &local) || local.app_language.is_some());
         assert!(payload(&unknown, &PlayerSettings::default()).unwrap()["features"].get("player_settings").is_some_and(|p| p == &json!({})));
     }

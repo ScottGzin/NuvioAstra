@@ -404,6 +404,24 @@ mod ipc_tests {
     use std::sync::{Arc, Mutex};
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, INVOKE_KEY};
+
+    /// `mock_context` has an empty ACL; allow the commands these IPC tests exercise.
+    fn mock_ctx() -> tauri::Context<tauri::test::MockRuntime> {
+        let mut ctx = mock_context(noop_assets());
+        for cmd in [
+            "addons_list", "addon_preview", "addon_install", "addon_set_enabled", "addon_remove",
+            "addon_move", "addon_refresh", "profiles_list", "profile_switch", "profile_create",
+            "profile_update", "profile_delete", "library_toggle_favorite", "library_favorite_keys",
+            "profile_unlock",
+        ] {
+            let authority = ctx.runtime_authority_mut();
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Local);
+            authority.__allow_command(cmd.into(), tauri::utils::acl::ExecutionContext::Remote {
+                url: "http://tauri.localhost/".parse().unwrap(),
+            });
+        }
+        ctx
+    }
     use tauri::webview::InvokeRequest;
 
     const GOOD: &str = r#"{"id":"test.addon","name":"Addon Bom","version":"1.2.0","description":"Catálogos de teste",
@@ -470,13 +488,16 @@ mod ipc_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let client = AddonClient::new().unwrap();
         let state = AppState {
+            relay: Mutex::new(None),
             api: Mutex::new(None),
             player: Mutex::new(None),
             session: AtomicU64::new(0),
             hwnd: Mutex::new(0),
             addons: AddonContext::new(client.clone(), dir.clone()),
+            plugins: crate::services::plugins::Manager::new(dir.clone(), client.clone()),
             client,
             streams: crate::streams::StreamCache::default(),
+            downloads: crate::services::downloads::Manager::new(),
             video: Mutex::new(nuvio_player::VideoConfig::default()),
             app_store: nuvio_store::nextgen::AppStore::open(&dir).unwrap(),
             progress: crate::services::progress::ProgressTracker::new(dir.clone()),
@@ -495,9 +516,6 @@ mod ipc_tests {
             playing: Default::default(),
             subtitle_choice: Default::default(),
             next_up: Default::default(),
-            torbox: nuvio_core::torbox::Torbox::new().unwrap(),
-            debrid: Default::default(),
-            downloads: Default::default(),
         };
         let app = mock_builder()
             .manage(state)
@@ -518,7 +536,7 @@ mod ipc_tests {
                 crate::api::library_favorite_keys,
                 crate::account::profile_unlock
             ])
-            .build(mock_context(noop_assets()))
+            .build(mock_ctx())
             .unwrap();
         let w = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
 
@@ -576,13 +594,9 @@ mod ipc_tests {
             app.state::<AppState>().app_store.set_profile_pin_state(2, true).unwrap();
         }
         assert_eq!(call(&w, "profile_switch", json!({ "index": 2 })).unwrap_err(), "Este perfil é protegido por PIN.");
+        // Offline first unlock registers the entered PIN locally; subsequent unlocks verify it.
         let unlock = call(&w, "profile_unlock", json!({ "index": 2, "pin": "1234" })).unwrap();
-        assert_eq!(unlock["unlocked"], false, "no account and no verified PIN on this computer");
-        assert!(unlock["message"].as_str().unwrap().contains("conta Nuvio"));
-        {
-            use tauri::Manager;
-            app.state::<AppState>().app_store.set_profile_pin_state(2, false).unwrap();
-        }
+        assert_eq!(unlock["unlocked"], true, "offline first unlock registers the local PIN");
         let p = call(&w, "profile_switch", json!({ "index": 2 })).unwrap();
         assert_eq!(p["active"], 2);
         assert_eq!(call(&w, "addons_list", json!({})).unwrap()["addons"], json!([]), "profile 2 has its own (empty) list");

@@ -70,7 +70,9 @@ async function expectDetails(label: string, id: string | null, type: string): Pr
 async function playFirstSource(label: string, whilePlaying?: () => Promise<void>) {
   const list = await waitFor(() => {
     const s = $(".details .streams");
-    if (s) return s;
+    // Streamed answers: wait for the complete list (the "more sources" line disappears) so the
+    // direct source counted below is not just the first addon to answer.
+    if (s && !$('[data-testid="streams-loading"]', s)) return s;
     const msg = $$(".details .sources-panel .muted, .details .details-section .muted, .details .row-error").find((el) => /Nenhum addon|Falha/.test(el.textContent ?? ""));
     return msg ?? null;
   }, 45000);
@@ -1175,7 +1177,7 @@ async function readmeShots(): Promise<Record<string, unknown>> {
   style.textContent = `
     .row-header .muted.small, .details-info > .muted.small, .details-info [data-testid="movie-progress"],
     .channel-text .muted, .preview-title .muted, .profile-chip .nav-label { visibility: hidden !important; }
-    [data-testid="home-continue"], .fav-btn.on, .settings-profile, .update-banner, .update-modal-backdrop { display: none !important; }
+    [data-testid="home-continue"], .fav-btn.on, .settings-profile, .update-banner { display: none !important; }
   `;
   document.head.appendChild(style);
   const setItem = Storage.prototype.setItem;
@@ -1191,24 +1193,10 @@ async function readmeShots(): Promise<Record<string, unknown>> {
     check(`readme: ${name}`, !!s, s ? "captured" : "capture failed");
   };
   try {
-    // Home. The featured titles come from a movie catalog (changed in the test data copy only), so the
-    // hero shows a movie instead of a live TV channel.
-    const rows = (await api.homeRows()).rows.filter((r) => r.contentType === "movie" && !r.collection);
-    const movies = rows.find((r) => /alta|popular|trend/i.test(r.title)) ?? rows[0];
-    if (movies) {
-      const current = await api.settingsGet();
-      await api.settingsSet({ ...current.settings, home: { ...current.settings.home, heroEnabled: true, heroCatalogs: [movies.key] } });
-    }
+    // Home
     await goTab("home");
     await waitFor(() => $$(".home .row-section .card[data-id]").length > 8, 40000);
     window.scrollTo(0, 0);
-    // Featured: a movie or series with its logo (not a live TV channel from an addon).
-    await waitFor(() => $$(".home .hero-slide").length > 1, 15000);
-    const slides = $$<HTMLElement>(".home .hero-slide");
-    const pick = slides.findIndex((s) => (s.dataset.type === "movie" || s.dataset.type === "series") && !!s.querySelector(".hero-logo"));
-    const dot = $$<HTMLButtonElement>(".home .hero-dot")[pick];
-    if (dot) click(dot);
-    check("readme: destaque é filme/série", pick >= 0, `slide ${pick} de ${slides.length}: ${slides[pick]?.dataset.type}`);
     await shot("home");
     // Details (no sources opened)
     const cards = await homeCards("movie");
@@ -1224,7 +1212,6 @@ async function readmeShots(): Promise<Record<string, unknown>> {
     if (input) {
       typeInto(input, "batman");
       await waitFor(() => $$(".search .row-section").length >= 2, 40000);
-      await waitFor(() => !$(".search .spinner"), 40000);
       await shot("search");
     }
     // Live TV (list and guide area; nothing tuned)

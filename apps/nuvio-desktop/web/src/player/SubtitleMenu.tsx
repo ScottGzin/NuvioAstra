@@ -8,8 +8,6 @@ import { useSubtitles } from "./subtitles";
 import { decimal, t } from "../i18n";
 
 const SAVE_MS = 350;
-/** Values the hidden section is laid out with until the settings arrive. */
-const PLACEHOLDER = { fontSizeSp: 20, bottomOffset: 0, bold: false, outlineEnabled: false } as SubtitleSettings;
 
 const CcIcon = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -25,6 +23,8 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
   const unsaved = useRef<SubtitleSettings | null>(null);
   const timer = useRef(0);
   const saving = useRef<Promise<void>>(Promise.resolve());
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +67,30 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
 
   const delay = (ms: number) => void api.playerCommand({ type: "setSubtitleDelay", ms: Math.max(-60000, Math.min(60000, ms)) });
 
+  const autoSync = () => {
+    setSyncing(true);
+    setSyncNote(null);
+    api.playerSubtitleAutosync(snapshot.session)
+      .then((result) => {
+        if (result.status === "applied" && result.offsetMs !== null) {
+          setSyncNote(t("Sincronizado em {seconds} s com {count} referência(s).", {
+            seconds: decimal(result.offsetMs / 1000, 2),
+            count: String(result.references),
+          }));
+        } else if (result.status === "no-match") {
+          setSyncNote(t("Nenhum ajuste confiável encontrado."));
+        } else if (result.status === "not-applicable") {
+          setSyncNote(t("Escolha uma legenda de addon para sincronizar."));
+        } else if (result.status === "busy") {
+          setSyncNote(t("Já existe uma sincronização em andamento."));
+        } else {
+          setSyncNote(t("Sincronização automática desativada nas Configurações."));
+        }
+      })
+      .catch(() => setSyncNote(t("Não foi possível sincronizar a legenda.")))
+      .finally(() => setSyncing(false));
+  };
+
   return (
     <>
       <span className="pc-enhance-title">{t("Atraso da legenda")}</span>
@@ -76,31 +100,33 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
         <button className="pc-level" aria-label={t("Atrasar legenda")} onClick={() => delay(snapshot.subDelayMs + 250)}>+{decimal(0.25, 2)} s</button>
         <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>{t("Zerar")}</button>
       </div>
-      {/* Before the settings arrive the section keeps its place (hidden), so the menu doesn't grow
-          upward under the pointer. */}
-      {(() => {
-        const shown = style ?? PLACEHOLDER;
-        return (
-        <div className="pc-sub-look" style={style ? undefined : { visibility: "hidden" }} aria-hidden={!style || undefined}>
+      <span className="pc-enhance-title">{t("Sincronização automática")}</span>
+      <div className="pc-motion">
+        <button className="pc-level" data-testid="subtitle-autosync" disabled={syncing} onClick={autoSync}>
+          {syncing ? t("Sincronizando…") : t("Sincronizar com outras legendas")}
+        </button>
+      </div>
+      {syncNote && <p className="pc-enhance-note" role="status">{syncNote}</p>}
+      {style && (
+        <>
           <span className="pc-enhance-title">{t("Aparência")}</span>
           <label className="pc-sub-slider">
             <span>{t("Tamanho")}</span>
-            <input type="range" min={6} max={40} value={shown.fontSizeSp} aria-label={t("Tamanho da legenda")} onChange={(e) => change({ fontSizeSp: Number(e.target.value) })} />
-            <output>{shown.fontSizeSp}</output>
+            <input type="range" min={6} max={40} value={style.fontSizeSp} aria-label={t("Tamanho da legenda")} onChange={(e) => change({ fontSizeSp: Number(e.target.value) })} />
+            <output>{style.fontSizeSp}</output>
           </label>
           <label className="pc-sub-slider">
             <span>{t("Altura")}</span>
-            <input type="range" min={0} max={200} value={shown.bottomOffset} aria-label={t("Altura da legenda")} onChange={(e) => change({ bottomOffset: Number(e.target.value) })} />
-            <output>{shown.bottomOffset}</output>
+            <input type="range" min={0} max={200} value={style.bottomOffset} aria-label={t("Altura da legenda")} onChange={(e) => change({ bottomOffset: Number(e.target.value) })} />
+            <output>{style.bottomOffset}</output>
           </label>
           <div className="pc-motion">
-            <button className={`pc-level ${shown.bold ? "active" : ""}`} aria-pressed={shown.bold} onClick={() => change({ bold: !shown.bold })}>{t("Negrito")}</button>
-            <button className={`pc-level ${shown.outlineEnabled ? "active" : ""}`} aria-pressed={shown.outlineEnabled} onClick={() => change({ outlineEnabled: !shown.outlineEnabled })}>{t("Contorno")}</button>
+            <button className={`pc-level ${style.bold ? "active" : ""}`} aria-pressed={style.bold} onClick={() => change({ bold: !style.bold })}>{t("Negrito")}</button>
+            <button className={`pc-level ${style.outlineEnabled ? "active" : ""}`} aria-pressed={style.outlineEnabled} onClick={() => change({ outlineEnabled: !style.outlineEnabled })}>{t("Contorno")}</button>
           </div>
           <p className="pc-enhance-note">{t("Fonte, cores e fundo ficam em Configurações → Legendas.")}</p>
-        </div>
-        );
-      })()}
+        </>
+      )}
     </>
   );
 }
