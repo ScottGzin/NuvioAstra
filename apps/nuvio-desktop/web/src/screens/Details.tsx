@@ -289,14 +289,26 @@ export function Details({ item, onBack, onOpen }: Props) {
       return;
     }
     const video = selected && selected !== "movie" ? selected : null;
+    // Movies have no episode row, but the player still needs a context to show the sources panel.
+    const movieVideo: MetaVideo = {
+      id: data.meta.defaultVideoId || data.meta.id,
+      title: data.meta.name,
+      released: data.meta.releaseInfo,
+      available: true,
+      thumbnail: null,
+      season: null,
+      episode: null,
+      overview: null,
+    };
+    const playbackVideo = video ?? movieVideo;
     const subtitle = video ? `${episodeLabel(video)} · ${video.title}` : data.meta.releaseInfo ?? undefined;
     const start = resumeAt !== null ? resumeAt / 1000 : null;
     void player
-      .play(() => api.playStream(stream.key, start, playbackItem(data.meta, video)), {
+      .play(() => api.playStream(stream.key, start, playbackItem(data.meta, playbackVideo)), {
         title: data.meta.name,
         subtitle,
         view: "full",
-        episode: video ? { meta: data.meta, video } : undefined,
+        episode: { meta: data.meta, video: playbackVideo },
         torrent: stream.kind === "torrent",
       })
       .then((ok) => {

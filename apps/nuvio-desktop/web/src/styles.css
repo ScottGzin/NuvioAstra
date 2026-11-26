@@ -393,8 +393,8 @@ body.playing .livetv-preview { background: transparent; }
   --pc-accent: #2fe7f2;
   --pc-accent-soft: rgba(47, 231, 242, .16);
   --pc-glow: 0 0 10px rgba(47, 231, 242, .75), 0 0 2px rgba(47, 231, 242, .9);
-  --pc-panel: rgba(8, 14, 22, .72);
-  --pc-line: rgba(47, 231, 242, .22);
+  --pc-panel: rgba(22, 30, 44, .42);
+  --pc-line: rgba(255, 255, 255, .18);
   position: absolute; inset: auto 0 0 0; padding: 34px 18px 14px; border-radius: 0 0 14px 14px;
   background: linear-gradient(transparent, rgba(2, 6, 12, .55) 35%, rgba(2, 6, 12, .9));
   transition: opacity .25s var(--ease); color: #e6fbfd;
@@ -420,10 +420,19 @@ body.playing .livetv-preview { background: transparent; }
 /* Buttons */
 .controls .pc-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 2px; height: 42px; min-width: 42px; padding: 0 10px;
-  background: var(--pc-panel); border: 1px solid var(--pc-line); border-radius: 10px; color: var(--pc-accent); cursor: pointer;
-  transition: background .15s, border-color .15s, box-shadow .15s;
+  /* Frosted glass, like Apple's player overlays */
+  background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.04)), var(--pc-panel);
+  border: 1px solid var(--pc-line); border-radius: 12px; color: #f0fbff; cursor: pointer;
+  backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 8px 24px rgba(0,0,0,.32);
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .15s;
 }
-.controls .pc-btn:hover { background: var(--pc-accent-soft); border-color: rgba(47, 231, 242, .55); box-shadow: 0 0 12px rgba(47, 231, 242, .25); }
+.controls .pc-btn:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.08)), var(--pc-panel);
+  border-color: rgba(47,231,242,.5); box-shadow: inset 0 1px 0 rgba(255,255,255,.3), 0 8px 28px rgba(0,0,0,.4), 0 0 14px rgba(47,231,242,.22);
+  transform: translateY(-1px);
+}
+.controls .pc-btn:active { transform: translateY(0); }
 .controls .pc-play { width: 50px; border-color: rgba(47, 231, 242, .6); box-shadow: inset 0 0 12px rgba(47, 231, 242, .18); }
 .controls .pc-skip span { font-size: 14px; font-weight: 600; color: #e6fbfd; }
 .controls .time { font-variant-numeric: tabular-nums; font-size: 15px; color: rgba(230, 251, 253, .62); margin-left: 6px; }
@@ -433,13 +442,16 @@ body.playing .livetv-preview { background: transparent; }
 /* Right panel: volume, speed, image mode, PiP, fullscreen */
 .controls .pc-panel {
   display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 12px;
-  background: var(--pc-panel); border: 1px solid var(--pc-line); border-radius: 12px; backdrop-filter: blur(6px);
+  background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.03)), var(--pc-panel);
+  border: 1px solid var(--pc-line); border-radius: 14px;
+  backdrop-filter: blur(18px) saturate(180%); -webkit-backdrop-filter: blur(18px) saturate(180%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 8px 24px rgba(0,0,0,.32);
 }
 .controls .pc-icon {
   display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0;
-  background: transparent; border: 0; border-radius: 8px; color: var(--pc-accent); cursor: pointer;
+  background: transparent; border: 0; border-radius: 8px; color: #eaf7ff; cursor: pointer;
 }
-.controls .pc-icon:hover { background: var(--pc-accent-soft); }
+.controls .pc-icon:hover { background: rgba(255,255,255,.16); }
 .controls .volume { display: flex; align-items: center; gap: 6px; }
 .controls .pc-volume {
   -webkit-appearance: none; appearance: none; width: 90px; height: 4px; border-radius: 4px; cursor: pointer;

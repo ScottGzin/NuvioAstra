@@ -299,7 +299,7 @@ export function FullPlayer() {
         case "n": openNext(); break;
         case "s": click('[data-testid="subtitle-button"]'); break;
         case "c": if (snapshot && snapshot.chapters.length > 0) setChaptersOpen((open) => !open); break;
-        case "e": if (episode) setSourcesOpen((open) => !open); break;
+        case "e": setSourcesOpen((open) => !open); break;
         case "p": void togglePip(); break;
         case "Escape":
           // Escape closes the panel in front of the video first, then the player.
@@ -366,7 +366,7 @@ export function FullPlayer() {
         subtitles={snapshot ? <SubtitleMenu key={`subtitles-${snapshot.session}`} snapshot={snapshot} /> : undefined}
         holdSpeed={{ enabled: playerSettings?.holdToSpeedEnabled ?? true, value: playerSettings?.holdToSpeedValue ?? 2 }}
         onChapters={snapshot && snapshot.chapters.length > 0 ? () => setChaptersOpen(true) : undefined}
-        onSources={episode ? () => setSourcesOpen(true) : undefined}
+        onSources={() => setSourcesOpen(true)}
         next={
           next
             ? {
