@@ -310,8 +310,12 @@ button.chip:hover { background: var(--surface-hover); }
   flex: none; width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line);
   background: var(--surface-hover); color: var(--accent); font-size: 16px; cursor: pointer;
 }
-.stream-name { font-weight: 600; white-space: pre-line; }
-.stream-desc { color: var(--muted); white-space: pre-line; font-size: 13px; }
+/* Addon source text is mixed Arabic/LTR; keep it LTR so numbers, brackets and Latin words are
+   not reordered by the page's RTL direction. Arabic still renders correctly inside its own runs. */
+.streams .source-filters { direction: ltr; }
+.stream-name { font-weight: 600; white-space: pre-line; direction: ltr; unicode-bidi: isolate; text-align: left; }
+.stream-desc { color: var(--muted); white-space: pre-line; font-size: 13px; direction: ltr; unicode-bidi: isolate; text-align: left; }
+.stream-badges { direction: ltr; unicode-bidi: isolate; }
 .stream-pending { grid-column: 1 / -1; color: var(--muted); font-size: 12px; font-style: italic; }
 /* Addon chips above the sources, and the badges of the rules imported in the original app. */
 .source-filters {
