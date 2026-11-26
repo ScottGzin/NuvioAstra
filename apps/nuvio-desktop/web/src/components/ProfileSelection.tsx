@@ -12,6 +12,10 @@ interface Props {
   view: ProfilesView;
   /** Opens the chosen profile (the app leaves this screen). */
   onOpen(view: ProfilesView): void;
+  /** In-app profile management: start in edit mode and close with Done. */
+  initialManage?: boolean;
+  onDone?(): void;
+  onChanged?(view: ProfilesView): void;
 }
 
 /** Which avatar colors the backdrop blends to while the pointer is over a profile. */
@@ -19,9 +23,9 @@ function colorOf(profile: ProfileInfo): string {
   return profile.avatarColorHex || "#4527a0";
 }
 
-export function ProfileSelection({ view: initial, onOpen }: Props) {
+export function ProfileSelection({ view: initial, onOpen, initialManage, onDone, onChanged }: Props) {
   const [view, setView] = useState(initial);
-  const [editMode, setEditMode] = useState(false);
+  const [editMode, setEditMode] = useState(!!initialManage);
   const [editing, setEditing] = useState<number | "add" | null>(null);
   const [hovered, setHovered] = useState<ProfileInfo | null>(null);
   const [pinFor, setPinFor] = useState<ProfileInfo | null>(null);
@@ -81,9 +85,19 @@ export function ProfileSelection({ view: initial, onOpen }: Props) {
           )}
         </div>
         {error && <div className="row-error" role="alert">{error}</div>}
-        <button className="profile-gate-manage" data-testid="profiles-manage" onClick={() => setEditMode((on) => !on)}>
+        <button
+          className="profile-gate-manage"
+          data-testid="profiles-manage"
+          onClick={() => {
+            if (editMode && onDone) { onDone(); return; }
+            setEditMode((on) => !on);
+          }}
+        >
           {editMode ? t("Concluído") : t("Gerenciar perfis")}
         </button>
+        {onDone && (
+          <button className="profile-gate-close" aria-label={t("Fechar")} onClick={onDone}>✕</button>
+        )}
       </div>
       {pinFor && (
         <PinDialog
@@ -97,7 +111,8 @@ export function ProfileSelection({ view: initial, onOpen }: Props) {
           view={view}
           initialIndex={editing === "add" ? undefined : editing}
           initialAdd={editing === "add"}
-          onChanged={(next) => { setView(next); setEditing(null); setEditMode(false); }}
+          fullscreen
+          onChanged={(next) => { setView(next); onChanged?.(next); setEditing(null); if (!onDone) setEditMode(false); }}
           onClose={() => setEditing(null)}
         />
       )}

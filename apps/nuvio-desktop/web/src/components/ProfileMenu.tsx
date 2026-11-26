@@ -89,11 +89,12 @@ interface EditorProps {
   /** Opens the editor directly on this profile (used by the full-screen picker). */
   initialIndex?: number;
   initialAdd?: boolean;
+  fullscreen?: boolean;
 }
 
 type Editing = { index: number | null; name: string; color: string; usesPrimaryAddons: boolean; avatarId: string | null };
 
-export function ProfilesDialog({ view, onChanged, onClose, initialIndex, initialAdd }: EditorProps) {
+export function ProfilesDialog({ view, onChanged, onClose, initialIndex, initialAdd, fullscreen }: EditorProps) {
   const [editing, setEditing] = useState<Editing | null>(() => {
     if (initialAdd || initialIndex === undefined) {
       return initialAdd ? { index: null, name: "", color: view.colors[view.profiles.length % view.colors.length], usesPrimaryAddons: false, avatarId: null } : null;
@@ -139,7 +140,7 @@ export function ProfilesDialog({ view, onChanged, onClose, initialIndex, initial
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && !busy && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-label={t("Gerenciar perfis")} data-testid="profiles-dialog">
+      <div className={`modal ${fullscreen ? "gate-modal" : ""}`} role="dialog" aria-modal="true" aria-label={t("Gerenciar perfis")} data-testid="profiles-dialog">
         <header className="modal-header">
           <h2>{editing ? (editing.index === null ? t("Adicionar perfil") : t("Editar perfil")) : t("Gerenciar perfis")}</h2>
           <button className="icon-btn" aria-label={t("Fechar")} onClick={onClose} disabled={busy}>✕</button>

@@ -10,7 +10,8 @@ import { listen } from "./tauri";
 import { LockScreen } from "./screens/LockScreen";
 import { Welcome } from "./screens/Welcome";
 import { PinDialog } from "./components/PinDialog";
-import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
+import { ProfileMenu } from "./components/ProfileMenu";
+import { ProfileSelection } from "./components/ProfileSelection";
 import { ResumePrompt } from "./components/ResumePrompt";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -233,7 +234,15 @@ export function App() {
             onCancel={() => setPinFor(null)}
           />
         )}
-        {manage && profiles && <ProfilesDialog view={profiles} onChanged={setProfiles} onClose={() => setManage(false)} />}
+        {manage && profiles && (
+          <ProfileSelection
+            view={profiles}
+            initialManage
+            onOpen={setProfiles}
+            onChanged={setProfiles}
+            onDone={() => setManage(false)}
+          />
+        )}
         {switching !== null && (
           <div className="switching" role="status" data-testid="profile-switching">{t("Trocando para")} {switching || t("outro perfil")}…</div>
         )}
