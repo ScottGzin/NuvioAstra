@@ -45571,4 +45571,6 @@ export const STRINGS: Record<string, Partial<Record<Lang, string>>> = {
   "Sobre o app": { en: "About the app", ar: "حول التطبيق" },
   "Imagem e vídeo": { en: "Image and video", ar: "الصورة والفيديو" },
   "Episódios e pular": { en: "Episodes and skipping", ar: "الحلقات والتخطي" },
+  "Entre no plex.tv no navegador. Sua senha do Plex nunca é digitada aqui.": { en: "Sign in on plex.tv in your browser. Your Plex password is never entered here.", ar: "سجّل الدخول إلى plex.tv في المتصفح. كلمة مرور Plex لا تُدخل هنا." },
+  "A autorização Plex expirou. Tente novamente.": { en: "Plex authorization expired. Please try again.", ar: "انتهت صلاحية تفويض Plex. حاول مرة أخرى." },
 };

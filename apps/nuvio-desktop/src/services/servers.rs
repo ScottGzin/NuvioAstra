@@ -115,7 +115,9 @@ pub fn client_id(app: &AppStore) -> String {
             return saved;
         }
     }
-    let id = random_id(32);
+    // Same identity format as Nuvio Desktop (`nuvio-mobile-` + 32 chars): Plex and Silo then treat
+    // this build as the same client as the original app.
+    let id = format!("nuvio-mobile-{}", random_id(32));
     let _ = app.write("server_client_id", &id);
     id
 }

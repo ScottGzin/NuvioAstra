@@ -1584,3 +1584,31 @@ html[dir="rtl"] .nav-sub-list { margin: 2px 23px 8px 0; }
 .modal.gate-modal { width: 100vw; height: 100vh; max-width: none; max-height: none; border-radius: 0; border: 0; }
 .modal.gate-modal .profile-form { max-width: 980px; margin: 0 auto; }
 .modal.gate-modal .modal-header { max-width: 980px; margin: 0 auto; }
+
+/* Media servers (Jellyfin / Emby / Plex / Silo) sign-in cards. */
+.server-providers { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 16px; }
+.server-provider {
+  display: inline-flex; align-items: center; gap: 10px; padding: 9px 15px; border-radius: 14px;
+  border: 1px solid var(--line); background: rgba(255,255,255,.02); color: var(--muted);
+  font: inherit; font-size: 14px; cursor: pointer; transition: background .15s, border-color .15s, color .15s;
+}
+.server-provider:hover { background: rgba(255,255,255,.06); color: var(--text); }
+.server-provider.active { border-color: #2fe7f2; color: #e8f9fb; background: rgba(47,231,242,.08); }
+.server-provider-icon {
+  width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center;
+  font-size: 17px; font-weight: 700; color: #fff;
+}
+.server-provider.jellyfin .server-provider-icon { background: #00a4dc; }
+.server-provider.emby .server-provider-icon { background: #1e7c46; }
+.server-provider.plex .server-provider-icon { background: #e5a00d; color: #101010; }
+.server-provider.silo .server-provider-icon { background: #7b4bd6; }
+.server-primary.plex {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  min-height: 46px; padding: 0 26px; border: 0; border-radius: 12px;
+  background: #1e88e5; color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  box-shadow: 0 6px 18px rgba(30,136,229,.28); transition: filter .15s, transform .15s;
+}
+.server-primary.plex:hover { filter: brightness(1.1); transform: translateY(-1px); }
+.plex-chevron { color: #e5a00d; font-size: 22px; line-height: 1; }
+.server-pin { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+.server-pin .muted { width: 100%; margin: 0; }

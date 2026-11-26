@@ -28,7 +28,7 @@ export function ServersPanel() {
   const reload = () => api.serverList().then(setConnections, (e) => setError(errorText(e)));
   useEffect(() => {
     reload();
-    return () => window.clearInterval(poll.current);
+    return () => window.clearTimeout(poll.current);
   }, []);
 
   const openUrl = (url: string) => void api.openUrl(url);
@@ -38,18 +38,32 @@ export function ServersPanel() {
     try {
       const started = await api.serverPlexPinStart();
       setPin(started);
-      window.clearInterval(poll.current);
-      poll.current = window.setInterval(async () => {
+      // The original opens plex.tv right away: the user approves in the browser while we poll.
+      openUrl(started.authUrl);
+      const startedAt = Date.now();
+      let backoff = 1000;
+      const pollPin = async () => {
+        if (Date.now() - startedAt > 120_000) {
+          setPin(null);
+          setError(t("A autorização Plex expirou. Tente novamente."));
+          return;
+        }
         try {
           const token = await api.serverPlexPinPoll(started.id);
-          if (!token) return;
-          window.clearInterval(poll.current);
-          await api.serverPlexConnect(token);
-          setPin(null);
-          setNotice(t("Plex conectado."));
-          await reload();
-        } catch (e) { setError(errorText(e)); }
-      }, 2000);
+          if (token) {
+            await api.serverPlexConnect(token);
+            setPin(null);
+            setNotice(t("Plex conectado."));
+            await reload();
+            return;
+          }
+        } catch {
+          // A dropped probe is inconclusive: the browser sign-in may still be in progress.
+        }
+        poll.current = window.setTimeout(() => void pollPin(), backoff);
+        backoff = Math.min(backoff * 2, 5000);
+      };
+      poll.current = window.setTimeout(() => void pollPin(), backoff);
     } catch (e) { setError(errorText(e)); }
     finally { setBusy(false); }
   };
@@ -77,18 +91,21 @@ export function ServersPanel() {
     try {
       const code = await api.serverSiloCodeStart(siloInfo?.address ?? address);
       setSiloCode(code);
-      window.clearInterval(poll.current);
+      window.clearTimeout(poll.current);
       const interval = Math.max(1000, code.interval * 1000);
-      poll.current = window.setInterval(async () => {
+      const pollSilo = async () => {
         try {
           const connected = await api.serverSiloCodeConnect(siloInfo?.address ?? address, code.deviceCode);
-          if (!connected) return;
-          window.clearInterval(poll.current);
-          setSiloCode(null); setSiloInfo(null);
-          setNotice(t("Silo conectado."));
-          await reload();
-        } catch (e) { setError(errorText(e)); }
-      }, interval);
+          if (connected) {
+            setSiloCode(null); setSiloInfo(null);
+            setNotice(t("Silo conectado."));
+            await reload();
+            return;
+          }
+        } catch { /* keep polling: the code may not be approved yet */ }
+        poll.current = window.setTimeout(() => void pollSilo(), interval);
+      };
+      poll.current = window.setTimeout(() => void pollSilo(), interval);
     } catch (e) { setError(errorText(e)); }
     finally { setBusy(false); }
   };
@@ -133,40 +150,66 @@ export function ServersPanel() {
   return (
     <div className="servers-panel">
       {error && <div className="row-error" role="alert">{error}</div>}
-      <div className="settings-group">
+      <div className="settings-group servers-connect">
         <div className="setting-title">{t("Conectar servidor")}</div>
-        <div className="server-form">
-          <select aria-label={t("Tipo de servidor")} value={provider} onChange={(e) => { setProvider(e.target.value); setPin(null); setSiloInfo(null); setSiloCode(null); setNotice(null); }}>
-            <option value="jellyfin">Jellyfin</option>
-            <option value="emby">Emby</option>
-            <option value="plex">Plex</option>
-            <option value="silo">Silo</option>
-          </select>
-          {provider !== "plex" && (
-            <input aria-label={t("Endereço do servidor")} placeholder={t("Endereço do servidor")} value={address} onChange={(e) => setAddress(e.target.value)} />
-          )}
-          {(provider === "jellyfin" || provider === "emby" || provider === "silo") && (
-            <>
-              <input aria-label={t("Usuário")} placeholder={t("Usuário")} value={username} onChange={(e) => setUsername(e.target.value)} />
-              <input aria-label={t("Senha")} type="password" placeholder={t("Senha")} value={password} onChange={(e) => setPassword(e.target.value)} />
-            </>
-          )}
-          {provider === "plex" ? (
-            <button className="primary" disabled={busy} onClick={() => void startPlex()}>{t("Entrar com Plex")}</button>
-          ) : provider === "silo" ? (
-            <>
-              <button className="primary" disabled={busy || !address.trim()} onClick={() => void discoverSilo()}>{t("Verificar servidor")}</button>
-              {siloInfo?.passwordLogin && (
-                <button className="primary" disabled={busy || !username.trim() || !password} onClick={() => void addSiloPassword()}>{t("Conectar com senha")}</button>
-              )}
-              {siloInfo?.deviceCode && (
-                <button className="ghost" disabled={busy} onClick={() => void startSiloCode()}>{t("Entrar com código")}</button>
-              )}
-            </>
-          ) : (
-            <button className="primary" disabled={busy || !address.trim() || !username.trim() || !password} onClick={() => void add()}>{t("Conectar")}</button>
-          )}
+        <div className="server-providers">
+          {([
+            ["jellyfin", "Jellyfin", "◆"],
+            ["emby", "Emby", "▶"],
+            ["plex", "Plex", "›"],
+            ["silo", "Silo", "▤"],
+          ] as const).map(([id, label, glyph]) => (
+            <button
+              key={id}
+              className={`server-provider ${id} ${provider === id ? "active" : ""}`}
+              data-provider={id}
+              aria-pressed={provider === id}
+              onClick={() => { setProvider(id); setPin(null); setSiloInfo(null); setSiloCode(null); setNotice(null); }}
+            >
+              <span className="server-provider-icon" aria-hidden>{glyph}</span>
+              <span>{label}</span>
+            </button>
+          ))}
         </div>
+        {provider === "plex" ? (
+          <div className="server-plex">
+            <p className="muted small">{t("Entre no plex.tv no navegador. Sua senha do Plex nunca é digitada aqui.")}</p>
+            <button className="server-primary plex" disabled={busy} onClick={() => void startPlex()}>
+              <span className="plex-chevron" aria-hidden>›</span> Continue with Plex
+            </button>
+            {pin && (
+              <div className="server-pin">
+                <span className="setting-title">{t("Código Plex")}</span>
+                <code className="path">{pin.code}</code>
+                <button className="ghost" onClick={() => openUrl(pin.authUrl)}>{t("Abrir autorização Plex")}</button>
+                <p className="muted small">{t("Aguardando autorização no navegador…")}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="server-form">
+            <input aria-label={t("Endereço do servidor")} placeholder={t("Endereço do servidor")} value={address} onChange={(e) => setAddress(e.target.value)} />
+            {(provider === "jellyfin" || provider === "emby" || provider === "silo") && (
+              <>
+                <input aria-label={t("Usuário")} placeholder={t("Usuário")} value={username} onChange={(e) => setUsername(e.target.value)} />
+                <input aria-label={t("Senha")} type="password" placeholder={t("Senha")} value={password} onChange={(e) => setPassword(e.target.value)} />
+              </>
+            )}
+            {provider === "silo" ? (
+              <>
+                <button className="primary" disabled={busy || !address.trim()} onClick={() => void discoverSilo()}>{t("Verificar servidor")}</button>
+                {siloInfo?.passwordLogin && (
+                  <button className="primary" disabled={busy || !username.trim() || !password} onClick={() => void addSiloPassword()}>{t("Conectar com senha")}</button>
+                )}
+                {siloInfo?.deviceCode && (
+                  <button className="ghost" disabled={busy} onClick={() => void startSiloCode()}>{t("Entrar com código")}</button>
+                )}
+              </>
+            ) : (
+              <button className="primary" disabled={busy || !address.trim() || !username.trim() || !password} onClick={() => void add()}>{t("Conectar")}</button>
+            )}
+          </div>
+        )}
         {notice && <p className="muted small" role="status">{notice}</p>}
         {pin && (
           <div className="settings-group">
