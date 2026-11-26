@@ -29,7 +29,8 @@ use nuvio_core::client::AddonClient;
 use nuvio_player::mpv::MpvApi;
 use nuvio_player::{LoadRequest, Player, PlayerCommand, PlayerSnapshot, VideoConfig};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -920,12 +921,24 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // Keep the video child window the size of the host. Do not call into mpv here: a
-            // synchronous property call during a fullscreen/style transition blocks the UI thread.
+            // Resizing the child while the fullscreen style transition is being processed blocks
+            // the UI thread (and drops mpv's swapchain): defer it to a later main-thread turn.
             tauri::WindowEvent::Resized(_) => {
-                let _ = window.app_handle().state::<AppState>().with_player(|p| {
-                    p.fit_container_to_host();
-                    Ok(())
+                static RESIZE_PENDING: AtomicBool = AtomicBool::new(false);
+                if RESIZE_PENDING.swap(true, Ordering::SeqCst) {
+                    return;
+                }
+                let app = window.app_handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(80));
+                    let app2 = app.clone();
+                    let _ = app.run_on_main_thread(move || {
+                        RESIZE_PENDING.store(false, Ordering::SeqCst);
+                        let _ = app2.state::<AppState>().with_player(|p| {
+                            p.fit_container_to_host();
+                            Ok(())
+                        });
+                    });
                 });
             }
             // Back to the app: what other devices changed is fetched.
