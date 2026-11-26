@@ -543,11 +543,6 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                 let _ = window.set_focus();
                 let _ = window.eval("window.focus();");
                 eprintln!("[fs] focus restored");
-                let _ = window.app_handle().state::<AppState>().with_player(|p| {
-                    p.fit_container_to_host();
-                    Ok(())
-                });
-                eprintln!("[fs] container resized");
                 return Ok(true);
             }
 
@@ -557,25 +552,11 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
             };
             SetWindowLongW(hwnd, GWL_STYLE, style);
             SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
-            SetWindowPos(
-                hwnd,
-                Some(HWND_NOTOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            )
-            .map_err(|e| e.to_string())?;
             SetWindowPlacement(hwnd, &placement).map_err(|e| e.to_string())?;
             eprintln!("[fs] restored placement");
             let _ = SetForegroundWindow(hwnd);
             let _ = window.set_focus();
             let _ = window.eval("window.focus();");
-            let _ = window.app_handle().state::<AppState>().with_player(|p| {
-                p.fit_container_to_host();
-                Ok(())
-            });
             eprintln!("[fs] left fullscreen");
             return Ok(false);
         }
