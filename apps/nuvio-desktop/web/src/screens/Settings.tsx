@@ -36,7 +36,7 @@ import { LANGUAGES_UI, addonLabel, localizeCatalogTitle, locale, t, useLang, typ
 import { chooseAppLanguage } from "../appLanguage";
 import { message } from "../rustErrors";
 
-type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "watching" | "p2p" | "audio" | "subtitles" | "services" | "data" | "updates" | "pending";
+type Section = "account" | "home" | "layout" | "details" | "collections" | "sources" | "addons" | "playback" | "watching" | "p2p" | "audio" | "subtitles" | "services" | "servers" | "debrid" | "data" | "updates" | "pending";
 
 // The upstream menu: a few groups, each opening into its pages (one group open at a time).
 const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Section; label: string; icon: ReactNode }[] }[] = [
@@ -62,7 +62,11 @@ const GROUPS: { id: string; label: string; icon: ReactNode; sections: { id: Sect
     { id: "p2p", label: "Torrent / P2P", icon: <P2pIcon /> },
   ] },
   { id: "services", label: "Serviços", icon: <ServicesIcon />, sections: [
-    { id: "services", label: "Serviços", icon: <ServicesIcon /> },
+    { id: "servers", label: "Servidores de mídia", icon: <AddonsIcon /> },
+    { id: "debrid", label: "Serviços conectados", icon: <ServicesIcon /> },
+  ] },
+  { id: "integrations", label: "Integrações", icon: <ServicesIcon />, sections: [
+    { id: "services", label: "Integrações", icon: <ServicesIcon /> },
   ] },
   { id: "app", label: "Sobre o app", icon: <UpdatesIcon />, sections: [
     { id: "updates", label: "Atualizações", icon: <UpdatesIcon /> },
@@ -373,6 +377,9 @@ export function Settings() {
   if (!view || !draft) return <div className="screen-message">{t("Carregando configurações…")}</div>;
   const p = draft.player;
   const sub = p.subtitle;
+  // Media servers and debrid are their own Settings pages; the old service sub-pages stay under
+  // "Integrações" for TMDB/MDBList/tracking.
+  const effectivePage = section === "servers" ? "servers" : section === "debrid" ? "debrid" : servicePage;
 
   return (
     <div className="settings">
@@ -572,7 +579,7 @@ export function Settings() {
           </div>
         )}
 
-        {section === "services" && (servicePage === "menu" ? (
+        {(section === "services" || section === "servers" || section === "debrid") && (effectivePage === "menu" ? (
           <div className="settings-group">
             <button className="integration-row" data-service="integrations" onClick={() => setServicePage("integrations")}>
               <span className="integration-icon link">↔</span>
@@ -591,7 +598,7 @@ export function Settings() {
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
           </div>
-        ) : servicePage === "tracking" ? (
+        ) : effectivePage === "tracking" ? (
           <>
             <div className="settings-subhead">
               <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
@@ -599,7 +606,7 @@ export function Settings() {
             </div>
             <TrackingCredentialsPanel settings={draft} update={update} />
           </>
-        ) : servicePage === "integrations" ? (
+        ) : effectivePage === "integrations" ? (
           <>
           <div className="settings-subhead">
             <button className="ghost" data-testid="integrations-back" onClick={() => setServicePage("menu")}>← {t("Serviços")}</button>
@@ -622,22 +629,6 @@ export function Settings() {
               </span>
               <span className="integration-arrow" aria-hidden>›</span>
             </button>
-            <button className="integration-row" onClick={() => setServicePage("servers")} data-service="servers">
-              <span className="integration-icon link">▣</span>
-              <span className="integration-text">
-                <span className="setting-title">{t("Servidores de mídia")}</span>
-                <span className="muted small">{t("Jellyfin, Emby, Plex e Silo")}</span>
-              </span>
-              <span className="integration-arrow" aria-hidden>›</span>
-            </button>
-            <button className="integration-row" onClick={() => setServicePage("debrid")} data-service="debrid">
-              <span className="integration-icon link">↔</span>
-              <span className="integration-text">
-                <span className="setting-title">{t("Serviços conectados")}</span>
-                <span className="muted small">{t("TorBox, Premiumize e Real-Debrid (debrid)")}</span>
-              </span>
-              <span className="integration-arrow" aria-hidden>›</span>
-            </button>
           <Row title={t("Presença no Discord")} description={t("Mostra o que você está assistindo no Discord.")}>
             <Toggle
               label={t("Presença no Discord")}
@@ -650,15 +641,15 @@ export function Settings() {
           </Row>
           </div>
           </>
-        ) : servicePage === "servers" ? (
+        ) : effectivePage === "servers" ? (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => choose("services")}>← {t("Serviços")}</button>
               <h2>{t("Servidores de mídia")}</h2>
             </div>
             <ServersPanel />
           </>
-        ) : servicePage === "mdblist" ? (
+        ) : effectivePage === "mdblist" ? (
           <>
             <div className="settings-subhead">
               <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
@@ -719,10 +710,10 @@ export function Settings() {
               </div>
             )}
           </>
-        ) : servicePage === "debrid" ? (
+        ) : effectivePage === "debrid" ? (
           <>
             <div className="settings-subhead">
-              <button className="ghost" onClick={() => setServicePage("menu")}>← {t("Integrações")}</button>
+              <button className="ghost" onClick={() => choose("services")}>← {t("Serviços")}</button>
               <h2>{t("Serviços conectados")}</h2>
               <span className={`save-status ${debridStatus}`} role="status" data-testid="debrid-save-status">
                 {debridStatus === "saving" && t("Salvando…")}
