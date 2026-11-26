@@ -86,12 +86,21 @@ interface EditorProps {
   view: ProfilesView;
   onChanged(view: ProfilesView): void;
   onClose(): void;
+  /** Opens the editor directly on this profile (used by the full-screen picker). */
+  initialIndex?: number;
+  initialAdd?: boolean;
 }
 
 type Editing = { index: number | null; name: string; color: string; usesPrimaryAddons: boolean; avatarId: string | null };
 
-export function ProfilesDialog({ view, onChanged, onClose }: EditorProps) {
-  const [editing, setEditing] = useState<Editing | null>(null);
+export function ProfilesDialog({ view, onChanged, onClose, initialIndex, initialAdd }: EditorProps) {
+  const [editing, setEditing] = useState<Editing | null>(() => {
+    if (initialAdd || initialIndex === undefined) {
+      return initialAdd ? { index: null, name: "", color: view.colors[view.profiles.length % view.colors.length], usesPrimaryAddons: false, avatarId: null } : null;
+    }
+    const profile = view.profiles.find((p) => p.index === initialIndex);
+    return profile ? { index: profile.index, name: profile.name, color: profile.avatarColorHex, usesPrimaryAddons: profile.usesPrimaryAddons, avatarId: profile.avatarId } : null;
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

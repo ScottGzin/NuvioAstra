@@ -340,7 +340,7 @@ impl Default for ContinueWatchingSettings {
             use_episode_thumbnails: true,
             show_unaired_next_up: true,
             blur_next_up: false,
-            show_resume_prompt_on_launch: true,
+            show_resume_prompt_on_launch: false,
             sort_mode: "default".into(),
             click_action: "stream".into(),
         }
@@ -914,7 +914,7 @@ mod tests {
     #[test]
     fn continue_watching_defaults_match_the_original_and_are_sanitized() {
         let cw = ContinueWatchingSettings::default();
-        assert_eq!((cw.visible, cw.up_next_from_furthest_episode, cw.use_episode_thumbnails, cw.show_unaired_next_up, cw.show_resume_prompt_on_launch), (true, true, true, true, true));
+        assert_eq!((cw.visible, cw.up_next_from_furthest_episode, cw.use_episode_thumbnails, cw.show_unaired_next_up, cw.show_resume_prompt_on_launch), (true, true, true, true, false));
         assert_eq!((cw.style.as_str(), cw.sort_mode.as_str(), cw.click_action.as_str()), ("wide", "default", "stream"));
         assert!(!cw.blur_next_up);
         let bad = ContinueWatchingSettings { style: "x".into(), sort_mode: "y".into(), click_action: "z".into(), ..Default::default() }.sanitized();

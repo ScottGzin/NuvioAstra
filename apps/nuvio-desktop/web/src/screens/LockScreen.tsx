@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, errorText } from "../api";
 import { set as setAccount, useAccount } from "../account";
 import { PinPad } from "../components/PinPad";
-import { ProfileChooser } from "../components/ProfileChooser";
+import { ProfileSelection } from "../components/ProfileSelection";
 import { Avatar } from "../components/ProfileMenu";
 import { SignInForm } from "../components/SignInForm";
 import type { ProfilesView } from "../types";
@@ -109,13 +109,7 @@ export function LockScreen({ view, onOpen, initialMode }: Props) {
             </div>
           </>
         )}
-        {mode === "profiles" && (
-          <>
-            <h1>{t("Quem está assistindo?")}</h1>
-            <ProfileChooser view={view} onChosen={onOpen} />
-            <button className="gate-link" onClick={() => setMode("pin")}>{t("Voltar")}</button>
-          </>
-        )}
+        {mode === "profiles" && <ProfileSelection view={view} onOpen={onOpen} />}
         {mode === "account" && (
           <>
             <h1>{t("Entre na conta Nuvio")}</h1>

@@ -86,7 +86,7 @@ export function loadContinueWatching(show: (items: HistoryEntry[]) => void, fail
 
 const DEFAULT_PREFS: ContinueWatchingSettings = {
   visible: true, style: "wide", upNextFromFurthestEpisode: true, useEpisodeThumbnails: true,
-  showUnairedNextUp: true, blurNextUp: false, showResumePromptOnLaunch: true, sortMode: "default",
+  showUnairedNextUp: true, blurNextUp: false, showResumePromptOnLaunch: false, sortMode: "default",
   clickAction: "stream",
 };
 
