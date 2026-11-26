@@ -392,6 +392,16 @@ fn window_ready(window: tauri::WebviewWindow) {
 #[tauri::command]
 fn player_focus(window: tauri::WebviewWindow) {
     let _ = window.set_focus();
+    #[cfg(windows)]
+    {
+        use webview2_com::Microsoft::Web::WebView2::Win32::COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC;
+        // Tauri's set_focus only focuses the outer window; press the keyboard focus into the
+        // WebView2 document itself, otherwise the fullscreen transition leaves it on the frame.
+        let _ = window.with_webview(|webview| unsafe {
+            let _ = webview.controller().MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+        });
+    }
+    let _ = window.eval("window.focus();");
 }
 
 /// `"selftest"` when the window is driven by the automated player tests (the UI then shows only

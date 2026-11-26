@@ -111,6 +111,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       const active = await api.setFullscreen(on);
       setFs(active);
       void api.playerFocus();
+      // Windows finishes the WS_POPUP transition and React re-renders just after the command;
+      // move focus into WebView2 again once that is done.
+      window.setTimeout(() => {
+        window.focus();
+        void api.playerFocus();
+      }, 60);
     } catch (e) {
       setFs(false);
       console.error("window_set_fullscreen", e);

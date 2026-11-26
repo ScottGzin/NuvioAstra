@@ -193,6 +193,8 @@ export function FullPlayer() {
   }, [player, session]);
 
   const toggleFullscreen = useCallback(() => {
+    // Don't leave keyboard focus stuck on the button that was clicked with the mouse.
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     if (session?.returnTo && player.windowFullscreen) void leave();
     else void player.setWindowFullscreen(!player.windowFullscreen);
   }, [leave, player, session]);
