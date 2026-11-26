@@ -11,6 +11,7 @@
 
 mod account;
 mod api;
+mod audio_sync;
 mod bench;
 mod capture;
 mod manage;

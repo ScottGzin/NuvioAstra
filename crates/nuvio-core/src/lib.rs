@@ -8,6 +8,8 @@
 pub mod auto_play;
 pub mod autosync;
 pub mod autosync_dp;
+pub mod autosync_audio;
+pub mod voice_activity;
 pub mod embedded_subs;
 pub mod catalog;
 pub mod downloads;

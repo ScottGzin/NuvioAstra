@@ -9,6 +9,7 @@ use nuvio_core::stream::StreamItem;
 use nuvio_player::PlayerCommand;
 use nuvio_store::library::PlaybackItem;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
@@ -179,6 +180,33 @@ async fn cues_of(client: &nuvio_core::client::AddonClient, url: &str, name: &str
     Ok(parse_cues(&String::from_utf8_lossy(&bytes), url))
 }
 
+/// Aligns the chosen subtitle with the speech heard in the film itself. The decoder and the
+/// correlation run off the async runtime: mpv listens to a few short stretches faster than playback.
+async fn by_ear(
+    state: &AppState,
+    session: u64,
+    target: &[nuvio_core::autosync::SyncCue],
+    duration: f64,
+    now: f64,
+    url: &str,
+    headers: &BTreeMap<String, String>,
+) -> Result<AutoSyncStatus, String> {
+    let url = url.to_string();
+    let headers: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let cues = target.to_vec();
+    let found = tokio::task::spawn_blocking(move || crate::audio_sync::sync_by_ear(&url, &headers, &cues, duration, now))
+        .await
+        .ok()
+        .flatten();
+    let Some(alignment) = found else {
+        return Ok(AutoSyncStatus::of("no-match"));
+    };
+    let ms = alignment.offset_ms.clamp(-60_000, 60_000);
+    state.with_player(|p| p.execute(&PlayerCommand::SetSubtitleDelay { ms }).map_err(|e| e.to_string()))?;
+    let _ = session;
+    Ok(AutoSyncStatus { status: "applied-by-ear", offset_ms: Some(ms), references: 0 })
+}
+
 /// Port of the original's `AutomaticDelaySyncEngine`: compares the loaded subtitle with the other
 /// timelines of this title and applies one validated constant delay. No confident match means no
 /// change — the original rejects ambiguous or drifting timelines instead of guessing.
@@ -239,10 +267,12 @@ async fn auto_sync(state: &AppState, session: u64, manual: bool) -> Result<AutoS
         }
     }
     if references.is_empty() {
-        return Ok(AutoSyncStatus::of("not-applicable"));
+        // No subtitles inside the video and no other addon file: fall back to listening to the
+        // film's own sound (the original's by-ear path).
+        return by_ear(state, session, &target, snapshot.duration, snapshot.time_pos, &playing.video_url, &playing.video_headers).await;
     }
     let Some(alignment) = compute_alignment_v2(&target, &references) else {
-        return Ok(AutoSyncStatus::of("no-match"));
+        return by_ear(state, session, &target, snapshot.duration, snapshot.time_pos, &playing.video_url, &playing.video_headers).await;
     };
     let ms = alignment.offset_ms.clamp(-60_000, 60_000);
     state.with_player(|p| p.execute(&PlayerCommand::SetSubtitleDelay { ms }).map_err(|e| e.to_string()))?;
