@@ -493,7 +493,6 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
         use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
         use windows::Win32::UI::WindowsAndMessaging::*;
 
-        eprintln!("[fs] request={fullscreen}");
         let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as *mut std::ffi::c_void);
         unsafe {
             if fullscreen {
@@ -527,7 +526,7 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                 }
                 let r = info.rcMonitor;
                 // Synchronous (no SWP_ASYNCWINDOWPOS): the style/size change must be finished
-                // before we move focus back into WebView2 or resize the video container.
+                // before we move keyboard focus back into the WebView2 document.
                 SetWindowPos(
                     hwnd,
                     Some(HWND_TOPMOST),
@@ -538,11 +537,9 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                     SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW,
                 )
                 .map_err(|e| e.to_string())?;
-                eprintln!("[fs] SetWindowPos ok");
                 let _ = SetForegroundWindow(hwnd);
                 let _ = window.set_focus();
                 let _ = window.eval("window.focus();");
-                eprintln!("[fs] focus restored");
                 return Ok(true);
             }
 
@@ -553,11 +550,9 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
             SetWindowLongW(hwnd, GWL_STYLE, style);
             SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
             SetWindowPlacement(hwnd, &placement).map_err(|e| e.to_string())?;
-            eprintln!("[fs] restored placement");
             let _ = SetForegroundWindow(hwnd);
             let _ = window.set_focus();
             let _ = window.eval("window.focus();");
-            eprintln!("[fs] left fullscreen");
             return Ok(false);
         }
     }
