@@ -23,9 +23,15 @@ export function InPlayerSources({ context, onClose, onPickEpisode }: Props) {
   const [starting, setStarting] = useState(false);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Capture phase: the full player also handles Escape, and the topmost panel must close first.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   const play = async (stream: StreamEntry) => {

@@ -23,6 +23,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; height: 100%; }
+html, #root { overflow: hidden !important; }
+.full-player::-webkit-scrollbar, .chapters-overlay::-webkit-scrollbar { display: none; }
 body {
   background: var(--bg);
   color: var(--text);

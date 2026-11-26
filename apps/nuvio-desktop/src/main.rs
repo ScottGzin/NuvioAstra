@@ -29,8 +29,7 @@ use nuvio_core::client::AddonClient;
 use nuvio_player::mpv::MpvApi;
 use nuvio_player::{LoadRequest, Player, PlayerCommand, PlayerSnapshot, VideoConfig};
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -484,6 +483,7 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
         use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
         use windows::Win32::UI::WindowsAndMessaging::*;
 
+        eprintln!("[fs] request={fullscreen}");
         let hwnd = HWND(window.hwnd().map_err(|e| e.to_string())?.0 as *mut std::ffi::c_void);
         unsafe {
             if fullscreen {
@@ -496,14 +496,17 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                 let style = GetWindowLongW(hwnd, GWL_STYLE);
                 let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
                 *FULLSCREEN_STATE.lock().expect("fullscreen state") = Some((placement, style, ex_style));
-                // No ShowWindow(SW_RESTORE): it sends WM_SIZE re-entrantly on this (main) thread,
-                // where calling into mpv blocks the UI thread with real playback.
+                // No ShowWindow(SW_RESTORE): it sends WM_SIZE re-entrantly on this (main) thread.
                 let borderless = (style
                     & !((WS_CAPTION.0 | WS_THICKFRAME.0 | WS_MAXIMIZEBOX.0 | WS_MINIMIZEBOX.0
-                        | WS_SYSMENU.0 | WS_MAXIMIZE.0) as i32))
+                        | WS_SYSMENU.0 | WS_MAXIMIZE.0 | WS_BORDER.0 | WS_DLGFRAME.0) as i32))
                     | WS_POPUP.0 as i32;
                 SetWindowLongW(hwnd, GWL_STYLE, borderless);
-                SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style & !(WS_EX_WINDOWEDGE.0 as i32));
+                SetWindowLongW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ex_style & !((WS_EX_WINDOWEDGE.0 | WS_EX_CLIENTEDGE.0 | WS_EX_STATICEDGE.0) as i32),
+                );
                 let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
                 let mut info = MONITORINFO {
                     cbSize: std::mem::size_of::<MONITORINFO>() as u32,
@@ -513,6 +516,8 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                     return Err("GetMonitorInfoW failed".into());
                 }
                 let r = info.rcMonitor;
+                // Synchronous (no SWP_ASYNCWINDOWPOS): the style/size change must be finished
+                // before we move focus back into WebView2 or resize the video container.
                 SetWindowPos(
                     hwnd,
                     Some(HWND_TOPMOST),
@@ -520,10 +525,19 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
                     r.top,
                     r.right - r.left,
                     r.bottom - r.top,
-                    SWP_ASYNCWINDOWPOS | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE,
+                    SWP_FRAMECHANGED | SWP_NOOWNERZORDER | SWP_SHOWWINDOW,
                 )
                 .map_err(|e| e.to_string())?;
+                eprintln!("[fs] SetWindowPos ok");
                 let _ = SetForegroundWindow(hwnd);
+                let _ = window.set_focus();
+                let _ = window.eval("window.focus();");
+                eprintln!("[fs] focus restored");
+                let _ = window.app_handle().state::<AppState>().with_player(|p| {
+                    p.fit_container_to_host();
+                    Ok(())
+                });
+                eprintln!("[fs] container resized");
                 return Ok(true);
             }
 
@@ -533,10 +547,26 @@ fn window_set_fullscreen(window: tauri::WebviewWindow, fullscreen: bool) -> Resu
             };
             SetWindowLongW(hwnd, GWL_STYLE, style);
             SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style);
-            // SetWindowPlacement both restores the exact placement and refreshes the frame; a
-            // separate z-order change blocks the UI thread while the video child is fullscreen.
+            SetWindowPos(
+                hwnd,
+                Some(HWND_NOTOPMOST),
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+            )
+            .map_err(|e| e.to_string())?;
             SetWindowPlacement(hwnd, &placement).map_err(|e| e.to_string())?;
+            eprintln!("[fs] restored placement");
             let _ = SetForegroundWindow(hwnd);
+            let _ = window.set_focus();
+            let _ = window.eval("window.focus();");
+            let _ = window.app_handle().state::<AppState>().with_player(|p| {
+                p.fit_container_to_host();
+                Ok(())
+            });
+            eprintln!("[fs] left fullscreen");
             return Ok(false);
         }
     }
@@ -866,6 +896,11 @@ fn main() {
                 .title("Nuvio Astra")
                 .inner_size(1280.0, 760.0)
                 .min_inner_size(800.0, 480.0);
+            // Black, never white, in the 1px seams a borderless transition can leave.
+            #[cfg(windows)]
+            {
+                builder = builder.background_color(tauri::window::Color(0, 0, 0, 255));
+            }
             // Transparent so the mpv child window below the webview is visible through the UI.
             #[cfg(target_os = "linux")]
             {
@@ -921,26 +956,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            // Resizing the child while the fullscreen style transition is being processed blocks
-            // the UI thread (and drops mpv's swapchain): defer it to a later main-thread turn.
-            tauri::WindowEvent::Resized(_) => {
-                static RESIZE_PENDING: AtomicBool = AtomicBool::new(false);
-                if RESIZE_PENDING.swap(true, Ordering::SeqCst) {
-                    return;
-                }
-                let app = window.app_handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(80));
-                    let app2 = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        RESIZE_PENDING.store(false, Ordering::SeqCst);
-                        let _ = app2.state::<AppState>().with_player(|p| {
-                            p.fit_container_to_host();
-                            Ok(())
-                        });
-                    });
-                });
-            }
+            // The video container is resized by the fullscreen command itself, after the window
+            // transition completes. Doing it here (inside WM_SIZE) blocks the UI thread.
+            tauri::WindowEvent::Resized(_) => {}
             // Back to the app: what other devices changed is fetched.
             tauri::WindowEvent::Focused(true) => {
                 let app = window.app_handle().clone();
