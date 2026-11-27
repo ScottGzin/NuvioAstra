@@ -12,6 +12,10 @@
 # GitHub, emojis and simple Markdown kept: shown in the app's update window) is used when it has one,
 # otherwise its title, skipping GitHub's automatic titles
 # ("Add files via upload", "Update …", "Create …", "Delete …").
+# Bilingual notes: in a commit description, a line "## 🇧🇷 Português" starts the Portuguese part and
+# "## 🇺🇸 English" the English part ("## PT" / "## EN" also work). The parts of all the commits are
+# gathered under one Portuguese and one English title; the app shows only the part in the user's
+# language (Portuguese for pt-BR/pt-PT, English for everyone else). Lines outside them go to everyone.
 # Nothing is published unless every step (tests, build, packaging, signing) succeeded: the release is
 # created as a draft with all its files and only then made public.
 name: Release (Windows x64)
@@ -22,7 +26,7 @@ on:
     # Documentation-only commits do not publish a new version.
     paths-ignore:
       - "README.md"
-      - "GITHUB_PUBLISH.md"
+      - "README.pt-BR.md"
       - "docs/**"
       - "LICENSE"
   workflow_dispatch:
@@ -55,8 +59,8 @@ jobs:
           KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           PW: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          if (-not $env:KEY) { throw "Secret TAURI_SIGNING_PRIVATE_KEY is missing (see GITHUB_PUBLISH.md)" }
-          if (-not $env:PW) { throw "Secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD is missing (see GITHUB_PUBLISH.md)" }
+          if (-not $env:KEY) { throw "Secret TAURI_SIGNING_PRIVATE_KEY is missing (Settings > Secrets and variables > Actions)" }
+          if (-not $env:PW) { throw "Secret TAURI_SIGNING_PRIVATE_KEY_PASSWORD is missing (Settings > Secrets and variables > Actions)" }
 
       - name: Version
         id: version
@@ -118,9 +122,9 @@ jobs:
           Expand-Archive $zip -DestinationPath deps/nuvio-engine -Force
           Copy-Item (Join-Path deps/nuvio-engine $deps.nuvioEngine.dllPath) deps/nuvio_engine.dll
           if ((Get-FileHash deps/nuvio_engine.dll -Algorithm SHA256).Hash -ne $deps.nuvioEngine.dllSha256) { throw "nuvio_engine.dll checksum mismatch" }
-          # libmpv: uploaded once to this repository's release "deps-libmpv" (see GITHUB_PUBLISH.md).
+          # libmpv: uploaded once, by hand, to this repository's pre-release "deps-libmpv".
           gh release download $deps.libmpv.releaseTag --repo $env:GITHUB_REPOSITORY --pattern $deps.libmpv.asset --dir deps --clobber
-          if ($LASTEXITCODE) { throw "libmpv-2.dll not found in release '$($deps.libmpv.releaseTag)' (see GITHUB_PUBLISH.md)" }
+          if ($LASTEXITCODE) { throw "libmpv-2.dll not found in release '$($deps.libmpv.releaseTag)' (upload it to that pre-release)" }
           if ((Get-FileHash deps/libmpv-2.dll -Algorithm SHA256).Hash -ne $deps.libmpv.sha256) { throw "libmpv-2.dll checksum mismatch" }
 
       - name: Frontend
@@ -138,6 +142,7 @@ jobs:
           NUVIO_SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
           NUVIO_SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
           NUVIO_SUPABASE_FALLBACK_URL: ${{ vars.NUVIO_SUPABASE_FALLBACK_URL }}
+          NUVIO_SIMKL_CLIENT_ID: ${{ secrets.NUVIO_SIMKL_CLIENT_ID }}
         run: cargo build --release -p nuvio-desktop
 
       # The runner image may not have NSIS (newer windows-latest images dropped it): use the installed
@@ -198,25 +203,37 @@ jobs:
           $prev = git describe --tags --abbrev=0 --match "v[0-9]*" 2>$null
           $range = if ($prev) { "$prev..HEAD" } else { "HEAD" }
           $generic = '^(Add files via upload|Update .+|Create .+|Delete .+|Merge .+)$'
-          $lines = @()
+          $ptTitle = '^#{1,3}\s+[^\p{L}]*(portugu[eê]s|portuguese|pt(-br)?)\s*$'
+          $enTitle = '^#{1,3}\s+[^\p{L}]*(english|ingl[eê]s|en)\s*$'
+          $parts = @{ all = @(); pt = @(); en = @() }
           foreach ($c in @(git rev-list --no-merges --reverse $range)) {
             $title = (git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%s $c | Out-String).Trim()
             if ($title -match '\[(skip ci|ci skip|no ci|skip actions|actions skip)\]') { continue }
             $desc = @(git -c i18n.logOutputEncoding=UTF-8 log -1 --format=%b $c | ForEach-Object { $_.Trim() } | Where-Object { $_ })
             if ($desc.Count -gt 0) {
+              $part = 'all'
               foreach ($d in $desc) {
+                if ($d -match $ptTitle) { $part = 'pt'; continue }
+                if ($d -match $enTitle) { $part = 'en'; continue }
                 # Titles (#), quotes (>) and rules (---) stay as written; every other line is an item.
-                if ($d -match '^(#{1,3}\s|>|-{3,}$)') { $lines += $d } else { $lines += "- " + ($d -replace '^[-*•]\s*', '') }
+                if ($d -match '^(#{1,3}\s|>|-{3,}$)') { $parts[$part] += $d } else { $parts[$part] += "- " + ($d -replace '^[-*•]\s*', '') }
               }
             } elseif ($title -and $title -notmatch $generic) {
-              $lines += "- $title"
+              $parts.all += "- $title"
             }
           }
-          $lines = @($lines | Select-Object -Unique | Select-Object -First 80)
-          if (-not $lines) { $lines = @("- Melhorias e correções.") }
+          $lines = @($parts.all | Select-Object -Unique | Select-Object -First 80)
+          $pt = @($parts.pt | Select-Object -Unique | Select-Object -First 80)
+          $en = @($parts.en | Select-Object -Unique | Select-Object -First 80)
+          if ($pt -or $en) {
+            if ($lines) { $lines += "---" }
+            if ($pt) { $lines += "## 🇧🇷 Português"; $lines += $pt }
+            if ($en) { $lines += "## 🇺🇸 English"; $lines += $en }
+          }
+          if (-not $lines) { $lines = @("## 🇧🇷 Português", "- Melhorias e correções.", "## 🇺🇸 English", "- Improvements and fixes.") }
           $notes = ($lines -join "`n")
           # The release is already titled "Nuvio Astra <version>": the body starts with the notes.
-          $body = "$notes`n`n---`nWindows 10/11 x64. Quem já tem o Nuvio Astra recebe esta versão pelo próprio aplicativo. Perfis, addons, configurações e a sessão da conta são mantidos.`n"
+          $body = "$notes`n`n---`nWindows 10/11 x64. Quem já tem o Nuvio Astra recebe esta versão pelo próprio aplicativo; perfis, addons, configurações e a sessão da conta são mantidos.`nIf you already have Nuvio Astra, this version arrives through the app itself; profiles, addons, settings and the account session are kept.`n"
           [IO.File]::WriteAllText("$PWD/release-notes.md", $body)
 
           $manifest = [ordered]@{
