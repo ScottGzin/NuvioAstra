@@ -23,7 +23,7 @@
 |---|---|
 | ![Tela inicial](docs/screenshots/home.jpg) | ![Detalhes de um título](docs/screenshots/details.jpg) |
 | **Pesquisa** | **TV ao vivo** |
-| ![Pesquisa](docs/screenshots/search.jpg) | ![TV ao vivo com guia de programação](docs/screenshots/abacanais.png) |
+| ![Pesquisa](docs/screenshots/search.jpg) | ![TV ao vivo com guia de programação](docs/screenshots/tvaovivo.jpg) |
 
 <sub>Os catálogos, capas e informações exibidos vêm dos addons instalados pelo usuário. Nenhum conteúdo acompanha o aplicativo.</sub>
 
