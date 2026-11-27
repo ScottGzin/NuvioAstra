@@ -5,12 +5,17 @@
 // cache ahead, the same for HTTP and P2P sources), played part with glow and a moving dot; an
 // invisible range input on top handles dragging and keyboard.
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import type { PlayerSnapshot, ResizeMode, Track } from "../types";
 import { EnhanceMenu } from "./EnhanceMenu";
+import { ChapterTicks, ChaptersMenu } from "./PlayerExtras";
 import { reachedEnd } from "./episodes";
 import { t } from "../i18n";
+
+function decimalSpeed(v: number): string {
+  return String(v).replace(".", ",");
+}
 
 export function formatTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds || 0));
@@ -43,6 +48,8 @@ const Icons = {
   download: svg(<><path d="M12 4v11" /><path d="M7.5 10.5L12 15l4.5-4.5" /><path d="M5 19.5h14" /></>),
   next: svg(<><path d="M5.5 5v14l10-7z" /><path d="M19 5v14" /></>),
   close: svg(<><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>),
+  sources: svg(<><rect x="3.5" y="4.5" width="17" height="15" rx="2.5" /><path d="M7.5 9h9" /><path d="M7.5 12.5h9" /><path d="M7.5 16h5" /></>),
+  episodes: svg(<><rect x="3.5" y="5" width="12" height="9" rx="1.8" /><path d="M7 17.5h12.5V9" /></>),
 };
 
 interface Props {
@@ -60,9 +67,38 @@ interface Props {
   next?: { label: string; disabled: boolean; open(): void };
   /** Downloads what is playing. */
   onDownload?(): void;
+  /** Full player: the audio menu (track, delay, amplification, downmix) instead of the track list. */
+  audio?: ReactNode;
+  /** Another source of what is playing / the series' episodes, without leaving the video. */
+  onSources?(): void;
+  onEpisodes?(): void;
+  /** Holding "+10 s" plays at this speed while held (0 = off). */
+  holdSpeed?: number;
 }
 
-export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, onDownload }: Props) {
+export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscreen, onClose, onPictureInPicture, subtitles, next, onDownload, audio: audioMenu, onSources, onEpisodes, holdSpeed = 0 }: Props) {
+  // "Segurar para acelerar" on the +10 s button: a short press seeks, a long one speeds up.
+  const hold = useRef<{ timer: number; held: boolean; speed: number } | null>(null);
+  const startHold = () => {
+    if (!holdSpeed) return;
+    const speed = s?.speed ?? 1;
+    const timer = window.setTimeout(() => {
+      if (!hold.current) return;
+      hold.current.held = true;
+      void api.playerCommand({ type: "setSpeed", speed: holdSpeed });
+    }, 400);
+    hold.current = { timer, held: false, speed };
+  };
+  /** `true` when the press was a hold (the click must not seek). */
+  const endHold = (): boolean => {
+    const h = hold.current;
+    hold.current = null;
+    if (!h) return false;
+    window.clearTimeout(h.timer);
+    if (h.held) void api.playerCommand({ type: "setSpeed", speed: h.speed });
+    return h.held;
+  };
+  const wasHeld = useRef(false);
   const [seekDraft, setSeekDraft] = useState<number | null>(null);
   const [mode, setMode] = useState<ResizeMode>("fit");
   const duration = s?.duration ?? 0;
@@ -114,6 +150,7 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
           <div className="timeline-buffered" style={{ width: pct(buffered) }} />
           <div className="timeline-played" style={{ width: pct(position) }} />
           <div className="timeline-dot" style={{ left: pct(position) }} />
+          {s && <ChapterTicks snapshot={s} />}
           <input
             className="seek"
             type="range"
@@ -142,7 +179,22 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             <button className="pc-btn pc-skip" aria-label={t("Voltar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: -10, relative: true })}>
               {Icons.back}<span>10</span>
             </button>
-            <button className="pc-btn pc-skip" aria-label={t("Avançar 10 s")} onClick={() => void api.playerCommand({ type: "seek", seconds: 10, relative: true })}>
+            <button
+              className={`pc-btn pc-skip ${holdSpeed ? "holdable" : ""}`}
+              aria-label={t("Avançar 10 s")}
+              title={holdSpeed ? t("Segure para acelerar ({speed}x)", { speed: decimalSpeed(holdSpeed) }) : undefined}
+              onPointerDown={startHold}
+              onPointerUp={() => { wasHeld.current = endHold(); }}
+              onPointerLeave={() => { if (hold.current) wasHeld.current = endHold(); }}
+              onClick={() => {
+                if (wasHeld.current) {
+                  wasHeld.current = false;
+                  return;
+                }
+                void api.playerCommand({ type: "seek", seconds: 10, relative: true });
+              }}
+              data-testid="skip-forward"
+            >
               <span>10</span>{Icons.forward}
             </button>
             <span className="time">
@@ -158,10 +210,21 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
             {Icons.next}<span>{t("Próximo episódio")}</span>
           </button>
         )}
+        {onEpisodes && (
+          <button className="pc-btn pc-next" aria-label={t("Episódios")} title={t("Episódios (E)")} data-testid="player-episodes-btn" onClick={onEpisodes}>
+            {Icons.episodes}<span>{t("Episódios")}</span>
+          </button>
+        )}
+        {onSources && (
+          <button className="pc-btn pc-next" aria-label={t("Trocar fonte")} title={t("Trocar fonte (O)")} data-testid="player-sources-btn" onClick={onSources}>
+            {Icons.sources}<span>{t("Fontes")}</span>
+          </button>
+        )}
         <span className="spacer" />
         <div className="pc-panel">
           {!live && volumeControl}
-          {audio.length > 1 && (
+          {audioMenu}
+          {!audioMenu && audio.length > 1 && (
             <select className="pc-select" aria-label={t("Faixa de áudio")} value={s?.aid ?? "no"} onChange={(e) => void api.playerCommand({ type: "setAudioTrack", id: e.target.value })}>
               {audio.map((t) => <option key={t.id} value={String(t.id)}>{trackLabel(t)}</option>)}
             </select>
@@ -190,6 +253,7 @@ export function PlayerControls({ snapshot: s, live, fullscreen, onToggleFullscre
               <option value="stretch">{t("Esticar")}</option>
             </select>
           )}
+          {!live && s && <ChaptersMenu snapshot={s} />}
           {!live && s && <EnhanceMenu key={`enhance-${s.session}`} snapshot={s} />}
           {onDownload && <button className="pc-icon" aria-label={t("Baixar este vídeo")} title={t("Baixar este vídeo")} data-testid="player-download" onClick={onDownload}>{Icons.download}</button>}
           {onPictureInPicture && <button className="pc-icon" aria-label={t("Picture-in-picture")} onClick={onPictureInPicture}>{Icons.pip}</button>}

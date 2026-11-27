@@ -594,7 +594,7 @@ impl Engine {
             self.pull_library(st, profile, report, &alive).await?;
             self.pull_progress(st, profile, report, &alive).await?;
             self.pull_watched(st, profile, report, &alive).await?;
-            self.pull_collections(st, profile, report, &alive).await?;
+            self.pull_collections(st, profile, &account, report, &alive).await?;
             self.sync_home(st, profile, &account, report, &alive).await?;
             self.sync_player_settings(st, profile, &account, report, &alive).await?;
             // What changed here, and what the merge above queued.
@@ -689,25 +689,44 @@ impl Engine {
         Ok(())
     }
 
-    /// `CollectionSyncService.pullFromServer`: read only (Astra has no collection editor, so nothing
-    /// is pushed). No row = the account has no collections for the profile: the local copy stays.
-    async fn pull_collections(&self, st: &AppStore, profile: i64, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
+    /// `CollectionSyncService`: pull, and push the whole list when it was edited here (the
+    /// original sends the complete JSON with `sync_push_collections`). Edited here = different from
+    /// what this computer and the account last agreed on; an edit here wins over a remote one made
+    /// meanwhile, as in the original (its push replaces the list). No row = the account has no
+    /// collections for the profile.
+    async fn pull_collections(&self, st: &AppStore, profile: i64, account: &str, report: &mut Report, alive: &(dyn Fn() -> bool + Sync)) -> Result<(), AccountError> {
         let Some(rows) = self.step(report, "coleções", self.call("sync_pull_collections", json!({ "p_profile_id": profile }))).await? else { return Ok(()) };
-        let Some(row) = rows.as_array().and_then(|a| a.first()).cloned() else { return Ok(()) };
         if !alive() {
             return Ok(());
         }
-        let remote = match row.get("collections_json") {
-            Some(v) if v.is_array() => v.clone(),
+        let remote = match rows.as_array().and_then(|a| a.first()).and_then(|row| row.get("collections_json")) {
+            Some(v) if v.is_array() => Some(v.clone()),
             // A JSON string (older rows) or null.
-            Some(Value::String(text)) => serde_json::from_str::<Value>(text).ok().filter(Value::is_array).unwrap_or_else(|| json!([])),
-            _ => json!([]),
+            Some(Value::String(text)) => Some(serde_json::from_str::<Value>(text).ok().filter(Value::is_array).unwrap_or_else(|| json!([]))),
+            Some(_) => Some(json!([])),
+            None => None,
         };
-        if st.collections(profile)?.as_ref() != Some(&remote) {
+        let local = st.collections(profile)?;
+        let base: Option<Value> = st.sync_base("collections", profile, account)?;
+        // Also collections made here for an account that has none yet.
+        let first_here = remote.is_none() && local.as_ref().and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+        let edited_here = first_here || matches!((&base, &local), (Some(b), Some(l)) if b != l);
+        if edited_here {
+            let Some(local) = local else { return Ok(()) };
+            let params = self.with_origin(json!({ "p_profile_id": profile, "p_collections_json": local }));
+            if self.step(report, "coleções", self.call("sync_push_collections", params)).await?.is_some() {
+                st.set_sync_base("collections", profile, account, &local)?;
+                report.sent += 1;
+            }
+            return Ok(());
+        }
+        let Some(remote) = remote else { return Ok(()) };
+        if local.as_ref() != Some(&remote) {
             st.set_collections(profile, &remote)?;
             report.received += remote.as_array().map_or(0, Vec::len);
             mark_changed(report, "collections");
         }
+        st.set_sync_base("collections", profile, account, &remote)?;
         Ok(())
     }
 

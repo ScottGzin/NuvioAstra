@@ -19,6 +19,8 @@ pub struct MetaPerson {
     pub name: String,
     pub role: Option<String>,
     pub photo: Option<String>,
+    /// TMDB person id (cast from TMDB): opens the person's page.
+    pub tmdb_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -32,6 +34,8 @@ pub struct MetaVideo {
     pub season: Option<i64>,
     pub episode: Option<i64>,
     pub overview: Option<String>,
+    /// Poster of the episode's season (TMDB).
+    pub season_poster: Option<String>,
 }
 
 /// `MetaTrailer`: `key` is a YouTube video id (or URL) when `site` is YouTube.
@@ -170,12 +174,13 @@ fn people(obj: &Map<String, Value>, name: &str) -> Vec<MetaPerson> {
                     name,
                     role: optional_string(p, "character").map(|v| v.trim().to_string()).filter(|v| !v.is_empty()),
                     photo: optional_string(p, "photo").map(|v| v.trim().to_string()).filter(|v| !v.is_empty()),
+                    tmdb_id: None,
                 })
             }
             other => primitive_content(other)
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty())
-                .map(|name| MetaPerson { name, role: None, photo: None }),
+                .map(|name| MetaPerson { name, role: None, photo: None, tmdb_id: None }),
         })
         .collect()
 }
@@ -228,7 +233,7 @@ pub fn parse_meta(payload: &str) -> Result<MetaDetails, CoreError> {
     }
     for name in link_names(meta, &["cast", "actors", "actor"]) {
         if !cast.iter().any(|p| p.name.eq_ignore_ascii_case(&name)) {
-            cast.push(MetaPerson { name, role: None, photo: None });
+            cast.push(MetaPerson { name, role: None, photo: None, tmdb_id: None });
         }
     }
     let director = dedupe(
@@ -265,6 +270,7 @@ pub fn parse_meta(payload: &str) -> Result<MetaDetails, CoreError> {
                 season: int_like(v, "season"),
                 episode: int_like(v, "episode"),
                 overview: vs("overview").or_else(|| vs("description")),
+                season_poster: None,
             })
         })
         .collect();

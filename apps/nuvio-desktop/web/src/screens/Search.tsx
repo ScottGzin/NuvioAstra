@@ -12,6 +12,7 @@
 // search only the metadata addon. Kept per profile on this computer.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Discover } from "./Discover";
 import { api, dataEpoch, onDataEpoch } from "../api";
 import { ResultRow } from "../components/ResultRow";
 import { invoke, listen } from "../tauri";
@@ -280,8 +281,7 @@ export function Search({ onOpen }: Props) {
         <SearchAddons addons={addons} onToggle={(key, enabled) => void toggleAddon(key, enabled)} />
       </div>
 
-      {empty && (
-        history.length ? (
+      {empty && history.length > 0 && (
           <div className="search-history" data-testid="search-history">
             <div className="search-history-head">
               <span>{t("Pesquisas recentes")}</span>
@@ -299,10 +299,10 @@ export function Search({ onOpen }: Props) {
               ))}
             </div>
           </div>
-        ) : (
-          <div className="screen-message muted">{t("Digite ao menos 2 letras.")}</div>
-        )
       )}
+
+      {/* Nothing typed: Descobrir, like the original's Search page. */}
+      {empty && <Discover onOpen={onOpen} />}
 
       {!empty && noneSearched && <div className="screen-message">{t("Nenhum addon marcado em “Pesquisar em”.")}</div>}
 

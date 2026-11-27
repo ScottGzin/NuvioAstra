@@ -4,7 +4,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorText } from "../api";
 import type { PlayerSnapshot, SubtitleList, SubtitleOption, Track } from "../types";
-import { t } from "../i18n";
+import { decimal, t } from "../i18n";
+import { showToast } from "../toast";
 
 // ISO 639-2/B codes, which Intl does not read.
 const BIBLIOGRAPHIC: Record<string, string> = {
@@ -133,6 +134,10 @@ export function useSubtitles(snapshot: PlayerSnapshot | null, open: boolean) {
       setLoading(choice.id);
       try {
         await api.playerSubtitleLoad(session, choice.option.index);
+        // Like the original, an addon subtitle is synced with the video's own as soon as it loads.
+        window.setTimeout(() => void api.playerSubtitleAutosync(session).then((r) => {
+          if (r.status === "applied" && r.offsetMs) showToast(t("Legenda sincronizada com o vídeo ({value} s).", { value: decimal(r.offsetMs / 1000, 2) }));
+        }, () => {}), 500);
         return true;
       } catch (e) {
         if (current.current === session) setError(t("Não foi possível carregar essa legenda: {error}", { error: errorText(e) }));

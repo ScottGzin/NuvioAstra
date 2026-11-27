@@ -7,6 +7,23 @@ import type {
   SubtitleList,
   Moments,
   TorboxStatus,
+  DebridStatus,
+  ParentalWarning,
+  TmdbEntityPage,
+  TmdbStatus,
+  SimklStatus,
+  M3uPlaylist,
+  PluginsView,
+  SportsMatch,
+  MatchChannel,
+  DiscordPresence,
+  DeviceCode,
+  DevicePoll,
+  MdbListStatus,
+  ExternalRating,
+  EditCollection,
+  CollectionCatalogOption,
+  DebridCheck,
   DownloadRequest,
   DownloadItem,
   DownloadsFolder,
@@ -23,6 +40,7 @@ import type {
 // returning to Home or reopening a title never repeats the request. Failures are not cached.
 const pageCache = new Map<string, Promise<CatalogPage>>();
 const detailsCache = new Map<string, Promise<Details>>();
+const ratingsCache = new Map<string, Promise<ExternalRating[]>>();
 const homeListeners = new Set<() => void>();
 
 const remoteSettingsListeners = new Set<() => void>();
@@ -42,6 +60,11 @@ function newEpoch(reason: "profile" | "addons") {
   pageCache.clear();
   detailsCache.clear();
   epochListeners.forEach((l) => l(reason));
+}
+function tmdbChanged() {
+  detailsCache.clear();
+  pageCache.clear();
+  homeListeners.forEach((l) => l());
 }
 export function onDataEpoch(listener: (reason: "profile" | "addons") => void): () => void {
   epochListeners.add(listener);
@@ -89,8 +112,65 @@ export const api = {
   search: (query: string) => invoke<SearchSection[]>("search_all", { query }),
   details: (contentType: string, id: string) =>
     cached(detailsCache, `${contentType}/${id}`, () => invoke<Details>("meta_details", { contentType, id })),
+  /** The details completed from TMDB (fails when TMDB is off, has no key or lacks the title). */
+  detailsEnriched: (contentType: string, id: string) =>
+    cached(detailsCache, `tmdb:${contentType}/${id}`, () => invoke<Details>("meta_enrich", { contentType, id })),
+  uiLanguageSet: (language: string) => invoke<void>("ui_language_set", { language }).catch(() => {}),
+  tmdbStatus: () => invoke<TmdbStatus>("tmdb_status"),
+  async tmdbSaveKey(key: string): Promise<TmdbStatus> {
+    const status = await invoke<TmdbStatus>("tmdb_save_key", { key });
+    tmdbChanged();
+    return status;
+  },
+  async tmdbRemoveKey(): Promise<TmdbStatus> {
+    const status = await invoke<TmdbStatus>("tmdb_remove_key");
+    tmdbChanged();
+    return status;
+  },
+  /** TMDB settings changed: details are completed again and Home re-reads its collections. */
+  tmdbChanged: () => tmdbChanged(),
+  discordEnabled: () => invoke<boolean>("discord_enabled"),
+  discordSetEnabled: (enabled: boolean) => invoke<void>("discord_set_enabled", { enabled }),
+  discordPresence: (presence: DiscordPresence) => invoke<void>("discord_presence", { presence }).catch(() => {}),
+  simklStatus: () => invoke<SimklStatus>("simkl_status"),
+  simklDeviceStart: (openBrowser: boolean) => invoke<DeviceCode>("simkl_device_start", { openBrowser }),
+  simklDevicePoll: () => invoke<DevicePoll>("simkl_device_poll"),
+  simklDeviceCancel: () => invoke<void>("simkl_device_cancel").catch(() => {}),
+  simklDisconnect: () => invoke<SimklStatus>("simkl_disconnect"),
+  simklImport: () => invoke<number>("simkl_import"),
+  mdblistStatus: () => invoke<MdbListStatus>("mdblist_status"),
+  async mdblistSaveKey(key: string): Promise<MdbListStatus> {
+    const status = await invoke<MdbListStatus>("mdblist_save_key", { key });
+    ratingsCache.clear();
+    return status;
+  },
+  async mdblistRemoveKey(): Promise<MdbListStatus> {
+    const status = await invoke<MdbListStatus>("mdblist_remove_key");
+    ratingsCache.clear();
+    return status;
+  },
+  mdblistOpenKeyPage: () => invoke<void>("mdblist_open_key_page"),
+  /** MDBList ratings of a title (fails when MDBList is off or has no key). */
+  mdblistRatings: (contentType: string, id: string) =>
+    cached(ratingsCache, `${contentType}/${id}`, () => invoke<ExternalRating[]>("mdblist_ratings", { contentType, id })),
+  /** MDBList settings changed: ratings are asked again. */
+  mdblistChanged: () => ratingsCache.clear(),
+  tmdbEntity: (kind: string, id: number) => invoke<TmdbEntityPage>("tmdb_entity", { kind, id }),
+  tmdbEntityTitles: (kind: string, id: number, media: string, page: number) => invoke<CatalogPage>("tmdb_entity_titles", { kind, id, media, page }),
   /** `refresh`: asks the addons again ("Recarregar" in the sources panel). */
-  streams: (contentType: string, id: string, refresh = false) => invoke<StreamGroup[]>("title_streams", { contentType, id, refresh }),
+  /** Sources of a title. With `request`, each addon's answer also arrives as `streams-part`. */
+  streams: (contentType: string, id: string, refresh = false, request: number | null = null) =>
+    invoke<StreamGroup[]>("title_streams", { contentType, id, refresh, request }),
+  /** "Reutilizar último link": whether this movie/episode has a fresh link, and playing it. */
+  lastLinkHas: (progress: PlaybackItem) => invoke<boolean>("last_link_has", { progress }),
+  lastLinkPlay: (startSeconds: number | null, progress: PlaybackItem) => invoke<PlayerInfo>("last_link_play", { startSeconds, progress }),
+  streamPlayYoutube: (key: string, startSeconds: number | null, progress: PlaybackItem | null) =>
+    invoke<PlayerInfo>("stream_play_youtube", { key, startSeconds, progress }),
+  streamOpenExternal: (key: string) => invoke<void>("stream_open_external", { key }),
+  /** Content warnings of a title (IMDb parents guide), for the start of playback. */
+  parentalGuide: (id: string) => invoke<ParentalWarning[]>("parental_guide", { id }),
+  /** The trailer in the language of Settings → Áudio, searched on YouTube when clicked. */
+  trailerPlayLocalized: (name: string, year: string | null) => invoke<PlayerInfo>("trailer_play_localized", { name, year }),
   searchAddons: () => invoke<SearchAddon[]>("search_addons"),
   searchAddonSet: (key: string, enabled: boolean) => invoke<SearchAddon[]>("search_addon_set", { key, enabled }),
   discoverCatalogs: () => invoke<DiscoverCatalog[]>("discover_catalogs"),
@@ -102,6 +182,13 @@ export const api = {
     pageCache.clear();
     homeListeners.forEach((l) => l());
     return saved;
+  },
+  collectionsEdit: () => invoke<{ collections: EditCollection[]; catalogs: CollectionCatalogOption[] }>("collections_edit"),
+  /** Saves the edited collections (and sends them to the account); Home reloads its rows. */
+  async collectionsSave(list: EditCollection[]): Promise<void> {
+    await invoke<void>("collections_save", { collectionsList: list });
+    pageCache.clear();
+    homeListeners.forEach((l) => l());
   },
   /** Home re-reads its rows when the profile's Home settings change. */
   onHomeSettingsChanged(listener: () => void): () => void {
@@ -115,6 +202,18 @@ export const api = {
   subtitleFontData: (id: string) => invoke<ArrayBuffer>("subtitle_font_data", { id }),
   appMode: () => invoke<"app" | "selftest" | "uitest">("app_mode"),
   liveTvChannels: () => invoke<ChannelList>("livetv_channels"),
+  m3uList: () => invoke<M3uPlaylist[]>("m3u_list"),
+  pluginsList: () => invoke<PluginsView>("plugins_list"),
+  pluginsAdd: (url: string) => invoke<PluginsView>("plugins_add", { url }),
+  pluginsRefresh: (key: string) => invoke<PluginsView>("plugins_refresh", { key }),
+  pluginsSetEnabled: (enabled: boolean) => invoke<PluginsView>("plugins_set_enabled", { enabled }),
+  pluginsSetScraperEnabled: (key: string, enabled: boolean) => invoke<PluginsView>("plugins_set_scraper_enabled", { key, enabled }),
+  pluginsRemove: (key: string) => invoke<PluginsView>("plugins_remove", { key }),
+  liveTvMatches: (tzOffsetMinutes: number) => invoke<{ matches: SportsMatch[]; error: string | null }>("livetv_matches", { tzOffsetMinutes }),
+  liveTvMatchChannels: (matchId: string, channels: { key: string; name: string; genres: string[]; logo: string | null }[], tzOffsetMinutes: number) =>
+    invoke<MatchChannel[]>("livetv_match_channels", { matchId, channels, tzOffsetMinutes }),
+  m3uAdd: (name: string, source: string) => invoke<M3uPlaylist[]>("m3u_add", { name, source }),
+  m3uRemove: (id: string) => invoke<M3uPlaylist[]>("m3u_remove", { id }),
   liveTvFavorites: () => invoke<string[]>("livetv_favorites"),
   liveTvToggleFavorite: (key: string) => invoke<string[]>("livetv_toggle_favorite", { key }),
   /** Asks only the channel's own addon, only when the user picks the channel. */
@@ -172,12 +271,21 @@ export const api = {
   libraryHistory: (offset: number, limit: number) => invoke<HistoryPage>("library_history", { offset, limit }),
   libraryRemoveHistory: (key: string) => invoke<boolean>("library_remove_history", { key }),
   libraryTitleProgress: (id: string) => invoke<TitleProgress>("library_title_progress", { id }),
+  /** Marks (or unmarks) a movie, episodes or a season as watched. */
+  librarySetWatched: (
+    meta: { contentType: string; id: string; name: string; poster: string | null; releaseInfo: string | null },
+    targets: { season: number | null; episode: number | null; videoId: string | null }[],
+    watched: boolean,
+  ) => invoke<number>("library_set_watched", { ...meta, targets, watched }),
 
   /** `progress`: the movie/episode, so Rust saves its position (absent for live TV). */
   playStream: (key: string, startSeconds: number | null, progress: PlaybackItem | null = null, previousFinished = false) =>
     invoke<PlayerInfo>("stream_play", { key, startSeconds, progress, previousFinished }),
   playerSubtitles: (session: number) => invoke<SubtitleList>("player_subtitles", { session }),
   playerSubtitleLoad: (session: number, index: number) => invoke<void>("player_subtitle_load", { session, index }),
+  /** Aligns the selected addon subtitle with the video's embedded subtitles (sets the delay). */
+  playerSubtitleAutosync: (session: number) =>
+    invoke<{ status: "applied" | "no-reference" | "no-match" | "not-addon" | "no-subtitle"; offsetMs: number | null }>("player_subtitle_autosync", { session }),
   playerSubtitleStyle: () => invoke<void>("player_subtitle_style"),
   playerMoments: (session: number) => invoke<Moments>("player_moments", { session }),
   playerCommand: (command: PlayerCommand) => invoke<void>("player_command", { command }).catch(() => {}),
@@ -191,8 +299,15 @@ export const api = {
   torboxSaveKey: (key: string) => invoke<TorboxStatus>("torbox_save_key", { key }),
   torboxRemoveKey: () => invoke<TorboxStatus>("torbox_remove_key"),
   /** Which torrent/TorBox sources of the last searches TorBox has cached. */
-  torboxCheck: (keys: string[]) => invoke<Record<string, "cached" | "notCached">>("torbox_check", { keys }),
-  torboxPrepare: (key: string, season: number | null, episode: number | null) => invoke<{ filename: string | null; size: number | null }>("torbox_prepare", { key, season, episode }),
+  /** What the connected debrid services can do with these sources. */
+  torboxCheck: (keys: string[]) => invoke<DebridCheck>("torbox_check", { keys }),
+  /** The link of a source from the first connected debrid service that has it. */
+  torboxPrepare: (key: string, season: number | null, episode: number | null) =>
+    invoke<{ filename: string | null; size: number | null; code: string | null }>("torbox_prepare", { key, season, episode }),
+  debridStatus: () => invoke<DebridStatus>("debrid_status"),
+  debridSaveKey: (service: string, key: string) => invoke<DebridStatus>("debrid_save_key", { service, key }),
+  debridRemoveKey: (service: string) => invoke<DebridStatus>("debrid_remove_key", { service }),
+  debridSetPreferred: (service: string) => invoke<DebridStatus>("debrid_set_preferred", { service }),
   downloadStart: (request: DownloadRequest) => invoke<DownloadItem>("download_start", { request }),
   downloadsList: () => invoke<DownloadItem[]>("downloads_list"),
   downloadPause: (id: string) => invoke<void>("download_pause", { id }),

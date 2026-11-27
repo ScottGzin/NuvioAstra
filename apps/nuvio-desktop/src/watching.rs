@@ -1,5 +1,11 @@
 //! What the player knows about the movie or episode that is playing, and its commands: subtitles
 //! to choose from, the skip buttons and the next-episode moment.
+//!
+//! Subtitle auto sync (the original's `AutomaticSubtitleSync`): an addon subtitle is compared with
+//! the subtitles embedded in the video file (read from its index with small ranged requests,
+//! `nuvio_core::embedded_subs`), and the constant delay found is applied (`sub-delay`). It runs when
+//! an addon subtitle is loaded and from the subtitle menu. Without an embedded subtitle there is
+//! nothing to compare with and nothing changes.
 
 use crate::services::{self, segments, subtitles};
 use crate::AppState;
@@ -7,6 +13,9 @@ use nuvio_core::skip::{self, Chapter, Moments, Segment, Threshold};
 use nuvio_core::stream::StreamItem;
 use nuvio_player::PlayerCommand;
 use nuvio_store::library::PlaybackItem;
+use serde::Serialize;
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, State};
 
@@ -21,10 +30,17 @@ pub struct Playing {
     /// Complete answers of this session: addons and services are asked once.
     listed: tokio::sync::Mutex<Option<subtitles::SubtitleList>>,
     segments: tokio::sync::OnceCell<Vec<Vec<Segment>>>,
+    /// The video's address and headers (to read its embedded subtitles for auto sync).
+    video_url: String,
+    video_headers: BTreeMap<String, String>,
+    /// mpv track title → file of each addon subtitle loaded.
+    loaded_files: Mutex<HashMap<String, PathBuf>>,
+    /// Embedded subtitle timelines, read once per playback.
+    embedded: tokio::sync::OnceCell<Vec<Vec<nuvio_core::autosync::SyncCue>>>,
 }
 
 impl Playing {
-    pub fn new(session: u64, item: &PlaybackItem, stream: &StreamItem, url: &str) -> Self {
+    pub fn new(session: u64, item: &PlaybackItem, stream: &StreamItem, url: &str, headers: &[(String, String)]) -> Self {
         let (season, episode) = (item.season_number.map(i64::from), item.episode_number.map(i64::from));
         let movie = item.content_type.eq_ignore_ascii_case("movie") || (season.is_none() && episode.is_none() && item.video_id == item.parent_meta_id);
         let hints = &stream.behavior_hints;
@@ -44,8 +60,75 @@ impl Playing {
             found: Mutex::default(),
             listed: tokio::sync::Mutex::new(None),
             segments: tokio::sync::OnceCell::new(),
+            video_url: url.to_string(),
+            video_headers: headers.iter().cloned().collect(),
+            loaded_files: Mutex::default(),
+            embedded: tokio::sync::OnceCell::new(),
         }
     }
+}
+
+/// Outcome of an auto sync, shown in the subtitle menu.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoSync {
+    /// `applied`, `no-reference` (no embedded subtitle), `no-match`, `not-addon` (the selected
+    /// subtitle is the file's own), `no-subtitle`.
+    pub status: &'static str,
+    pub offset_ms: Option<i64>,
+}
+
+async fn auto_sync(state: &AppState, playing: &Playing) -> Result<AutoSync, String> {
+    let snapshot = state.with_player(|p| Ok(p.snapshot()))?;
+    if snapshot.session != playing.session {
+        return Err("this playback has ended".into());
+    }
+    let Some(track) = snapshot.sid.as_deref().filter(|s| *s != "no").and_then(|sid| snapshot.tracks.iter().find(|t| t.kind == "sub" && t.id.to_string() == sid)) else {
+        return Ok(AutoSync { status: "no-subtitle", offset_ms: None });
+    };
+    let file = track.title.as_ref().and_then(|title| playing.loaded_files.lock().expect("subtitle files").get(title).cloned());
+    let Some(file) = file else { return Ok(AutoSync { status: "not-addon", offset_ms: None }) };
+    let text = std::fs::read(&file).map_err(|e| e.to_string())?;
+    let text = String::from_utf8_lossy(&text);
+    let target = nuvio_core::autosync::parse_cues(&text, &file.to_string_lossy());
+    let references = playing
+        .embedded
+        .get_or_init(|| async {
+            if !(playing.video_url.starts_with("http://") || playing.video_url.starts_with("https://")) {
+                return Vec::new();
+            }
+            match nuvio_core::embedded_subs::load_embedded_tracks(&playing.video_url, &playing.video_headers).await {
+                Ok(tracks) => tracks.into_iter().map(|t| t.cues).filter(|c| c.len() >= 4).collect(),
+                Err(error) => {
+                    eprintln!("[autosync] embedded subtitles: {error}");
+                    Vec::new()
+                }
+            }
+        })
+        .await;
+    if references.is_empty() {
+        return Ok(AutoSync { status: "no-reference", offset_ms: None });
+    }
+    let Some(alignment) = nuvio_core::autosync::compute_alignment_v2(&target, references) else {
+        return Ok(AutoSync { status: "no-match", offset_ms: None });
+    };
+    let ms = alignment.offset_ms.clamp(-60_000, 60_000);
+    state.with_player(|p| {
+        if p.snapshot().session != playing.session {
+            return Err("this playback has ended".into());
+        }
+        p.execute(&PlayerCommand::SetSubtitleDelay { ms }).map_err(|e| e.to_string())
+    })?;
+    eprintln!("[autosync] {} ms against {} embedded track(s)", ms, references.len());
+    Ok(AutoSync { status: "applied", offset_ms: Some(ms) })
+}
+
+/// "Sincronizar automaticamente" of the subtitle menu.
+#[tauri::command]
+pub async fn player_subtitle_autosync(state: State<'_, AppState>, session: u64) -> Result<AutoSync, String> {
+    state.ensure_unlocked()?;
+    let playing = playing(&state, session)?;
+    auto_sync(&state, &playing).await
 }
 
 /// The subtitle language picked by hand, kept for the next episodes of that title while the app
@@ -109,6 +192,7 @@ async fn load(state: &AppState, playing: &Playing, index: usize) -> Result<Optio
     let chosen = playing.found.lock().expect("subtitles found").get(index).cloned().ok_or("unknown subtitle")?;
     let file = subtitles::download(&state.addons.client, &chosen.url, &format!("{}-{index}", playing.session)).await?;
     let language = services::playback::normalize_language(&chosen.language).filter(|l| l != "unknown");
+    playing.loaded_files.lock().expect("subtitle files").insert(chosen.title.clone(), file.clone());
     let command = PlayerCommand::AddSubtitle {
         url: file.to_string_lossy().into_owned(),
         title: Some(chosen.title),
@@ -144,8 +228,10 @@ pub async fn select_from_addons(app: AppHandle, session: u64, wanted: Vec<String
         .iter()
         .find_map(|language| list.options.iter().find(|o| services::playback::language_matches(Some(&o.language), language)));
     if let Some(option) = matched {
-        if still_off() && choice(&state) == before {
-            let _ = load(&state, &playing, option.index).await;
+        if still_off() && choice(&state) == before && load(&state, &playing, option.index).await.is_ok() {
+            // As the original: a preferred addon subtitle is synced as soon as it loads.
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            let _ = auto_sync(&state, &playing).await;
         }
     }
 }

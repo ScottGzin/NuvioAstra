@@ -197,12 +197,14 @@ impl Torbox {
     }
 }
 
+/// A file inside a torrent, as a debrid service lists it (`id`: the service's id, or the file's
+/// position for services without ids).
 #[derive(Debug, Clone, PartialEq)]
-struct File {
-    id: i64,
-    name: String,
-    mime: String,
-    size: Option<u64>,
+pub(crate) struct File {
+    pub(crate) id: i64,
+    pub(crate) name: String,
+    pub(crate) mime: String,
+    pub(crate) size: Option<u64>,
 }
 
 impl File {
@@ -216,7 +218,7 @@ impl File {
         })
     }
 
-    fn playable(&self) -> bool {
+    pub(crate) fn playable(&self) -> bool {
         self.mime.to_ascii_lowercase().starts_with("video/") || has_video_extension(&self.name)
     }
 }
@@ -264,7 +266,7 @@ fn has_episode(name: &str, season: i64, episode: i64) -> bool {
 }
 
 /// `selectDebridFile`: the named file, else the episode, else the index, else the largest video.
-fn select_file<'a>(files: &'a [File], wanted: &Wanted) -> Option<&'a File> {
+pub(crate) fn select_file<'a>(files: &'a [File], wanted: &Wanted) -> Option<&'a File> {
     let playable: Vec<&File> = files.iter().filter(|f| f.playable()).collect();
     if playable.is_empty() {
         return None;

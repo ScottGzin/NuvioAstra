@@ -376,6 +376,8 @@ pub struct HistoryEntry {
     pub season: Option<i32>,
     pub episode: Option<i32>,
     pub episode_title: Option<String>,
+    /// The episode's own picture (Continue watching can show it instead of the series art).
+    pub episode_thumbnail: Option<String>,
     pub position_ms: i64,
     pub duration_ms: i64,
     pub fraction: f32,
@@ -399,6 +401,7 @@ impl HistoryEntry {
             season: e.season_number,
             episode: e.episode_number,
             episode_title: e.episode_title.clone(),
+            episode_thumbnail: e.episode_thumbnail.clone(),
             position_ms: e.resume_position_ms(),
             duration_ms: e.duration_ms,
             fraction: if e.effectively_completed() { 1.0 } else { e.fraction() },
@@ -422,6 +425,7 @@ impl HistoryEntry {
             season: w.season,
             episode: w.episode,
             episode_title: None,
+            episode_thumbnail: None,
             position_ms: 0,
             duration_ms: 0,
             fraction: 1.0,
@@ -629,6 +633,52 @@ impl AppStore {
         }
         self.note(profile, Change::Progress { key: &key, completed })?;
         Ok(Some(entry))
+    }
+
+    /// Marks movies/episodes as watched by hand (`markWatched`): their unfinished progress leaves
+    /// Continue watching. Returns how many were not marked before.
+    pub fn mark_watched(&self, profile: i64, items: Vec<WatchedItem>) -> Result<usize, StoreError> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut watched = self.watched(profile)?;
+        let known: std::collections::HashSet<String> = watched.iter().map(WatchedItem::key).collect();
+        let added: Vec<WatchedItem> = items.into_iter().filter(|w| !known.contains(&w.key())).collect();
+        if added.is_empty() {
+            return Ok(0);
+        }
+        let keys: std::collections::HashSet<String> = added.iter().map(|w| progress_key(&w.id, w.season, w.episode)).collect();
+        let mut entries = self.progress(profile)?;
+        let removed: Vec<String> = entries.iter().filter(|e| keys.contains(&e.key()) && !e.is_completed).map(ProgressEntry::key).collect();
+        if !removed.is_empty() {
+            entries.retain(|e| !removed.contains(&e.key()));
+            self.write(&progress_doc(profile), &ProgressDoc { entries })?;
+        }
+        watched.extend(added.iter().cloned());
+        self.write(&watched_doc(profile), &WatchedDoc { items: dedupe_watched(watched) })?;
+        let count = added.len();
+        self.note(profile, Change::Watched { marked: added, unmarked: Vec::new(), progress_removed: removed })?;
+        Ok(count)
+    }
+
+    /// Unmarks movies/episodes (`unmarkWatched`), and drops their finished progress so they stop
+    /// counting as watched. Returns how many were removed.
+    pub fn unmark_watched(&self, profile: i64, keys: &[(String, Option<i32>, Option<i32>)]) -> Result<usize, StoreError> {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let wanted: std::collections::HashSet<String> = keys.iter().map(|(id, s, e)| progress_key(id, *s, *e)).collect();
+        let watched = self.watched(profile)?;
+        let (removed, kept): (Vec<WatchedItem>, Vec<WatchedItem>) = watched.into_iter().partition(|w| wanted.contains(&progress_key(&w.id, w.season, w.episode)));
+        let mut entries = self.progress(profile)?;
+        let finished: Vec<String> = entries.iter().filter(|e| wanted.contains(&e.key()) && e.is_completed).map(ProgressEntry::key).collect();
+        if removed.is_empty() && finished.is_empty() {
+            return Ok(0);
+        }
+        if !finished.is_empty() {
+            entries.retain(|e| !finished.contains(&e.key()));
+            self.write(&progress_doc(profile), &ProgressDoc { entries })?;
+        }
+        self.write(&watched_doc(profile), &WatchedDoc { items: kept })?;
+        let count = removed.len().max(finished.len());
+        self.note(profile, Change::Watched { marked: Vec::new(), unmarked: removed, progress_removed: finished })?;
+        Ok(count)
     }
 
     /// Removes a movie/episode from the history: its progress (`removeProgress`) and its watched

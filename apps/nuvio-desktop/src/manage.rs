@@ -256,7 +256,7 @@ pub fn addon_configure(state: State<'_, AppState>, key: String) -> Result<(), St
 }
 
 #[cfg(windows)]
-fn open_in_browser(url: &str) -> Result<(), String> {
+pub(crate) fn open_in_browser(url: &str) -> Result<(), String> {
     use windows::core::HSTRING;
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -269,7 +269,7 @@ fn open_in_browser(url: &str) -> Result<(), String> {
 }
 
 #[cfg(not(windows))]
-fn open_in_browser(_: &str) -> Result<(), String> {
+pub(crate) fn open_in_browser(_: &str) -> Result<(), String> {
     Err("not supported".into())
 }
 
@@ -496,8 +496,10 @@ mod ipc_tests {
             subtitle_choice: Default::default(),
             next_up: Default::default(),
             torbox: nuvio_core::torbox::Torbox::new().unwrap(),
+            debrid_client: nuvio_core::debrid::Debrid::new().unwrap(),
             debrid: Default::default(),
             downloads: Default::default(),
+            parental: Default::default(),
         };
         let app = mock_builder()
             .manage(state)

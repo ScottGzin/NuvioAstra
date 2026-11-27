@@ -1,0 +1,27 @@
+[package]
+name = "nuvio-plugins"
+description = "Nuvio Astra scraper plugins: repository manifests, the QuickJS sandbox and its host bridges (UI-free)."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["net"] }
+reqwest = { workspace = true }
+base64 = "0.22"
+md-5 = "0.10"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+cipher = "0.4"
+hex = "0.4"
+pbkdf2 = "0.12"
+url = "2"
+rquickjs = { version = "0.14", features = ["futures", "array-buffer", "parallel"] }
+scraper = "0.29"

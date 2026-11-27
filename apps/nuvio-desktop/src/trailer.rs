@@ -7,6 +7,21 @@ use crate::AppState;
 use crate::PlayerInfo;
 use tauri::{AppHandle, Manager, State};
 
+/// "Idioma dos trailers": the trailer of `name` in the chosen language, searched on YouTube when
+/// clicked. `TRAILER_ORIGINAL` when no language is chosen, `TRAILER_NOT_FOUND` when the search has
+/// no fitting video (the UI then plays the addon's trailer, if any).
+#[tauri::command]
+pub async fn trailer_play_localized(app: AppHandle, state: State<'_, AppState>, name: String, year: Option<String>) -> Result<PlayerInfo, String> {
+    let language = state.app_store.profile_settings(state.active_profile()).map(|s| s.trailer.language).unwrap_or_default();
+    if nuvio_core::youtube::trailer_language(&language).is_none() {
+        return Err("TRAILER_ORIGINAL".into());
+    }
+    let year = year.as_deref().map(|y| y.chars().take_while(char::is_ascii_digit).collect::<String>()).filter(|y| y.len() == 4);
+    let id = state.youtube.search_trailer(&name, year.as_deref(), &language).await?.ok_or("TRAILER_NOT_FOUND")?;
+    eprintln!("[trailer] {language}: {id}");
+    trailer_play(app, state, id).await
+}
+
 #[tauri::command]
 pub async fn trailer_play(app: AppHandle, state: State<'_, AppState>, key: String) -> Result<PlayerInfo, String> {
     let id = nuvio_core::youtube::video_id(&key).ok_or("Endereço de trailer inválido.")?;

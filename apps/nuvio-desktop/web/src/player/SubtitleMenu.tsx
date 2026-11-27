@@ -66,6 +66,30 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
   };
 
   const delay = (ms: number) => void api.playerCommand({ type: "setSubtitleDelay", ms: Math.max(-60000, Math.min(60000, ms)) });
+  const [sync, setSync] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const autoSync = async () => {
+    setSyncing(true);
+    setSync(null);
+    try {
+      const r = await api.playerSubtitleAutosync(snapshot.session);
+      setSync(
+        r.status === "applied"
+          ? t("Sincronizada: atraso de {value} s.", { value: decimal((r.offsetMs ?? 0) / 1000, 2) })
+          : r.status === "no-reference"
+            ? t("O vídeo não tem legenda embutida para comparar. Ajuste o atraso acima.")
+            : r.status === "no-match"
+              ? t("Não foi possível achar o atraso com segurança. Ajuste acima.")
+              : r.status === "not-addon"
+                ? t("Esta legenda é do próprio vídeo e já está sincronizada.")
+                : t("Escolha uma legenda primeiro."),
+      );
+    } catch (e) {
+      setSync(String(e));
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <>
@@ -76,6 +100,10 @@ function Adjust({ snapshot }: { snapshot: PlayerSnapshot }) {
         <button className="pc-level" aria-label={t("Atrasar legenda")} onClick={() => delay(snapshot.subDelayMs + 250)}>+{decimal(0.25, 2)} s</button>
         <button className="pc-level" disabled={!snapshot.subDelayMs} onClick={() => delay(0)}>{t("Zerar")}</button>
       </div>
+      <button className="pc-level pc-autosync" disabled={syncing} onClick={() => void autoSync()} data-testid="subtitle-autosync">
+        {syncing ? t("Sincronizando…") : t("Sincronizar automaticamente")}
+      </button>
+      {sync && <p className="pc-enhance-note" data-testid="subtitle-autosync-result">{sync}</p>}
       {/* Before the settings arrive the section keeps its place (hidden), so the menu doesn't grow
           upward under the pointer. */}
       {(() => {

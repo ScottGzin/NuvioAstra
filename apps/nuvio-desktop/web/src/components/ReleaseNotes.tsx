@@ -1,8 +1,15 @@
 // Release notes as written in the commit description (emojis included), with the small part of
 // Markdown that Discord-style messages use: "# / ## / ###" titles, "- " items, "> " quotes, "---",
 // **bold**, *italic* and `code`. Built as React elements: nothing is read as HTML.
+//
+// Bilingual notes: a title line "## 🇧🇷 Português" (or "## Português", "## PT") starts the Portuguese
+// part and "## 🇺🇸 English" (or "## English", "## EN") the English part. The app shows only one: the
+// Portuguese part to Portuguese (Brazil or Portugal) users, the English part to everyone else, and the
+// other part when the chosen one is empty. Lines before any of these titles are shown to everyone.
+// Notes without these titles are shown whole, as before.
 
 import type { ReactNode } from "react";
+import { getLang } from "../i18n";
 
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -21,6 +28,30 @@ function inline(text: string): ReactNode[] {
 }
 
 type Block = { kind: "h" | "p" | "quote" | "hr" } & { text: string } | { kind: "list"; items: string[] };
+
+type NotesLang = "pt" | "en";
+const PT_TITLE = /^(?:[-*•]\s+)?#{1,3}\s+[^\p{L}]*(portugu[eê]s|portuguese|pt(?:-br)?)\s*$/iu;
+const EN_TITLE = /^(?:[-*•]\s+)?#{1,3}\s+[^\p{L}]*(english|ingl[eê]s|en)\s*$/iu;
+
+/** Keeps the lines meant for `lang` (see the header). */
+export function notesFor(notes: string, lang: NotesLang): string {
+  const common: string[] = [];
+  const parts: Record<NotesLang, string[]> = { pt: [], en: [] };
+  let current: NotesLang | null = null;
+  let marked = false;
+  for (const raw of notes.replace(/\r/g, "").split("\n")) {
+    const line = raw.trim();
+    if (PT_TITLE.test(line)) { current = "pt"; marked = true; continue; }
+    if (EN_TITLE.test(line)) { current = "en"; marked = true; continue; }
+    (current ? parts[current] : common).push(raw);
+  }
+  if (!marked) return notes;
+  const other: NotesLang = lang === "pt" ? "en" : "pt";
+  const chosen = parts[lang].some((l) => l.trim()) ? parts[lang] : parts[other];
+  // A "---" left at the end of the shared part only separated it from the language titles.
+  while (common.length && /^\s*(-{3,})?\s*$/.test(common[common.length - 1])) common.pop();
+  return [...common, ...(common.length ? ["---"] : []), ...chosen].join("\n");
+}
 
 export function parseNotes(notes: string): Block[] {
   const blocks: Block[] = [];
@@ -46,7 +77,7 @@ export function parseNotes(notes: string): Block[] {
 export function ReleaseNotes({ notes }: { notes: string }) {
   return (
     <div className="release-notes" data-testid="release-notes">
-      {parseNotes(notes).map((block, i) => {
+      {parseNotes(notesFor(notes, getLang() === "pt" || getLang() === "pt-PT" ? "pt" : "en")).map((block, i) => {
         switch (block.kind) {
           case "h": return <h3 key={i}>{inline(block.text)}</h3>;
           case "quote": return <blockquote key={i}>{inline(block.text)}</blockquote>;

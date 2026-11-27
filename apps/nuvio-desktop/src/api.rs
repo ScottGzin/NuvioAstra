@@ -44,7 +44,7 @@ pub struct HomeView {
 pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
     let loaded = state.addons.loaded().await?;
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?.home;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type);
+    let collections = collections::views_with(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.show_catalog_type, crate::tmdb::collections_access(&state).is_some());
     Ok(HomeView {
         hero_enabled: settings.hero_enabled,
         hero_sources: home::hero_sources(&loaded.manifests, &settings),
@@ -57,6 +57,12 @@ pub async fn home_rows(state: State<'_, AppState>) -> Result<HomeView, String> {
 #[tauri::command]
 pub async fn catalog_page(state: State<'_, AppState>, key: String, skip: Option<u32>, genre: Option<String>) -> Result<CatalogPage, String> {
     let loaded = state.addons.loaded().await?;
+    // A TMDB source of a collection folder (`@tmdb/<collection>/<folder>/<source>`).
+    if key.starts_with(collections::TMDB_KEY) {
+        let access = crate::tmdb::collections_access(&state).ok_or("TMDB desligado.")?;
+        let source = collections::tmdb_source(&collections::stored(&state.app_store, loaded.profile), &key).ok_or("Fonte TMDB não encontrada.")?;
+        return crate::services::tmdb::source_page(&access, &source, skip.unwrap_or(1)).await;
+    }
     let mut parts = key.splitn(3, ':');
     let (manifest_id, content_type, catalog_id) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""), parts.next().unwrap_or(""));
     let manifest = loaded.manifests.iter().find(|m| m.id == manifest_id).ok_or("addon not enabled")?;
@@ -130,14 +136,14 @@ pub async fn discover_catalogs(state: State<'_, AppState>) -> Result<Vec<search:
 
 #[tauri::command]
 pub async fn meta_details(state: State<'_, AppState>, content_type: String, id: String) -> Result<meta::Details, String> {
-    let loaded = state.addons.loaded().await?;
-    meta::details(&state.addons.client, &loaded.manifests, &content_type, &id).await
+    crate::tmdb::details(&state, &content_type, &id).await
 }
 
 #[tauri::command]
 pub async fn livetv_channels(state: State<'_, AppState>) -> Result<livetv::ChannelList, String> {
     let loaded = state.addons.loaded().await?;
-    Ok(livetv::load(&state.addons.client, &loaded.manifests).await)
+    let list = livetv::load(&state.addons.client, &loaded.manifests).await;
+    Ok(crate::playlists::with_playlists(&state, list, false).await)
 }
 
 /// "Recarregar": fetches again the manifests of the channel addons (all of them, or the ones named),
@@ -156,7 +162,9 @@ pub async fn livetv_reload(state: State<'_, AppState>, addon_names: Option<Vec<S
         let _ = state.addons.refresh_one(url).await;
     }
     let loaded = state.addons.loaded().await?;
-    Ok(livetv::load(&state.addons.client, &loaded.manifests).await)
+    let list = livetv::load(&state.addons.client, &loaded.manifests).await;
+    // The M3U playlists are read again too.
+    Ok(crate::playlists::with_playlists(&state, list, true).await)
 }
 
 #[tauri::command]
@@ -184,15 +192,117 @@ pub async fn livetv_toggle_favorite(state: State<'_, AppState>, key: String) -> 
 /// Sources of one title from the enabled addons (cached manifests), asked when the user opens them.
 #[tauri::command]
 /// `refresh` ("Recarregar" in the sources panel): asks the addons again, past any HTTP cache.
-pub async fn title_streams(state: State<'_, AppState>, content_type: String, id: String, refresh: Option<bool>) -> Result<Vec<StreamGroup>, String> {
+pub async fn title_streams(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    content_type: String,
+    id: String,
+    refresh: Option<bool>,
+    request: Option<u64>,
+) -> Result<Vec<StreamGroup>, String> {
     let loaded = state.addons.loaded().await?;
-    Ok(streams::search_with(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false)).await)
+    // `streams-part`: each addon's answer as it arrives, so the list fills in while slower addons
+    // are still replying (the complete list in the addons' order is the command's result).
+    let on_part = |index: usize, group: &StreamGroup| {
+        if let Some(request) = request {
+            use tauri::Emitter;
+            let _ = app.emit("streams-part", serde_json::json!({ "request": request, "index": index, "group": group }));
+        }
+    };
+    // Scraper plugins run while the addons are still answering; their groups come after them.
+    let addons = streams::search_with_parts(&state.addons.client, &state.streams, &loaded.manifests, &content_type, &id, refresh.unwrap_or(false), &on_part);
+    let (mut groups, plugins) = tokio::join!(addons, plugin_streams(&state, loaded.profile, &content_type, &id, &on_part));
+    groups.extend(plugins);
+    Ok(groups)
+}
+
+/// Index of the first plugin group in `streams-part` (after any addon).
+const PLUGIN_PART: usize = 10_000;
+
+/// The enabled scraper plugins for a title, all at once; each one's sources are announced as soon
+/// as it answers. Plugins need the TMDB id: an IMDb id is converted through TMDB when it is set up.
+async fn plugin_streams(state: &AppState, profile: i64, content_type: &str, id: &str, on_part: &(dyn Fn(usize, &StreamGroup) + Sync)) -> Vec<StreamGroup> {
+    use crate::services::{plugins, tmdb};
+    let scrapers = plugins::runnable(&state.app_store, profile, content_type);
+    if scrapers.is_empty() {
+        return Vec::new();
+    }
+    let (base, season, episode) = plugins::split_video_id(id);
+    let access = crate::tmdb::access(state).map(|(a, _)| a);
+    let media = tmdb::MediaType::parse(Some(content_type));
+    let tmdb_id = match (tmdb::tmdb_prefix_id(&base), &access) {
+        (Some(n), _) => Some(n),
+        (None, Some(a)) => tmdb::tmdb_id(a, media, &base, None).await,
+        (None, None) => None,
+    };
+    let Some(tmdb_id) = tmdb_id else { return Vec::new() };
+    let key = access.as_ref().map(|a| a.key().to_string()).unwrap_or_default();
+    let search = streams::open_search(&state.streams);
+    let mut set = tokio::task::JoinSet::new();
+    for (index, scraper) in scrapers.into_iter().enumerate() {
+        let (tmdb, kind, key) = (tmdb_id.to_string(), content_type.to_string(), key.clone());
+        set.spawn(async move {
+            let items = plugins::run(&scraper, &tmdb, &kind, season, episode, &key).await;
+            (index, scraper.name, items)
+        });
+    }
+    let mut found = Vec::new();
+    while let Some(Ok((index, name, items))) = set.join_next().await {
+        if items.is_empty() {
+            continue;
+        }
+        let group = streams::add_group(&state.streams, search, PLUGIN_PART + index, format!("{name} · Plugin"), items);
+        on_part(PLUGIN_PART + index, &group);
+        found.push((index, group));
+    }
+    found.sort_by_key(|(i, _)| *i);
+    found.into_iter().map(|(_, g)| g).collect()
+}
+
+// ---------------------------------------------------------------- Settings → Plugins
+
+#[tauri::command]
+pub fn plugins_list(state: State<'_, AppState>) -> crate::services::plugins::PluginsView {
+    crate::services::plugins::view(&state.app_store, state.active_profile(), None)
+}
+
+#[tauri::command]
+pub async fn plugins_add(state: State<'_, AppState>, url: String) -> Result<crate::services::plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    crate::services::plugins::add(&state.app_store, &state.addons.client, state.active_profile(), &url).await
+}
+
+#[tauri::command]
+pub async fn plugins_refresh(state: State<'_, AppState>, key: String) -> Result<crate::services::plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    crate::services::plugins::refresh(&state.app_store, &state.addons.client, state.active_profile(), &key).await
+}
+
+#[tauri::command]
+pub fn plugins_set_enabled(state: State<'_, AppState>, enabled: bool) -> Result<crate::services::plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    crate::services::plugins::set_enabled(&state.app_store, state.active_profile(), enabled)
+}
+
+#[tauri::command]
+pub fn plugins_set_scraper_enabled(state: State<'_, AppState>, key: String, enabled: bool) -> Result<crate::services::plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    crate::services::plugins::set_scraper_enabled(&state.app_store, state.active_profile(), &key, enabled)
+}
+
+#[tauri::command]
+pub fn plugins_remove(state: State<'_, AppState>, key: String) -> Result<crate::services::plugins::PluginsView, String> {
+    state.ensure_unlocked()?;
+    crate::services::plugins::remove(&state.app_store, state.active_profile(), &key)
 }
 
 /// Resolves one channel, on click only: just the addon that listed it is asked (no other addon,
 /// no prefetch). The UI then plays the chosen stream key with `stream_play`.
 #[tauri::command]
 pub async fn livetv_resolve(state: State<'_, AppState>, key: String) -> Result<Vec<StreamGroup>, String> {
+    if let Some(result) = crate::playlists::resolve(&state, &key) {
+        return result;
+    }
     let loaded = state.addons.loaded().await?;
     let (instance, content_type, meta_id) = livetv::split_key(&key).ok_or("invalid channel key")?;
     let owner: Vec<_> = loaded.manifests.iter().filter(|m| addons::addon_instance_id(m) == instance).cloned().collect();
@@ -200,6 +310,26 @@ pub async fn livetv_resolve(state: State<'_, AppState>, key: String) -> Result<V
         return Err("the addon of this channel is not enabled".into());
     }
     Ok(streams::search_in(&state.addons.client, &state.streams, &owner, content_type, meta_id).await)
+}
+
+/// "Jogos de hoje" (ESPN, nothing from the addons).
+#[tauri::command]
+pub async fn livetv_matches(tz_offset_minutes: i64) -> Result<crate::services::matches::MatchesView, String> {
+    Ok(crate::services::matches::today(library::now_ms(), tz_offset_minutes.clamp(-14 * 60, 14 * 60)).await)
+}
+
+/// "Onde passa": for one game only, on click (at most 16 guides of sports channels).
+#[tauri::command]
+pub async fn livetv_match_channels(
+    state: State<'_, AppState>,
+    match_id: String,
+    channels: Vec<crate::services::matches::ChannelLite>,
+    tz_offset_minutes: i64,
+) -> Result<Vec<crate::services::matches::ChannelRef>, String> {
+    let game = crate::services::matches::cached_match(&match_id).ok_or("Jogo não encontrado; atualize a lista.")?;
+    let loaded = state.addons.loaded().await?;
+    let tz = tz_offset_minutes.clamp(-14 * 60, 14 * 60);
+    Ok(crate::services::matches::where_to_watch(&state.addons.client, &loaded.manifests, &state.epg, &game, &channels, library::now_ms(), tz).await)
 }
 
 /// Program guide of one channel (see `services::epg`): asked only for the channel the user picked,
@@ -257,7 +387,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
             pin_enabled: false,
         });
     let settings = state.app_store.profile_settings(loaded.profile).map_err(|e| e.to_string())?;
-    let collections = collections::views(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type);
+    let collections = collections::views_with(&collections::stored(&state.app_store, loaded.profile), &loaded.manifests, settings.home.show_catalog_type, crate::tmdb::collections_access(&state).is_some());
     let catalogs = home::catalog_choices(&loaded.manifests, &settings.home, &collections);
     Ok(SettingsView {
         profile,
@@ -269,6 +399,35 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView, St
         migration: state.app_store.migration().ok().flatten(),
         app_version: env!("CARGO_PKG_VERSION"),
     })
+}
+
+/// The collection editor (Settings → Coleções): the profile's collections in the editor's shape
+/// and the catalogs of the installed addons a folder can use.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectionsEdit {
+    pub collections: Vec<collections::EditCollection>,
+    pub catalogs: Vec<collections::CatalogOption>,
+}
+
+#[tauri::command]
+pub async fn collections_edit(state: State<'_, AppState>) -> Result<CollectionsEdit, String> {
+    state.ensure_unlocked()?;
+    let loaded = state.addons.loaded().await?;
+    let stored = collections::stored(&state.app_store, loaded.profile);
+    Ok(CollectionsEdit { collections: collections::editable(&stored, &loaded.manifests), catalogs: collections::catalog_options(&loaded.manifests) })
+}
+
+/// Saves the edited collections (unknown fields kept) and sends them to the account.
+#[tauri::command]
+pub async fn collections_save(state: State<'_, AppState>, collections_list: Vec<collections::EditCollection>) -> Result<(), String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let stored = collections::stored(&state.app_store, profile);
+    let next = collections::apply(&stored, &collections_list);
+    state.app_store.set_collections(profile, &next).map_err(|e| e.to_string())?;
+    state.request_sync();
+    Ok(())
 }
 
 /// Saves settings (validated into the original's ranges) and returns what was stored. Player
@@ -449,6 +608,66 @@ pub async fn library_remove_history<R: tauri::Runtime>(app: tauri::AppHandle<R>,
     Ok(removed)
 }
 
+/// A movie (no season/episode) or an episode to mark.
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WatchedTarget {
+    pub season: Option<i32>,
+    pub episode: Option<i32>,
+    pub video_id: Option<String>,
+}
+
+/// "Marcar como assistido" / "Desmarcar" for a movie, episodes or a whole season (`markWatched` /
+/// `unmarkWatched` of the original); synced with the account like the automatic marks.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn library_set_watched<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    state: State<'_, AppState>,
+    content_type: String,
+    id: String,
+    name: String,
+    poster: Option<String>,
+    release_info: Option<String>,
+    targets: Vec<WatchedTarget>,
+    watched: bool,
+) -> Result<usize, String> {
+    state.ensure_unlocked()?;
+    let profile = state.active_profile();
+    let marks: Vec<crate::services::simkl::Mark> = targets
+        .iter()
+        .map(|t| crate::services::simkl::Mark { content_type: content_type.clone(), id: id.clone(), season: t.season, episode: t.episode })
+        .collect();
+    let changed = if watched {
+        let now = library::now_ms();
+        let items = targets
+            .into_iter()
+            .map(|t| library::WatchedItem {
+                id: id.clone(),
+                content_type: content_type.clone(),
+                name: name.clone(),
+                poster: poster.clone(),
+                release_info: release_info.clone(),
+                season: t.season,
+                episode: t.episode,
+                video_id: t.video_id,
+                marked_at_epoch_ms: now,
+            })
+            .collect();
+        state.app_store.mark_watched(profile, items).map_err(|e| e.to_string())?
+    } else {
+        let keys: Vec<(String, Option<i32>, Option<i32>)> = targets.into_iter().map(|t| (id.clone(), t.season, t.episode)).collect();
+        state.app_store.unmark_watched(profile, &keys).map_err(|e| e.to_string())?
+    };
+    if changed > 0 {
+        use tauri::Emitter;
+        let _ = app.emit("library-changed", ());
+        state.request_sync();
+        crate::simkl::send_marks(&app, profile, marks, watched);
+    }
+    Ok(changed)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TitleProgress {
@@ -561,8 +780,10 @@ mod tests {
             subtitle_choice: Default::default(),
             next_up: Default::default(),
             torbox: nuvio_core::torbox::Torbox::new().unwrap(),
+            debrid_client: nuvio_core::debrid::Debrid::new().unwrap(),
             debrid: Default::default(),
             downloads: Default::default(),
+            parental: Default::default(),
         };
         let app = mock_builder()
             .manage(state)
@@ -705,4 +926,10 @@ mod tests {
         assert_eq!(call(&window, "library_continue_watching", json!({}))
             .unwrap()[0]["key"], "tt0200_s1e1");
     }
+}
+
+/// Content warnings of a title for the start of playback (Settings → Reprodução can turn them off).
+#[tauri::command]
+pub async fn parental_guide(state: State<'_, AppState>, id: String) -> Result<Vec<crate::services::parental::Warning>, String> {
+    crate::services::parental::guide(&state, id).await
 }

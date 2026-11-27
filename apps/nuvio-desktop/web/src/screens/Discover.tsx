@@ -1,10 +1,12 @@
-// Descobrir (port of the original's Discover, in its own tab): browse any catalog of the installed
-// addons by type, catalog and genre, as a poster grid that loads more as it scrolls.
+// Descobrir (the original's `SearchDiscoverContent`): shown in the Search page while nothing is
+// typed. Browse any catalog of the installed addons by type, catalog and genre, as a poster grid
+// that loads more as it scrolls.
 // - Catalogs: the original's `supportsDiscover` rule (no required search; a required genre needs
 //   its options), movies/series/anime first.
 // - Genre: "Todos" unless the catalog requires one (then its first option).
-// - Three groups only: Filmes, Séries and Anime. Anime = catalogs of type "anime" plus movie/series
-//   catalogs named after anime (e.g. "Anime - Popular"); other types (TV, collections…) are left out.
+// - Types: Filmes, Séries and Anime first (Anime = catalogs of type "anime" plus movie/series
+//   catalogs named after anime), then every other type the addons publish (their own types too),
+//   like the original's type dropdown. Catalogs show their addon, to tell them apart.
 // - The chosen catalog and genre are remembered (`DiscoverSelectionStorage`).
 // - Paging stops when the addon has no more pages or sends the same page again twice in a row (the
 //   original's duplicate-page guard). Pages come from the shared catalog page cache.
@@ -20,20 +22,31 @@ interface Props {
   onOpen(item: MetaPreview): void;
 }
 
+/** Catalog types the Search page never needs here (Live TV has its own tab). */
+const LEFT_OUT = new Set(["tv", "channel", "events"]);
+
 const SELECTION_KEY = "nuvio.discover.selection";
 
-type Group = "movie" | "series" | "anime";
-const GROUPS: { id: Group; label: string }[] = [
+type Group = string;
+const MAIN: { id: Group; label: string }[] = [
   { id: "movie", label: "Filmes" },
   { id: "series", label: "Séries" },
   { id: "anime", label: "Anime" },
 ];
 function groupOf(c: DiscoverCatalog): Group | null {
   const type = c.contentType.toLowerCase();
-  if (type === "anime" || /anime/i.test(c.name)) return "anime";
-  if (type === "movie") return "movie";
-  if (type === "series") return "series";
-  return null;
+  if (type === "anime" || ((type === "movie" || type === "series") && /anime/i.test(c.name))) return "anime";
+  if (LEFT_OUT.has(type)) return null;
+  return type;
+}
+/** The type chips: the main ones that have catalogs, then the addons' other types. */
+function groupsOf(list: DiscoverCatalog[]): { id: Group; label: string }[] {
+  const present = new Set(list.map(groupOf).filter((g): g is Group => g !== null));
+  const others = [...present].filter((g) => !MAIN.some((m) => m.id === g)).sort();
+  return [
+    ...MAIN.filter((m) => present.has(m.id)),
+    ...others.map((id) => ({ id, label: list.find((c) => groupOf(c) === id)?.typeLabel || id.charAt(0).toUpperCase() + id.slice(1) })),
+  ];
 }
 const MAX_DUPLICATE_PAGES = 2;
 
@@ -70,6 +83,7 @@ function genreFor(catalog: DiscoverCatalog, wanted: string | null | undefined): 
 }
 
 export function Discover({ onOpen }: Props) {
+  // (also used inside the Search page)
   const [catalogs, setCatalogs] = useState<DiscoverCatalog[] | null>(null);
   const [group, setGroup] = useState<Group>("movie");
   const [failed, setFailed] = useState<string | null>(null);
@@ -101,6 +115,7 @@ export function Discover({ onOpen }: Props) {
     };
   }, []);
 
+  const groups = catalogs ? groupsOf(catalogs) : [];
   const catalog = catalogs?.find((c) => c.key === key) ?? null;
   const ofGroup = catalogs?.filter((c) => groupOf(c) === group) ?? [];
   const shown = catalog && groupOf(catalog) === group ? catalog : null;
@@ -151,11 +166,11 @@ export function Discover({ onOpen }: Props) {
   return (
     <div className="discover" data-testid="discover">
       <header className="discover-header">
-        <h1>{t("Descobrir")}</h1>
+        <h2 className="discover-title">{t("Descobrir")}</h2>
         {catalogs && catalogs.length > 0 && (
           <div className="discover-filters">
             <div className="discover-types" role="tablist" aria-label={t("Tipo")}>
-              {GROUPS.map((g) => (
+              {groups.map((g) => (
                 <button
                   key={g.id}
                   role="tab"
@@ -174,7 +189,7 @@ export function Discover({ onOpen }: Props) {
               <select className="select pill-select" value={shown.key} onChange={(e) => pick(catalogs.find((c) => c.key === e.target.value))} data-testid="discover-catalog">
                 {ofGroup.map((c) => (
                   <option key={c.key} value={c.key}>
-                    {localizeCatalogTitle(c.name)}
+                    {new Set(ofGroup.map((x) => x.addonName)).size > 1 ? `${c.addonName} · ${localizeCatalogTitle(c.name)}` : localizeCatalogTitle(c.name)}
                   </option>
                 ))}
               </select>
@@ -208,7 +223,7 @@ export function Discover({ onOpen }: Props) {
 
       {catalogs && catalogs.length > 0 && ofGroup.length === 0 && (
         <div className="screen-message" data-testid="discover-empty-group">
-          {t(group === "anime" ? "Nenhum addon instalado tem catálogos de anime." : group === "series" ? "Nenhum addon instalado tem catálogos de séries." : "Nenhum addon instalado tem catálogos de filmes.")}
+          {t(group === "anime" ? "Nenhum addon instalado tem catálogos de anime." : group === "series" ? "Nenhum addon instalado tem catálogos de séries." : group === "movie" ? "Nenhum addon instalado tem catálogos de filmes." : "Nenhum título neste catálogo.")}
         </div>
       )}
 

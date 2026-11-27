@@ -17,12 +17,18 @@ mod manage;
 mod p2p;
 mod pip;
 mod selftest;
+mod sources;
 mod services;
 mod debrid;
 mod downloads;
 mod streams;
 mod watching;
 mod trailer;
+mod tmdb;
+mod discord;
+mod playlists;
+mod simkl;
+mod mdblist;
 mod updater;
 mod uitest;
 
@@ -74,8 +80,12 @@ pub struct AppState {
     /// Episode lists behind "next episode" in Continue watching.
     pub next_up: services::next_up::Lists,
     pub torbox: nuvio_core::torbox::Torbox,
+    /// Real-Debrid, AllDebrid, Premiumize and Debrid-Link (`debrid.rs`).
+    pub debrid_client: nuvio_core::debrid::Debrid,
     pub debrid: debrid::Debrid,
     pub downloads: downloads::Downloads,
+    /// Content warnings already asked (`services::parental`).
+    pub parental: services::parental::Guides,
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,7 +261,7 @@ fn download_play(app: AppHandle, state: tauri::State<'_, AppState>, id: String, 
 }
 
 #[allow(clippy::too_many_arguments)]
-fn play_url(
+pub(crate) fn play_url(
     app: &AppHandle,
     state: &AppState,
     url: String,
@@ -267,18 +277,34 @@ fn play_url(
     let profile = state.active_profile();
     let settings = state.app_store.profile_settings(profile).map(|s| s.player).unwrap_or_default();
     // Only movies and episodes (they carry `progress`) get the picture improvements.
-    *state.video.lock().expect("video lock") = match progress {
+    let mut video = match progress {
         Some(_) => services::playback::video_config(&settings),
         None => services::playback::video_config_unenhanced(&settings),
     };
+    // Settings → Áudio and → Buffer e cache.
+    let extras = state.app_store.profile_settings(profile).map(|s| s.playback).unwrap_or_default();
+    video.cache_mb = Some(extras.cache_mb as u32);
+    video.back_cache_mb = Some(extras.back_cache_mb as u32);
+    video.cache_dir = extras.disk_cache.then(|| state.app_store.dir().join("player-cache")).and_then(|dir| {
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir.display().to_string())
+    });
+    video.audio_gain_db = extras.audio_gain_db as f64;
+    video.downmix = extras.downmix;
+    *state.video.lock().expect("video lock") = video;
     if previous_finished == Some(true) {
         state.progress.mark_finished();
     }
     let source_url = url.clone();
+    let source_headers = headers.clone();
     let info = state.open(app, url, headers, start_seconds.unwrap_or(0.0))?;
+    // "Reutilizar último link": the link of this movie/episode (never a local P2P address).
+    if let (Some(item), false) = (&progress, torrent) {
+        sources::remember(state, item, &source_url, &source_headers, stream);
+    }
     let parent_id = progress.as_ref().map(|item| item.parent_meta_id.clone());
     if let Some(item) = &progress {
-        let playing = watching::Playing::new(info.session, item, stream, &source_url);
+        let playing = watching::Playing::new(info.session, item, stream, &source_url, &source_headers);
         *state.playing.lock().expect("playing lock") = Some(Arc::new(playing));
     }
     if torrent {
@@ -502,8 +528,10 @@ fn main() {
                 subtitle_choice: Mutex::new(None),
                 next_up: Default::default(),
                 torbox: nuvio_core::torbox::Torbox::new().expect("HTTP client"),
+                debrid_client: nuvio_core::debrid::Debrid::new().expect("HTTP client"),
                 debrid: Default::default(),
                 downloads: Default::default(),
+                parental: Default::default(),
             }
         })
         // Official Tauri 2 updater: public key from tauri.conf.json, endpoint set per build.
@@ -512,6 +540,12 @@ fn main() {
             player_open,
             streams_search,
             stream_play,
+            sources::last_link_play,
+            watching::player_subtitle_autosync,
+            api::parental_guide,
+            sources::last_link_has,
+            sources::stream_play_youtube,
+            sources::stream_open_external,
             player_command,
             player_video_rect,
             player_snapshot,
@@ -522,6 +556,10 @@ fn main() {
             debrid::torbox_remove_key,
             debrid::torbox_check,
             debrid::torbox_prepare,
+            debrid::debrid_status,
+            debrid::debrid_save_key,
+            debrid::debrid_remove_key,
+            debrid::debrid_set_preferred,
             downloads::download_start,
             downloads::downloads_list,
             downloads::download_pause,
@@ -558,6 +596,38 @@ fn main() {
             api::search_addon_set,
             api::discover_catalogs,
             api::meta_details,
+            tmdb::meta_enrich,
+            tmdb::ui_language_set,
+            tmdb::tmdb_status,
+            tmdb::tmdb_save_key,
+            tmdb::tmdb_remove_key,
+            tmdb::tmdb_entity,
+            tmdb::tmdb_entity_titles,
+            playlists::m3u_list,
+            api::plugins_list,
+            api::plugins_add,
+            api::plugins_refresh,
+            api::plugins_set_enabled,
+            api::plugins_set_scraper_enabled,
+            api::plugins_remove,
+            api::livetv_matches,
+            api::livetv_match_channels,
+            playlists::m3u_add,
+            playlists::m3u_remove,
+            discord::discord_enabled,
+            discord::discord_set_enabled,
+            discord::discord_presence,
+            simkl::simkl_status,
+            simkl::simkl_device_start,
+            simkl::simkl_device_poll,
+            simkl::simkl_device_cancel,
+            simkl::simkl_disconnect,
+            simkl::simkl_import,
+            mdblist::mdblist_status,
+            mdblist::mdblist_save_key,
+            mdblist::mdblist_remove_key,
+            mdblist::mdblist_open_key_page,
+            mdblist::mdblist_ratings,
             api::livetv_channels,
             api::livetv_favorites,
             api::livetv_toggle_favorite,
@@ -575,6 +645,9 @@ fn main() {
             api::library_history,
             api::library_remove_history,
             api::library_title_progress,
+            api::library_set_watched,
+            api::collections_edit,
+            api::collections_save,
             manage::addons_list,
             manage::addon_preview,
             manage::addon_install,
@@ -598,6 +671,7 @@ fn main() {
             account::profile_pin_set,
             account::profile_pin_clear,
             trailer::trailer_play,
+            trailer::trailer_play_localized,
             updater::update_status,
             updater::update_check,
             updater::update_install,
@@ -649,8 +723,11 @@ fn main() {
                 // Every saved position goes to the account, like the original.
                 signals.progress.notify_one();
             });
+            app.state::<AppState>().progress.set_scrobbler(simkl::scrobbler(app.handle().clone()));
+            discord::start(&app.state::<AppState>());
             if selftest.is_none() && uitest::requested().is_none() {
                 account::start_loop(app.handle().clone());
+                simkl::import_on_start(app.handle());
             }
             let hwnd = window.hwnd()?.0 as isize;
             *app.state::<AppState>().hwnd.lock().expect("hwnd lock") = hwnd;

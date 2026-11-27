@@ -1,3 +1,4 @@
+import { locale, type Lang } from "./i18n";
 // Generated from `AvailableLanguageOptions` of the original (PlayerLanguagePreferences.kt) with its
 // pt-BR names (composeResources/values-pt*).
 export const LANGUAGES: [code: string, name: string][] = [
@@ -86,11 +87,11 @@ export const LANGUAGES: [code: string, name: string][] = [
  * Intl.DisplayNames gives proper English/Arabic names natively (no extra dictionary), with the
  * Portuguese list as a fallback for old WebKit builds.
  */
-export function languageLabel(code: string, uiLang: "pt" | "en" | "ar"): string {
+export function languageLabel(code: string, uiLang: Lang): string {
   const portuguese = LANGUAGES.find(([c]) => c.toLowerCase() === code.toLowerCase())?.[1];
   if (uiLang === "pt" || !code) return portuguese ?? code;
   try {
-    const names = new Intl.DisplayNames([uiLang], { type: "language" });
+    const names = new Intl.DisplayNames([locale()], { type: "language" });
     return names.of(code) ?? portuguese ?? code;
   } catch {
     return portuguese ?? code;

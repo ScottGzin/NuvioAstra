@@ -55,6 +55,14 @@ pub struct VideoConfig {
     pub motion: Motion,
     pub enhancement: Enhancement,
     pub picture: Picture,
+    /// Settings → Buffer e cache: demuxer cache ahead / behind (MiB, `None` = the defaults) and
+    /// a folder for the cache on disk (`None` = memory only).
+    pub cache_mb: Option<u32>,
+    pub back_cache_mb: Option<u32>,
+    pub cache_dir: Option<String>,
+    /// Settings → Áudio: amplification in dB (0–10) and stereo downmix, from the start.
+    pub audio_gain_db: f64,
+    pub downmix: bool,
 }
 
 /// What to play.
@@ -284,6 +292,12 @@ pub enum PlayerCommand {
     SetSubtitleDelay { ms: i64 },
     /// ±60 000 ms. Not exposed by the original Windows player (Android only); added on request.
     SetAudioDelay { ms: i64 },
+    /// Amplification in dB (0 = none), as the original's "Amplificação" (up to +10 dB).
+    SetAudioGain { db: f64 },
+    /// Mixes multichannel audio down to stereo.
+    SetDownmix { stereo: bool },
+    /// One frame forward or back (while paused).
+    FrameStep { back: bool },
     ApplySubtitleStyle { style: SubtitleStyle },
     SetResizeMode { mode: ResizeMode },
     SetMotion { motion: Motion },
@@ -468,8 +482,18 @@ pub(crate) fn startup_options(video: &VideoConfig, unified_memory_gpu: bool, sha
         set("scale", "spline36");
         set("cscale", "spline36");
     }
-    set("demuxer-max-bytes", "150MiB");
-    set("demuxer-max-back-bytes", "50MiB");
+    set("demuxer-max-bytes", &format!("{}MiB", video.cache_mb.unwrap_or(150).clamp(16, 4096)));
+    set("demuxer-max-back-bytes", &format!("{}MiB", video.back_cache_mb.unwrap_or(50).clamp(8, 2048)));
+    if let Some(dir) = video.cache_dir.as_deref().filter(|d| !d.is_empty()) {
+        set("cache-on-disk", "yes");
+        set("demuxer-cache-dir", dir);
+    }
+    if video.downmix {
+        set("audio-channels", "stereo");
+    }
+    if video.audio_gain_db > 0.0 {
+        set("af", &format!("@gain:lavfi=[volume={:.1}dB]", video.audio_gain_db.clamp(0.0, 10.0)));
+    }
     set("demuxer-seekable-cache", "yes");
     set("stream-lavf-o", "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1,reconnect_on_http_error=%23%408,429,500,502,503,504,reconnect_delay_max=15");
     if let Some(dir) = shader_cache {
@@ -679,6 +703,18 @@ impl Player {
             PlayerCommand::SetAudioDelay { ms } => {
                 mpv.set_property_f64("audio-delay", (*ms).clamp(-AUDIO_DELAY_LIMIT_MS, AUDIO_DELAY_LIMIT_MS) as f64 / 1000.0)
             }
+            PlayerCommand::SetAudioGain { db } => {
+                let db = db.clamp(0.0, 10.0);
+                if db <= 0.0 {
+                    // Removing a filter that is not there is not an error for the user.
+                    let _ = mpv.command(&["af", "remove", "@gain"]);
+                    Ok(())
+                } else {
+                    mpv.command(&["af", "add", &format!("@gain:lavfi=[volume={db:.1}dB]")])
+                }
+            }
+            PlayerCommand::SetDownmix { stereo } => mpv.set_property("audio-channels", if *stereo { "stereo" } else { "auto-safe" }),
+            PlayerCommand::FrameStep { back } => mpv.command(&[if *back { "frame-back-step" } else { "frame-step" }]),
             PlayerCommand::ApplySubtitleStyle { style } => self.apply_subtitle_style(style),
             PlayerCommand::SetResizeMode { mode } => {
                 *self.resize_mode.lock().expect("mode lock") = *mode;

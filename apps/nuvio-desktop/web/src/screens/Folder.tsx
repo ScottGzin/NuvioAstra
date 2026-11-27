@@ -122,7 +122,7 @@ export function Folder({ collection, folder, onOpen, onBack }: Props) {
       {sources.length === 0 ? (
         <div className="screen-message">
           {folder.skippedSources > 0
-            ? t("Os catálogos desta pasta vêm do TMDB, do Trakt ou de addons que não estão instalados neste perfil, e ainda não podem ser exibidos no Nuvio Astra.")
+            ? t("Os catálogos desta pasta vêm do TMDB (precisa da chave em Configurações → Integrações → TMDB), do Trakt ou de addons que não estão instalados neste perfil.")
             : t("Esta pasta não tem catálogos.")}
         </div>
       ) : rowsMode ? (

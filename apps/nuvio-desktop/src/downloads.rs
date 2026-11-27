@@ -38,7 +38,17 @@ const SETTINGS_DOC: &str = "downloads-settings";
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Source {
     Http { url: String, headers: Vec<(String, String)> },
-    Torbox { magnet: String, filename: Option<String>, file_idx: Option<i64>, season: Option<i64>, episode: Option<i64> },
+    /// A debrid service's link. `service`: which one (absent in downloads saved before the other
+    /// services existed: TorBox).
+    Torbox {
+        magnet: String,
+        filename: Option<String>,
+        file_idx: Option<i64>,
+        season: Option<i64>,
+        episode: Option<i64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        service: Option<String>,
+    },
     P2p { info_hash: String, file_index: Option<i32>, filename: Option<String>, trackers: Vec<String> },
 }
 
@@ -564,10 +574,13 @@ async fn open_source(app: &AppHandle, id: &str, source: &Source) -> Result<(Stri
     let state = app.state::<AppState>();
     match source {
         Source::Http { url, headers } => Ok((url.clone(), headers.clone(), vec![name_from_url(url)], HTTP_CONNECTIONS)),
-        Source::Torbox { magnet, filename, file_idx, season, episode } => {
-            let key = crate::debrid::active_key(&state).ok_or("Configure o TorBox em Configurações → TorBox para continuar este download.")?;
+        Source::Torbox { magnet, filename, file_idx, season, episode, service } => {
+            let service = service.as_deref().and_then(crate::debrid::Service::parse).unwrap_or(crate::debrid::Service::Torbox);
+            let key = crate::debrid::connected_key(&state, service).ok_or("Conecte o serviço debrid deste download em Configurações → Debrid para continuar.")?;
             let wanted = Wanted { magnet: magnet.clone(), filename: filename.clone(), file_idx: *file_idx, season: *season, episode: *episode };
-            let resolved = state.torbox.resolve(&key, &wanted).await.map_err(|e| e.to_string())?;
+            let resolved = crate::debrid::resolve_with(&state, service, &key, &wanted).await.map_err(|e| match e {
+                crate::debrid::Failure::NotThere(t) | crate::debrid::Failure::Error(t) => t,
+            })?;
             let hints = vec![resolved.filename.clone(), filename.clone(), name_from_url(&resolved.url)];
             Ok((resolved.url, Vec::new(), hints, HTTP_CONNECTIONS))
         }
@@ -766,7 +779,7 @@ pub async fn download_start(app: AppHandle, state: State<'_, AppState>, request:
     state.ensure_unlocked()?;
     state.downloads.load(&state);
     let stream = state.streams.get(&request.key).ok_or("unknown stream (search again)")?;
-    let torbox_ready = crate::debrid::ready(&state, &request.key);
+    let debrid_service = crate::debrid::ready_service(&state, &request.key);
     let source = match crate::streams::kind_of(&stream) {
         crate::streams::StreamKind::Direct => {
             let url = stream.playable_direct_url().ok_or("Esta fonte não tem link.")?.to_string();
@@ -777,10 +790,16 @@ pub async fn download_start(app: AppHandle, state: State<'_, AppState>, request:
             Source::Http { url, headers: stream.playback_request_headers() }
         }
         kind @ (crate::streams::StreamKind::Torrent | crate::streams::StreamKind::Debrid) => {
-            let via_torbox = torbox_ready;
-            match (via_torbox, nuvio_core::torbox::wanted(&stream, request.season, request.episode)) {
-                (true, Some(w)) => Source::Torbox { magnet: w.magnet, filename: w.filename, file_idx: w.file_idx, season: w.season, episode: w.episode },
-                _ if kind == crate::streams::StreamKind::Debrid => return Err("Configure o TorBox para baixar esta fonte.".into()),
+            match (debrid_service, nuvio_core::torbox::wanted(&stream, request.season, request.episode)) {
+                (Some(service), Some(w)) => Source::Torbox {
+                    magnet: w.magnet,
+                    filename: w.filename,
+                    file_idx: w.file_idx,
+                    season: w.season,
+                    episode: w.episode,
+                    service: (service != crate::debrid::Service::Torbox).then(|| service.id().to_string()),
+                },
+                _ if kind == crate::streams::StreamKind::Debrid => return Err("Conecte o serviço debrid desta fonte em Configurações → Debrid para baixá-la.".into()),
                 _ => {
                     let p2p = state.app_store.profile_settings(state.active_profile()).map_err(|e| e.to_string())?.p2p;
                     if !p2p.enabled {

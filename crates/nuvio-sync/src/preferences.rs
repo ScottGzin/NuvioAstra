@@ -403,8 +403,14 @@ mod tests {
         let changed = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "pt-BR" } }, "player_settings": {} } });
         assert_eq!(merge(&local, Some(&local), &changed).app_language.as_deref(), Some("pt-BR"));
 
+        // Every language of the original arrives (German here), `device` too.
+        let german = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "de" } } } });
+        assert_eq!(from_blob(&german).app_language.as_deref(), Some("de"));
+        let device = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "device" } } } });
+        assert_eq!(from_blob(&device).app_language.as_deref(), Some("device"));
+
         // No language chosen here is never sent, and an unknown code is ignored.
-        let unknown = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "de" } } } });
+        let unknown = json!({ "features": { "theme_settings": { "selected_app_language": { "type": "string", "value": "xx" } } } });
         assert_eq!(from_blob(&unknown).app_language, None);
         assert!(!differs(&PlayerSettings::default(), &local) || local.app_language.is_some());
         assert!(payload(&unknown, &PlayerSettings::default()).unwrap()["features"].get("player_settings").is_some_and(|p| p == &json!({})));

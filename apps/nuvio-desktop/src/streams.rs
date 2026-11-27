@@ -78,13 +78,14 @@ const KEPT_SEARCHES: usize = 6;
 
 #[derive(Default)]
 pub struct StreamCache {
-    searches: Mutex<VecDeque<HashMap<String, StreamItem>>>,
+    /// (search id, its streams), newest first.
+    searches: Mutex<VecDeque<(u64, HashMap<String, StreamItem>)>>,
     last_search: AtomicU64,
 }
 
 impl StreamCache {
     pub fn get(&self, key: &str) -> Option<StreamItem> {
-        self.searches.lock().expect("stream cache lock").iter().find_map(|search| search.get(key).cloned())
+        self.searches.lock().expect("stream cache lock").iter().find_map(|(_, search)| search.get(key).cloned())
     }
     /// Drops the keys of the last search (profile switch: no stream of another profile is playable).
     pub fn clear(&self) {
@@ -93,10 +94,17 @@ impl StreamCache {
     fn next_search(&self) -> u64 {
         self.last_search.fetch_add(1, Ordering::Relaxed) + 1
     }
-    fn keep(&self, items: HashMap<String, StreamItem>) {
+    fn begin(&self, search: u64) {
         let mut searches = self.searches.lock().expect("stream cache lock");
-        searches.push_front(items);
+        searches.push_front((search, HashMap::new()));
         searches.truncate(KEPT_SEARCHES);
+    }
+    /// The streams of one addon's answer: playable at once, before the other addons answer.
+    fn add(&self, search: u64, items: HashMap<String, StreamItem>) {
+        let mut searches = self.searches.lock().expect("stream cache lock");
+        if let Some((_, map)) = searches.iter_mut().find(|(id, _)| *id == search) {
+            map.extend(items);
+        }
     }
 }
 
@@ -171,8 +179,23 @@ pub async fn search_with(
     id: &str,
     fresh: bool,
 ) -> Vec<StreamGroup> {
+    search_with_parts(client, cache, manifests, content_type, id, fresh, &|_, _| {}).await
+}
+
+/// `search_with`, calling `on_part(position, group)` as soon as each addon answers (its streams
+/// are playable from then on). The result keeps the addons' order.
+pub async fn search_with_parts(
+    client: &AddonClient,
+    cache: &StreamCache,
+    manifests: &[AddonManifest],
+    content_type: &str,
+    id: &str,
+    fresh: bool,
+    on_part: &(dyn Fn(usize, &StreamGroup) + Sync),
+) -> Vec<StreamGroup> {
     let targets: Vec<&AddonManifest> = manifests.iter().filter(|m| m.supports_resource("stream", content_type, id)).collect();
-    let requests = targets.iter().map(|manifest| {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(usize, String, Result<Vec<StreamItem>, String>)>();
+    for (index, manifest) in targets.iter().enumerate() {
         let client = client.clone();
         let url = build_resource_url(&manifest.transport_url, "stream", content_type, id, None);
         let (name, addon_id, logo) = (
@@ -180,56 +203,93 @@ pub async fn search_with(
             format!("addon:{}:{}", manifest.id, manifest.transport_url),
             manifest.logo_url.clone(),
         );
-        async move {
+        let tx = tx.clone();
+        tauri::async_runtime::spawn(async move {
             let result = client
                 .get_text(&url, fresh)
                 .await
                 .map_err(|e| e.to_string())
                 .and_then(|payload| parse_streams(&payload, &name, &addon_id, logo.as_deref()).map_err(|e| e.to_string()));
-            (name, result)
-        }
-    });
-    let mut responses = join_all(requests).await;
+            let _ = tx.send((index, name, result));
+        });
+    }
+    let mut total = targets.len();
     // UI test phase `p2p` only: one freely licensed torrent (see `uitest::p2p_test_streams`).
     if let Some((name, payload)) = crate::uitest::p2p_test_streams() {
-        responses.push((name.to_string(), parse_streams(payload, name, "uitest:p2p", None).map_err(|e| e.to_string())));
+        let _ = tx.send((total, name.to_string(), parse_streams(payload, name, "uitest:p2p", None).map_err(|e| e.to_string())));
+        total += 1;
     }
+    drop(tx);
 
     let search = cache.next_search();
+    cache.begin(search);
+    let mut slots: Vec<Option<StreamGroup>> = vec![None; total];
+    while let Some((index, addon_name, result)) = rx.recv().await {
+        let (group, items) = group_of(search, index, addon_name, result);
+        cache.add(search, items);
+        on_part(index, &group);
+        if let Some(slot) = slots.get_mut(index) {
+            *slot = Some(group);
+        }
+    }
+    slots.into_iter().flatten().collect()
+}
+
+/// A search that is not an addon request (the scraper plugins of a title): its groups are added
+/// one by one as they arrive, all under one search id.
+pub fn open_search(cache: &StreamCache) -> u64 {
+    let search = cache.next_search();
+    cache.begin(search);
+    search
+}
+
+pub fn add_group(cache: &StreamCache, search: u64, index: usize, name: String, items: Vec<StreamItem>) -> StreamGroup {
+    let (group, map) = group_of(search, index, name, Ok(items));
+    cache.add(search, map);
+    group
+}
+
+/// Streams that do not come from an addon request (an M3U channel): kept like one addon's answer,
+/// so they play through the same path.
+pub fn register(cache: &StreamCache, group_name: String, payload: &str, addon_id: &str) -> Vec<StreamGroup> {
+    let result = parse_streams(payload, &group_name, addon_id, None).map_err(|e| e.to_string());
+    let search = cache.next_search();
+    cache.begin(search);
+    let (group, items) = group_of(search, 0, group_name, result);
+    cache.add(search, items);
+    vec![group]
+}
+
+fn group_of(search: u64, group_index: usize, addon_name: String, result: Result<Vec<StreamItem>, String>) -> (StreamGroup, HashMap<String, StreamItem>) {
     let mut cached = HashMap::new();
-    let groups = responses
-        .into_iter()
-        .enumerate()
-        .map(|(group_index, (addon_name, result))| match result {
-            Err(error) => StreamGroup { addon_name, streams: vec![], error: Some(error) },
-            Ok(streams) => StreamGroup {
-                addon_name,
-                error: None,
-                streams: streams
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, stream)| {
-                        let key = format!("{search}:{group_index}:{i}");
-                        let entry = StreamEntry {
-                            key: key.clone(),
-                            name: stream.name.clone(),
-                            description: stream.description.clone(),
-                            kind: kind_of(&stream),
-                            header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
-                            not_web_ready: stream.behavior_hints.not_web_ready,
-                            torbox: nuvio_core::torbox::is_torbox_client_stream(&stream),
-                            filename: stream.behavior_hints.filename.clone(),
-                            size: stream.behavior_hints.video_size,
-                        };
-                        cached.insert(key, stream);
-                        entry
-                    })
-                    .collect(),
-            },
-        })
-        .collect();
-    cache.keep(cached);
-    groups
+    let group = match result {
+        Err(error) => StreamGroup { addon_name, streams: vec![], error: Some(error) },
+        Ok(streams) => StreamGroup {
+            addon_name,
+            error: None,
+            streams: streams
+                .into_iter()
+                .enumerate()
+                .map(|(i, stream)| {
+                    let key = format!("{search}:{group_index}:{i}");
+                    let entry = StreamEntry {
+                        key: key.clone(),
+                        name: stream.name.clone(),
+                        description: stream.description.clone(),
+                        kind: kind_of(&stream),
+                        header_names: stream.playback_request_headers().into_iter().map(|(k, _)| k).collect(),
+                        not_web_ready: stream.behavior_hints.not_web_ready,
+                        torbox: nuvio_core::torbox::is_torbox_client_stream(&stream),
+                        filename: stream.behavior_hints.filename.clone(),
+                        size: stream.behavior_hints.video_size,
+                    };
+                    cached.insert(key, stream);
+                    entry
+                })
+                .collect(),
+        },
+    };
+    (group, cached)
 }
 
 #[cfg(test)]

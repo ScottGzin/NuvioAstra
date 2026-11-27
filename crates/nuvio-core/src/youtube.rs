@@ -408,6 +408,187 @@ impl Extractor {
     }
 }
 
+// ---------------------------------------------------------------- trailer in a chosen language
+// The addons' trailers carry no language. With a language chosen in Settings, "Assistir trailer"
+// searches YouTube (only when clicked) for the title plus the usual words of that language's
+// trailers ("trailer dublado", "bande annonce vf"…) and takes the best short result whose title
+// names the movie.
+
+/// Interface value → (search words, YouTube `hl`, `gl`).
+pub fn trailer_language(code: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    Some(match code {
+        "pt-BR" => ("trailer dublado", "pt-BR", "BR"),
+        "pt-PT" => ("trailer português", "pt-PT", "PT"),
+        "en" => ("official trailer", "en", "US"),
+        "es" => ("tráiler español castellano", "es", "ES"),
+        "es-419" => ("tráiler doblado latino", "es-419", "MX"),
+        "fr" => ("bande annonce vf", "fr", "FR"),
+        "de" => ("trailer deutsch", "de", "DE"),
+        "it" => ("trailer italiano", "it", "IT"),
+        "ja" => ("予告", "ja", "JP"),
+        _ => return None,
+    })
+}
+
+/// Words that mark a video in the language (dubbed) and words that mark another version.
+fn language_marks(code: &str) -> (&'static [&'static str], &'static [&'static str]) {
+    match code {
+        "pt-BR" => (&["dublado", "dublada", "dub"], &["legendado", "legendada", "subtitulado", "doblado", "vostfr"]),
+        "pt-PT" => (&["portugues", "dobrado", "legendado"], &["dublado", "doblado"]),
+        "en" => (&["official"], &["dublado", "legendado", "doblado", "subtitulado", "vf", "deutsch", "italiano"]),
+        "es" => (&["espanol", "castellano"], &["latino", "subtitulado", "subtitulada", "dublado"]),
+        "es-419" => (&["doblado", "latino", "latinoamerica"], &["subtitulado", "subtitulada", "castellano", "dublado"]),
+        "fr" => (&["vf", "francais"], &["vostfr", "vost"]),
+        "de" => (&["deutsch", "german"], &["omu"]),
+        "it" => (&["italiano"], &["sottotitolato"]),
+        "ja" => (&["予告", "吹替"], &[]),
+        _ => (&[], &[]),
+    }
+}
+
+fn fold(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            c if c.is_alphanumeric() => c,
+            _ => ' ',
+        })
+        .collect()
+}
+
+fn has_word(folded_title: &str, word: &str) -> bool {
+    let word = fold(word);
+    let word = word.trim();
+    if word.chars().any(|c| !c.is_ascii()) {
+        return folded_title.contains(word);
+    }
+    folded_title.split_whitespace().any(|w| w == word)
+}
+
+/// A JSON string value that starts right after `"key":"` in `text`, decoded.
+fn json_string_at(text: &str, from: usize) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut i = from;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            b'"' => return serde_json::from_str(&format!("\"{}\"", &text[from..i])).ok(),
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// One search result: id, title and length in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchHit {
+    pub id: String,
+    pub title: String,
+    pub seconds: Option<u32>,
+}
+
+/// Video results of a YouTube results page (`ytInitialData`), in order.
+pub fn parse_search(page: &str) -> Vec<SearchHit> {
+    const MARK: &str = "\"videoRenderer\":{\"videoId\":\"";
+    const TITLE: &str = "\"title\":{\"runs\":[{\"text\":\"";
+    let mut out: Vec<SearchHit> = Vec::new();
+    let mut at = 0;
+    while let Some(found) = page[at..].find(MARK) {
+        let start = at + found + MARK.len();
+        let id: String = page[start..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+        let end = page[start..].find(MARK).map_or(page.len(), |n| start + n);
+        let block = &page[start..end.min(start + 6000)];
+        let title = block.find(TITLE).and_then(|n| json_string_at(block, n + TITLE.len())).unwrap_or_default();
+        let seconds = block.find("\"lengthText\":").and_then(|n| {
+            let rest = &block[n..];
+            let k = rest.find("\"simpleText\":\"")? + 14;
+            let value = json_string_at(rest, k)?;
+            value.split(':').try_fold(0u32, |acc, part| part.trim().parse::<u32>().ok().map(|v| acc * 60 + v))
+        });
+        if id.len() == 11 && !out.iter().any(|h| h.id == id) {
+            out.push(SearchHit { id, title, seconds });
+        }
+        at = start;
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    out
+}
+
+/// The best hit: a short trailer or teaser (≤ 6 min), in the language (dubbed words count,
+/// subtitled versions count against), of this title (its name or the year help; another year
+/// means another movie of the series).
+pub fn best_trailer(hits: &[SearchHit], name: &str, year: Option<&str>, language: &str) -> Option<String> {
+    let name = fold(name);
+    let tokens: Vec<&str> = name.split_whitespace().filter(|t| t.len() >= 3).collect();
+    let (good, bad) = language_marks(language);
+    hits.iter()
+        .take(10)
+        .enumerate()
+        .filter(|(_, h)| h.seconds.is_none_or(|s| (20..=360).contains(&s)))
+        .filter_map(|(i, h)| {
+            let title = fold(&h.title);
+            let trailer = ["trailer", "teaser", "trailers", "bande", "annonce", "trailer", "予告"].iter().any(|w| has_word(&title, w) || h.title.contains(w))
+                || title.contains("trailer");
+            if !trailer {
+                return None;
+            }
+            let mut score: i32 = 10;
+            score += 30 * good.iter().filter(|w| has_word(&title, w) || h.title.contains(*w)).count().min(2) as i32;
+            score -= 40 * bad.iter().filter(|w| has_word(&title, w)).count().min(1) as i32;
+            if name.trim().len() > 1 && title.contains(name.trim()) {
+                score += 20;
+            }
+            let shared = tokens.iter().filter(|t| has_word(&title, t)).count();
+            score += (10 * shared / tokens.len().max(1)) as i32;
+            let years: Vec<&str> = title.split_whitespace().filter(|w| w.len() == 4 && (w.starts_with("19") || w.starts_with("20")) && w.chars().all(|c| c.is_ascii_digit())).collect();
+            if let Some(year) = year {
+                if years.contains(&year) {
+                    score += 20;
+                } else if !years.is_empty() {
+                    score -= 30;
+                }
+            }
+            Some((score * 10 - i as i32 * 3, h.id.clone()))
+        })
+        .max_by_key(|(score, _)| *score)
+        .filter(|(score, _)| *score > 0)
+        .map(|(_, id)| id)
+}
+
+impl Extractor {
+    /// The trailer of `name` (`year` helps) in the given interface language, from YouTube's search.
+    pub async fn search_trailer(&self, name: &str, year: Option<&str>, language: &str) -> Result<Option<String>, String> {
+        let Some((words, hl, gl)) = trailer_language(language) else { return Ok(None) };
+        let query = format!("{name} {} {words}", year.unwrap_or_default()).split_whitespace().collect::<Vec<_>>().join(" ");
+        let page = self
+            .text(
+                self.http
+                    .get("https://www.youtube.com/results")
+                    .query(&[("search_query", query.as_str()), ("sp", "EgIQAQ=="), ("hl", hl), ("gl", gl)])
+                    .header("accept-language", format!("{hl},{};q=0.8", hl.split('-').next().unwrap_or(hl)))
+                    .header("user-agent", BROWSER_UA),
+            )
+            .await
+            .map_err(|e| format!("YouTube indisponível ({e})"))?;
+        let hits = parse_search(&page);
+        if std::env::var_os("NUVIO_TRAILER_DEBUG").is_some() {
+            for h in &hits {
+                eprintln!("  {} {:?} {}", h.id, h.seconds, h.title);
+            }
+        }
+        Ok(best_trailer(&hits, name, year, language))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,5 +619,41 @@ mod tests {
         sort(&mut v);
         assert_eq!((v[0].height, v[0].has_n), (720, false), "original audio first, then score, then no n");
         assert_eq!(quality_label(Some("1080p60")), Some(1080));
+    }
+
+    #[test]
+    fn localized_trailer_search_results() {
+        let page = r#"x"videoRenderer":{"videoId":"AAAAAAAAAAA","title":{"runs":[{"text":"Matrix (1999) - Trailer Dublado \u0026 HD"}]},"lengthText":{"accessibility":{},"simpleText":"2:10"}}
+            "videoRenderer":{"videoId":"BBBBBBBBBBB","title":{"runs":[{"text":"Matrix explicado em 40 minutos"}]},"lengthText":{"simpleText":"41:02"}}
+            "videoRenderer":{"videoId":"CCCCCCCCCCC","title":{"runs":[{"text":"Outro filme trailer"}]},"lengthText":{"simpleText":"1:59"}}"#;
+        let hits = parse_search(page);
+        assert_eq!(hits.len(), 3);
+        assert_eq!(hits[0].title, "Matrix (1999) - Trailer Dublado & HD");
+        assert_eq!(hits[0].seconds, Some(130));
+        assert_eq!(best_trailer(&hits, "The Matrix", Some("1999"), "pt-BR"), Some("AAAAAAAAAAA".into()));
+        assert_eq!(best_trailer(&hits[1..2], "The Matrix", Some("1999"), "pt-BR"), None, "too long");
+        let dub = |title: &str, id: &str| SearchHit { id: id.into(), title: title.into(), seconds: Some(140) };
+        let pick = best_trailer(
+            &[dub("Matrix (The Matrix 1999) - Trailer Legendado", "L"), dub("Matrix | Trailer dublado | 1999", "D"), dub("The Matrix (1999) Official Trailer", "E")],
+            "The Matrix",
+            Some("1999"),
+            "pt-BR",
+        );
+        assert_eq!(pick.as_deref(), Some("D"), "dubbed wins over subtitled and English");
+        let sequel = best_trailer(&[dub("DUNA 3 Tráiler Español Latino (2026)", "3"), dub("Duna: Parte Dos | Tráiler Oficial 2 | Doblado", "2")], "Dune: Part Two", Some("2024"), "es-419");
+        assert_eq!(sequel.as_deref(), Some("2"), "another year is another movie");
+        assert!(trailer_language("pt-BR").is_some() && trailer_language("original").is_none());
+    }
+
+    /// Real YouTube search (network): `cargo test -p nuvio-core live_trailer_search -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_trailer_search() {
+        let yt = Extractor::new().unwrap();
+        for (name, year, lang) in [("The Matrix", "1999", "pt-BR"), ("Inception", "2010", "pt-BR"), ("Dune: Part Two", "2024", "es-419"), ("Oppenheimer", "2023", "fr")] {
+            let id = yt.search_trailer(name, Some(year), lang).await.unwrap();
+            println!("{name} [{lang}] -> {id:?}");
+            assert!(id.is_some(), "{name}");
+        }
     }
 }

@@ -29,6 +29,29 @@ const SEEK_JUMP_MS: i64 = 3_000;
 /// sends progress to the account, `flushWatchProgress`), false for the periodic save.
 type Notifier = Arc<Mutex<Option<Box<dyn Fn(bool) + Send>>>>;
 
+/// What a tracking service (Simkl) is told about the playback (`TrackingScrobbleAction`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrobbleAction {
+    Start,
+    Pause,
+    Stop,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScrobbleEvent {
+    pub action: ScrobbleAction,
+    pub profile: i64,
+    pub item: PlaybackItem,
+    pub percent: f64,
+}
+
+type Scrobbler = Mutex<Option<Box<dyn Fn(ScrobbleEvent) + Send>>>;
+
+/// Clips shorter than this are placeholders (`isShortPlaceholderDuration`), never scrobbled.
+const SCROBBLE_MIN_DURATION_MS: i64 = 60_000;
+/// From this percentage a stop marks the title as watched on the tracker.
+const SCROBBLE_WATCHED_PERCENT: f64 = 80.0;
+
 struct Tracked {
     session: u64,
     profile: i64,
@@ -43,9 +66,19 @@ struct Tracked {
     observed_at_ms: i64,
     last_save_ms: Option<i64>,
     seek_at_ms: Option<i64>,
+    /// A start was sent and not yet paused/stopped.
+    scrobbling: bool,
+    /// The stop was sent (once per session).
+    scrobble_stopped: bool,
+    /// A seek settled: the running scrobble is sent again with the new progress.
+    scrobble_seek: bool,
 }
 
 impl Tracked {
+    fn percent(&self) -> f64 {
+        if self.duration_ms <= 0 { 0.0 } else { (self.position_ms as f64 / self.duration_ms as f64 * 100.0).clamp(0.0, 100.0) }
+    }
+
     /// Completed whatever the percentage.
     fn completed(&self) -> bool {
         let window = END_WINDOW_MS.max((self.duration_ms as f64 * END_WINDOW_FRACTION) as i64);
@@ -65,6 +98,7 @@ pub struct ProgressTracker {
     current: Mutex<Option<Tracked>>,
     writer: Mutex<Sender<Job>>,
     notifier: Notifier,
+    scrobbler: Scrobbler,
 }
 
 impl ProgressTracker {
@@ -82,12 +116,23 @@ impl ProgressTracker {
                 }
             })
             .expect("progress writer thread");
-        Self { dir, current: Mutex::new(None), writer: Mutex::new(tx), notifier }
+        Self { dir, current: Mutex::new(None), writer: Mutex::new(tx), notifier, scrobbler: Mutex::new(None) }
     }
 
     /// Called after a save (e.g. to tell the UI that Continue watching changed).
     pub fn set_notifier(&self, notify: impl Fn(bool) + Send + 'static) {
         *self.notifier.lock().expect("notifier lock") = Some(Box::new(notify));
+    }
+
+    /// Told about starts, pauses and stops of tracked titles (tracking services). Must not block.
+    pub fn set_scrobbler(&self, scrobble: impl Fn(ScrobbleEvent) + Send + 'static) {
+        *self.scrobbler.lock().expect("scrobbler lock") = Some(Box::new(scrobble));
+    }
+
+    fn send_scrobble(&self, event: Option<ScrobbleEvent>) {
+        if let (Some(event), Some(send)) = (event, self.scrobbler.lock().expect("scrobbler lock").as_ref()) {
+            send(event);
+        }
     }
 
     /// Starts tracking a session opened for `item`.
@@ -105,6 +150,9 @@ impl ProgressTracker {
             observed_at_ms: library::now_ms(),
             last_save_ms: None,
             seek_at_ms: None,
+            scrobbling: false,
+            scrobble_stopped: false,
+            scrobble_seek: false,
         });
     }
 
@@ -121,6 +169,37 @@ impl ProgressTracker {
         if let Some(job) = job {
             let _ = self.writer.lock().expect("writer lock").send(job);
         }
+        let event = self.scrobble_step(snapshot);
+        self.send_scrobble(event);
+    }
+
+    /// `emitTrackingScrobbleStart/Pause/Stop`: start once playing, pause on pause, start again on
+    /// resume and after a seek, stop at the end of the file.
+    fn scrobble_step(&self, s: &PlayerSnapshot) -> Option<ScrobbleEvent> {
+        let mut guard = self.current.lock().expect("tracker lock");
+        let t = guard.as_mut().filter(|t| t.session == s.session)?;
+        if t.duration_ms < SCROBBLE_MIN_DURATION_MS || t.scrobble_stopped {
+            return None;
+        }
+        let event = |t: &Tracked, action: ScrobbleAction, percent: f64| Some(ScrobbleEvent { action, profile: t.profile, item: t.item.clone(), percent });
+        if s.ended {
+            t.scrobble_stopped = true;
+            t.scrobbling = false;
+            let percent = if t.completed() { 100.0 } else { t.percent() };
+            return event(t, ScrobbleAction::Stop, percent);
+        }
+        if s.paused {
+            if t.scrobbling {
+                t.scrobbling = false;
+                return event(t, ScrobbleAction::Pause, t.percent());
+            }
+            return None;
+        }
+        if s.loaded && t.position_ms > 0 && (!t.scrobbling || std::mem::take(&mut t.scrobble_seek)) {
+            t.scrobbling = true;
+            return event(t, ScrobbleAction::Start, t.percent());
+        }
+        None
     }
 
     fn decide(&self, s: &PlayerSnapshot, now: i64) -> Option<Job> {
@@ -160,6 +239,7 @@ impl ProgressTracker {
         if let Some(at) = t.seek_at_ms {
             if now - at >= SEEK_SAVE_DEBOUNCE_MS {
                 t.seek_at_ms = None;
+                t.scrobble_seek = t.scrobbling;
                 save = true;
                 flush = true;
             }
@@ -187,6 +267,12 @@ impl ProgressTracker {
                 t.duration_ms = (s.duration * 1000.0) as i64;
             }
             t.ended |= s.ended;
+        }
+        // The stop of a title still running (or seen far enough to count as watched).
+        if !t.scrobble_stopped && t.duration_ms >= SCROBBLE_MIN_DURATION_MS && (t.scrobbling || t.percent() >= SCROBBLE_WATCHED_PERCENT || t.completed()) {
+            let percent = if t.completed() { 100.0 } else { t.percent() };
+            t.scrobble_stopped = true;
+            self.send_scrobble(Some(ScrobbleEvent { action: ScrobbleAction::Stop, profile: t.profile, item: t.item.clone(), percent }));
         }
         let Some(entry) = t.item.entry(t.position_ms, t.duration_ms, t.completed(), library::now_ms(), t.watched_percent) else { return };
         if let Ok(store) = AppStore::open(&self.dir) {
@@ -270,5 +356,56 @@ mod tests {
         // Nothing tracked any more: a second close does nothing.
         tracker.finish(Some(&snapshot(3, 2000.0, 6000.0, false, false)));
         assert_eq!(store.progress(2).unwrap()[0].last_position_ms, 1_234_500);
+    }
+
+    #[test]
+    fn scrobbles_start_pause_seek_and_stop() {
+        let dir = std::env::temp_dir().join(format!("nuvio-progress-scrobble-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let tracker = ProgressTracker::new(dir.clone());
+        let seen = Arc::new(Mutex::new(Vec::<(ScrobbleAction, i64)>::new()));
+        let log = seen.clone();
+        tracker.set_scrobbler(move |e| log.lock().unwrap().push((e.action, e.percent.round() as i64)));
+        tracker.start(9, 1, movie(), 90);
+        let mut now = 0;
+        let mut step = |pos: f64, paused: bool, ended: bool| {
+            now += 250;
+            let s = snapshot(9, pos, 1000.0, paused, ended);
+            let _ = tracker.decide(&s, now);
+            let e = tracker.scrobble_step(&s);
+            tracker.send_scrobble(e);
+        };
+        step(10.0, false, false);
+        step(10.3, false, false);
+        step(10.5, true, false);
+        step(10.5, true, false);
+        step(10.6, false, false);
+        step(500.0, false, false); // seek
+        for i in 0..4 {
+            step(500.0 + i as f64 * 0.25, false, false);
+        }
+        step(1000.0, false, true);
+        step(1000.0, false, true);
+        tracker.finish(None);
+        let got = seen.lock().unwrap().clone();
+        assert_eq!(got, vec![(ScrobbleAction::Start, 1), (ScrobbleAction::Pause, 1), (ScrobbleAction::Start, 1), (ScrobbleAction::Start, 50), (ScrobbleAction::Stop, 100)]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn closing_far_enough_still_stops() {
+        let dir = std::env::temp_dir().join(format!("nuvio-progress-scrobble2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let tracker = ProgressTracker::new(dir.clone());
+        let seen = Arc::new(Mutex::new(Vec::<(ScrobbleAction, i64)>::new()));
+        let log = seen.clone();
+        tracker.set_scrobbler(move |e| log.lock().unwrap().push((e.action, e.percent.round() as i64)));
+        tracker.start(3, 1, movie(), 90);
+        let s = snapshot(3, 850.0, 1000.0, false, false);
+        let _ = tracker.decide(&s, 250);
+        tracker.send_scrobble(tracker.scrobble_step(&s));
+        tracker.finish(Some(&snapshot(3, 860.0, 1000.0, false, false)));
+        assert_eq!(seen.lock().unwrap().clone(), vec![(ScrobbleAction::Start, 85), (ScrobbleAction::Stop, 86)]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

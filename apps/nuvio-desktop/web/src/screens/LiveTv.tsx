@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, dataEpoch, errorText, onDataEpoch } from "../api";
 import { AddonPicker } from "../components/AddonPicker";
 import { EpgGuide } from "../components/EpgGuide";
+import { M3uDialog } from "../components/M3uDialog";
+import { MatchesPanel } from "../components/MatchesPanel";
 import { usePlayer } from "../player/PlayerContext";
 import { PlayerControls } from "../player/PlayerControls";
 import { PlayerSurface } from "../player/PlayerSurface";
@@ -16,6 +18,7 @@ import { message } from "../rustErrors";
 
 const ALL = "__all__";
 const FAVORITES = "__favorites__";
+const MATCHES = "__matches__";
 
 // Chosen channel addons, remembered between visits: `null` = all of them (including addons that
 // appear later), otherwise exactly the checked ones (an empty list shows no channel).
@@ -58,6 +61,7 @@ export function LiveTv() {
   const [resolving, setResolving] = useState(false);
   const [channelError, setChannelError] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
+  const [m3u, setM3u] = useState(false);
   const request = useRef(0);
 
   useEffect(() => {
@@ -103,7 +107,7 @@ export function LiveTv() {
   const favoriteCount = useMemo(() => pool.filter((c) => favoriteSet.has(c.key)).length, [pool, favoriteSet]);
   useEffect(() => {
     // The chosen category is not offered by the chosen addons: back to t("Todos").
-    if (category !== ALL && category !== FAVORITES && !categories.some(([n]) => n === category)) setCategory(ALL);
+    if (category !== ALL && category !== FAVORITES && category !== MATCHES && !categories.some(([n]) => n === category)) setCategory(ALL);
   }, [categories, category]);
 
   const visible = useMemo(() => {
@@ -174,6 +178,16 @@ export function LiveTv() {
     }
   };
 
+  /** A playlist was added or removed: the channel list is read again (addons are not asked). */
+  const playlistsChanged = () => {
+    const epoch = dataEpoch();
+    api.liveTvChannels().then((l) => {
+      if (epoch !== dataEpoch()) return;
+      channelsCache = l;
+      setList(l);
+    }, () => {});
+  };
+
   const categoryTitle = category === ALL ? t("Todos os canais") : category === FAVORITES ? t("Favoritos") : category;
 
   const goFullscreen = async () => {
@@ -185,6 +199,7 @@ export function LiveTv() {
 
   return (
     <div className="livetv">
+      {m3u && <M3uDialog onClose={() => setM3u(false)} onChanged={playlistsChanged} />}
       <header className="livetv-header">
         <div className="search-bar livetv-search">
           <input type="search" placeholder={t("Buscar canal ou categoria")} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t("Buscar canal")} />
@@ -201,6 +216,12 @@ export function LiveTv() {
               <path d="M20 11a8 8 0 0 0-14.6-4.5L4 8" /><path d="M4 3v5h5" /><path d="M4 13a8 8 0 0 0 14.6 4.5L20 16" /><path d="M20 21v-5h-5" />
             </svg>
           </button>
+          <button className="livetv-m3u" onClick={() => setM3u(true)} title={t("Adicionar ou remover listas M3U")} data-testid="m3u-open">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 6h11" /><path d="M4 12h11" /><path d="M4 18h7" /><path d="M18 15v6" /><path d="M15 18h6" />
+            </svg>
+            <span>{t("Listas M3U")}</span>
+          </button>
         </div>
       </header>
 
@@ -211,6 +232,9 @@ export function LiveTv() {
         <button className={`cat-item ${category === FAVORITES ? "active" : ""}`} onClick={() => setCategory(FAVORITES)}>
           <span className="cat-name">{t("★ Favoritos")}</span> <span className="count">{favoriteCount}</span>
         </button>
+        <button className={`cat-item ${category === MATCHES ? "active" : ""}`} onClick={() => setCategory(MATCHES)} data-testid="matches-category">
+          <span className="cat-name">{t("⚽ Jogos de hoje")}</span>
+        </button>
         <div className="cat-divider" aria-hidden />
         {categories.map(([name, count]) => (
           <button key={name} className={`cat-item ${category === name ? "active" : ""}`} onClick={() => setCategory(name)} title={name}>
@@ -219,6 +243,11 @@ export function LiveTv() {
         ))}
       </nav>
 
+      {category === MATCHES ? (
+        <div className="channel-list">
+          <MatchesPanel channels={list?.channels ?? []} onTune={(c) => void tune(c)} />
+        </div>
+      ) : (
       <div className="channel-list" role="list">
         <div className="channel-list-title">
           <span>{categoryTitle}</span>
@@ -255,6 +284,7 @@ export function LiveTv() {
         ))}
         {list && list.failedCatalogs > 0 && <div className="muted small pad">{list.failedCatalogs} {t("catálogo(s) de TV não responderam.")}</div>}
       </div>
+      )}
 
       <aside className="livetv-preview">
         <PlayerSurface active={embedded} playback={player.session} className="preview-hole">

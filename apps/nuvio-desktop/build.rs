@@ -9,6 +9,10 @@
 //! `NUVIO_UPDATE_REPOSITORY` (`owner/repo`, same sources) selects the GitHub releases the built app
 //! follows for automatic updates; without it the build has updates off.
 //!
+//! `NUVIO_SIMKL_CLIENT_ID` (same sources) is the Nuvio Astra app registered at Simkl (AUTH V2,
+//! "TV, devices & command line": a public id, no secret), as `SIMKL_CLIENT_ID` of the original:
+//! with it the user only clicks "Conectar". Without it the build has no Simkl.
+//!
 //! `local.properties` is looked up in this repository's root (`Nuvio Astra` repository layout) and
 //! one folder above it (development tree next to the original app).
 
@@ -18,7 +22,7 @@ fn main() {
     for props in &candidates {
         println!("cargo:rerun-if-changed={}", props.display());
     }
-    for key in ["NUVIO_SUPABASE_URL", "NUVIO_SUPABASE_ANON_KEY", "NUVIO_SUPABASE_FALLBACK_URL", "NUVIO_UPDATE_REPOSITORY"] {
+    for key in ["NUVIO_SUPABASE_URL", "NUVIO_SUPABASE_ANON_KEY", "NUVIO_SUPABASE_FALLBACK_URL", "NUVIO_UPDATE_REPOSITORY", "NUVIO_SIMKL_CLIENT_ID", "NUVIO_DISCORD_CLIENT_ID"] {
         println!("cargo:rerun-if-env-changed={key}");
     }
     let file = candidates.iter().find_map(|p| std::fs::read_to_string(p).ok()).unwrap_or_default();
@@ -50,6 +54,21 @@ fn main() {
             panic!("NUVIO_UPDATE_REPOSITORY must be `owner/repo`");
         }
         println!("cargo:rustc-env=NUVIO_UPDATE_REPOSITORY={repository}");
+    }
+    // Discord Rich Presence: the original's public application id unless another one is given.
+    let discord = value("NUVIO_DISCORD_CLIENT_ID");
+    if !discord.is_empty() {
+        if !discord.chars().all(|c| c.is_ascii_digit()) {
+            panic!("NUVIO_DISCORD_CLIENT_ID must be a Discord Application ID (digits)");
+        }
+        println!("cargo:rustc-env=NUVIO_DISCORD_CLIENT_ID={discord}");
+    }
+    let simkl = value("NUVIO_SIMKL_CLIENT_ID");
+    if !simkl.is_empty() {
+        if simkl.len() < 16 || !simkl.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+            panic!("NUVIO_SIMKL_CLIENT_ID must be the Client ID of a Simkl app");
+        }
+        println!("cargo:rustc-env=NUVIO_SIMKL_CLIENT_ID={simkl}");
     }
     tauri_build::build()
 }

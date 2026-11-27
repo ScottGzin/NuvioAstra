@@ -111,6 +111,8 @@ pub(crate) enum Change<'a> {
     FavoriteRemoved(&'a str),
     Progress { key: &'a str, completed: Option<WatchedItem> },
     HistoryRemoved { progress: Option<&'a str>, watched: Vec<WatchedItem> },
+    /// Marked / unmarked by hand (`markWatched` / `unmarkWatched`), with the progress entries removed.
+    Watched { marked: Vec<WatchedItem>, unmarked: Vec<WatchedItem>, progress_removed: Vec<String> },
     Addons,
     Profiles,
     ProfileDeleted(i64),
@@ -166,6 +168,21 @@ impl AppStore {
                                 p.progress_deletes.insert(key.to_string(), rev);
                             }
                             for w in watched {
+                                p.watched_upserts.remove(&w.key());
+                                let r = WatchedRef { content_id: w.id.clone(), content_type: w.content_type.clone(), season: w.season, episode: w.episode };
+                                p.watched_deletes.insert(w.key(), (rev, r));
+                            }
+                        }
+                        Change::Watched { marked, unmarked, progress_removed } => {
+                            for key in progress_removed {
+                                p.progress_dirty.remove(&key);
+                                p.progress_deletes.insert(key, rev);
+                            }
+                            for w in marked {
+                                p.watched_deletes.remove(&w.key());
+                                p.watched_upserts.insert(w.key(), rev);
+                            }
+                            for w in unmarked {
                                 p.watched_upserts.remove(&w.key());
                                 let r = WatchedRef { content_id: w.id.clone(), content_type: w.content_type.clone(), season: w.season, episode: w.episode };
                                 p.watched_deletes.insert(w.key(), (rev, r));

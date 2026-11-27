@@ -101,7 +101,8 @@ export function rustError(raw: string): string | null {
   for (const rule of RULES) {
     const match = raw.match(rule.pattern);
     if (!match) continue;
-    return rule[lang].replace(/\$(\d)/g, (_, index: string) => match[Number(index)] ?? "");
+    const text = lang === "ar" ? rule.ar : rule.en;
+    return text.replace(/\$(\d)/g, (_, index: string) => match[Number(index)] ?? "");
   }
   return null;
 }

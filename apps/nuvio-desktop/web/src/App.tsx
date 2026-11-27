@@ -10,6 +10,8 @@ import { Welcome } from "./screens/Welcome";
 import { startAppLanguage } from "./appLanguage";
 import { startCardStyle } from "./cardStyle";
 import { useToasts } from "./toast";
+import { HoverPreview } from "./components/HoverPreview";
+import { ResumePrompt, WhoIsWatching, chooserOnLaunch } from "./components/LaunchScreens";
 import { PinDialog } from "./components/PinDialog";
 import { ProfileMenu, ProfilesDialog } from "./components/ProfileMenu";
 import { Sidebar, type Tab } from "./components/Sidebar";
@@ -18,14 +20,15 @@ import { FullPlayer } from "./player/FullPlayer";
 import { usePlayer } from "./player/PlayerContext";
 import { Details } from "./screens/Details";
 import { Folder } from "./screens/Folder";
+import { TmdbEntity } from "./screens/TmdbEntity";
+import { DiscordPresenceSync } from "./components/DiscordPresence";
 import { Home } from "./screens/Home";
 import { Library } from "./screens/Library";
 import { resumeTarget } from "./library";
 import { LiveTv } from "./screens/LiveTv";
 import { Search } from "./screens/Search";
-import { Discover } from "./screens/Discover";
 import { Settings } from "./screens/Settings";
-import { metaRef, type Bootstrap, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView } from "./types";
+import { metaRef, type Bootstrap, type CollectionView, type FolderView, type HistoryEntry, type MetaPreview, type MetaRef, type ProfilesView, type TmdbEntityKind } from "./types";
 import { t } from "./i18n";
 
 
@@ -38,7 +41,13 @@ export function App() {
   const [boot, setBoot] = useState<Bootstrap | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("home");
-  const [details, setDetails] = useState<MetaRef | null>(null);
+  /** Pages over the tabs: a title's details, and from it other titles or a person's/studio's page
+   *  (TMDB); "Voltar" returns to the one below. */
+  const [stack, setStack] = useState<Overlay[]>([]);
+  const top = stack.length > 0 ? stack[stack.length - 1] : null;
+  const details = top?.kind === "details" ? top.ref : null;
+  const setDetails = useCallback((ref: MetaRef | null) => setStack(ref ? [{ kind: "details", ref }] : []), []);
+  const back = useCallback(() => setStack((s) => s.slice(0, -1)), []);
   /** Collection folder opened from Home (stays under the details of a title opened from it). */
   const [folder, setFolder] = useState<{ collection: CollectionView; folder: FolderView } | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
@@ -157,6 +166,19 @@ export function App() {
     }
     setOpenError(null);
     setDetails(ref);
+  }, [setDetails]);
+  /** Another title opened from a details or TMDB page: on top of it. */
+  const push = useCallback((item: MetaPreview) => {
+    const ref = metaRef(item);
+    if (typeof ref === "string") {
+      setOpenError(t("Não foi possível abrir “{name}”: {error}.", { name: item.name, error: ref }));
+      return;
+    }
+    setOpenError(null);
+    setStack((s) => [...s.slice(-15), { kind: "details", ref }]);
+  }, []);
+  const pushEntity = useCallback((kind: TmdbEntityKind, id: number, name: string) => {
+    setStack((s) => [...s.slice(-15), { kind: "entity", entity: { kind, id, name } }]);
   }, []);
 
   // Continue watching / history: the title's details with that movie/episode selected and its
@@ -164,13 +186,15 @@ export function App() {
   const resume = useCallback((entry: HistoryEntry) => {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title, resume: resumeTarget(entry) });
-  }, []);
+  }, [setDetails]);
   const openEntry = useCallback((entry: HistoryEntry) => {
     setOpenError(null);
     setDetails({ contentType: entry.metaType, id: entry.metaId, name: entry.title });
-  }, []);
+  }, [setDetails]);
 
   const toasts = useToasts();
+  // "Quem está assistindo?" once per launch, with more than one profile.
+  const [chooser, setChooser] = useState(chooserOnLaunch);
   const full = player.session?.view === "full";
   const profile = profiles?.profiles.find((p) => p.index === profiles.active) ?? null;
   const dataKey = `${profileEpoch}-${addonsEpoch}`;
@@ -183,6 +207,24 @@ export function App() {
       <div className="gate-page">
         <UpdateBanner automatic={appMode === "app"} />
         {welcome === "open" ? <Welcome onDone={endWelcome} /> : <LockScreen view={profiles!} onOpen={openFromLock} />}
+      </div>
+    );
+  }
+
+  if (chooser && profiles && profiles.profiles.length > 1) {
+    return (
+      <div className="gate-page">
+        <WhoIsWatching
+          view={profiles}
+          onPick={(index) => {
+            setChooser(false);
+            if (index !== profiles.active) void switchProfile(index);
+          }}
+          onManage={() => {
+            setChooser(false);
+            setManage(true);
+          }}
+        />
       </div>
     );
   }
@@ -212,27 +254,34 @@ export function App() {
           {boot && boot.addonsFailed > 0 && (
             <div className="banner">{t("{failed} de {total} addon(s) não responderam; os demais estão disponíveis.", { failed: boot.addonsFailed, total: boot.addonsEnabled })}</div>
           )}
-          <div className="screen" hidden={details !== null || folder !== null || tab !== "home"}>
-            <Home key={dataKey} onOpen={open} onResume={resume} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
+          <div className="screen" hidden={top !== null || folder !== null || tab !== "home"}>
+            <Home key={dataKey} onOpen={open} onResume={resume} onOpenEntry={openEntry} onOpenFolder={(collection, f) => setFolder({ collection, folder: f })} />
           </div>
           {folder && tab === "home" && (
-            <div className="screen" hidden={details !== null}>
+            <div className="screen" hidden={top !== null}>
               <Folder key={`${dataKey}/${folder.collection.id}/${folder.folder.id}`} collection={folder.collection} folder={folder.folder} onOpen={open} onBack={() => setFolder(null)} />
             </div>
           )}
-          {tab === "search" && <div className="screen" hidden={details !== null}><Search key={dataKey} onOpen={open} /></div>}
-          {tab === "discover" && <div className="screen" hidden={details !== null}><Discover key={dataKey} onOpen={open} /></div>}
+          {tab === "search" && <div className="screen" hidden={top !== null}><Search key={dataKey} onOpen={open} /></div>}
           {tab === "tv" && <div className="screen screen-fill"><LiveTv key={dataKey} /></div>}
-          {tab === "library" && <div className="screen" hidden={details !== null}><Library key={profileEpoch} onOpen={open} onResume={resume} onOpenEntry={openEntry} /></div>}
-          {tab === "settings" && <div className="screen screen-fill" hidden={details !== null}><Settings key={profileEpoch} /></div>}
+          {tab === "library" && <div className="screen" hidden={top !== null}><Library key={profileEpoch} onOpen={open} onResume={resume} onOpenEntry={openEntry} /></div>}
+          {tab === "settings" && <div className="screen screen-fill" hidden={top !== null}><Settings key={profileEpoch} /></div>}
+          {top?.kind === "entity" && (
+            <div className="screen">
+              <TmdbEntity key={`${stack.length}/${top.entity.kind}/${top.entity.id}`} {...top.entity} onBack={back} onOpen={push} />
+            </div>
+          )}
           {details && (
             <div className="screen">
-              <Details key={`${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={() => setDetails(null)} />
+              <Details key={`${stack.length}/${details.contentType}/${details.id}/${details.resume?.videoId ?? ""}`} item={details} onBack={back} onOpen={push} onEntity={pushEntity} />
             </div>
           )}
         </main>
       </div>
       {full && <FullPlayer />}
+      <HoverPreview />
+      <DiscordPresenceSync tab={tab} viewing={details?.name ?? (top?.kind === "entity" ? top.entity.name : null)} />
+      {!full && <ResumePrompt onResume={resume} />}
       {toasts.length > 0 && (
         <div className="toasts" role="status" aria-live="polite">
           {toasts.map((t) => <div key={t.id} className={`toast ${t.error ? "error" : ""}`}>{t.text}</div>)}
@@ -241,3 +290,5 @@ export function App() {
     </>
   );
 }
+
+type Overlay = { kind: "details"; ref: MetaRef } | { kind: "entity"; entity: { kind: TmdbEntityKind; id: number; name: string } };

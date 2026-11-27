@@ -1,5 +1,5 @@
 # Copy to `local.properties` (never committed) for LOCAL builds. Release builds made by GitHub Actions
-# read the same names from the repository's Secrets and Variables instead (see GITHUB_PUBLISH.md).
+# read the same names from the repository's Secrets and Variables instead.
 # Every value is optional: without them the app builds and runs, only the related feature is off.
 
 # Nuvio account server (Supabase). Only a PUBLIC key is accepted (role "anon" or "sb_publishable_");

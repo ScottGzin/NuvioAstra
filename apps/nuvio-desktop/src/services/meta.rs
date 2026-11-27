@@ -15,6 +15,10 @@ pub struct Details {
     pub addon_name: String,
     /// The YouTube trailer "Assistir trailer" plays (`selectHeroTrailer`), if the title has one.
     pub trailer: Option<MetaTrailer>,
+    /// What TMDB adds (More like this, collection, studios…), once completed from TMDB.
+    pub extras: Option<super::tmdb::Extras>,
+    /// Already completed from TMDB (or built by it).
+    pub enriched: bool,
 }
 
 pub async fn details(client: &AddonClient, manifests: &[AddonManifest], content_type: &str, id: &str) -> Result<Details, String> {
@@ -26,7 +30,7 @@ pub async fn details(client: &AddonClient, manifests: &[AddonManifest], content_
                 Ok(meta) => {
                     let seasons = meta.seasons();
                     let trailer = select_trailer(&meta.trailers).cloned();
-                    return Ok(Details { meta, seasons, addon_name: manifest.name.clone(), trailer });
+                    return Ok(Details { meta, seasons, addon_name: manifest.name.clone(), trailer, extras: None, enriched: false });
                 }
                 Err(e) => last_error = e.to_string(),
             },

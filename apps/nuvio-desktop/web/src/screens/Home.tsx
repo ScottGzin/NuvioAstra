@@ -19,6 +19,8 @@ import { addonLabel, localizeCatalogTitle, t } from "../i18n";
 interface Props {
   onOpen(item: MetaPreview): void;
   onResume(entry: HistoryEntry): void;
+  /** Continue watching set to open the details page. */
+  onOpenEntry?(entry: HistoryEntry): void;
   onOpenFolder(collection: CollectionView, folder: FolderView): void;
 }
 
@@ -45,7 +47,7 @@ function shuffle<T>(list: T[]): T[] {
 /** Titles per Home row; the "+" at the end opens the whole catalog. */
 const ROW_LIMIT = 20;
 
-export function Home({ onOpen, onResume, onOpenFolder }: Props) {
+export function Home({ onOpen, onResume, onOpenEntry, onOpenFolder }: Props) {
   const [view, setView] = useState<HomeView | null>(viewCache);
   const [error, setError] = useState<string | null>(null);
   const [hero, setHero] = useState<MetaPreview[] | null>(heroCache);
@@ -133,7 +135,7 @@ export function Home({ onOpen, onResume, onOpenFolder }: Props) {
   return (
     <div className="home">
       {view?.heroEnabled && view.heroSources.length > 0 && (hero ? <HeroCarousel items={hero} onOpen={onOpen} /> : <div className="hero hero-placeholder" aria-hidden />)}
-      <ContinueWatchingRow onResume={onResume} />
+      <ContinueWatchingRow onResume={onResume} onOpenEntry={onOpenEntry} />
       {rows.map((row) =>
         row.collection ? (
           <CollectionRow key={`${generation}:${row.key}`} title={row.title} collection={row.collection} onOpenFolder={onOpenFolder} />

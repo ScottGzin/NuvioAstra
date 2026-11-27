@@ -5,8 +5,12 @@
 //! client with in-flight de-duplication ([`client`]), plus addon streams ([`stream`]). It is
 //! UI-free so the Tauri desktop app (Windows x64) uses it directly through typed commands.
 
+pub mod autosync;
+pub mod autosync_dp;
 pub mod catalog;
+pub mod embedded_subs;
 pub mod client;
+pub mod debrid;
 pub mod error;
 pub mod manifest;
 pub mod meta;
