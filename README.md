@@ -23,7 +23,7 @@
 |---|---|
 | ![Home screen](docs/screenshots/home.jpg) | ![Details of a title](docs/screenshots/details.jpg) |
 | **Search** | **Live TV** |
-| ![Search](docs/screenshots/search.jpg) | ![Live TV with program guide](docs/screenshots/abacanais.png) |
+| ![Search](docs/screenshots/search.jpg) | ![Live TV with program guide](docs/screenshots/tvaovivo.jpg) |
 
 <sub>The catalogs, posters and information shown come from the addons the user installs. No content ships with the app.</sub>
 
